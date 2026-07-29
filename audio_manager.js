@@ -4,6 +4,8 @@ export class AudioManager {
         this.buffers = {};
         this.isUnlocked = false;
         this.pendingBGMName = null;
+        this.musicVolumeLevel = 2;
+        this.sfxVolumeLevel = 5;
         
         this.assetPaths = {
             'laser_fire': 'assets/audio/laser_fire.mp3',
@@ -16,6 +18,33 @@ export class AudioManager {
             'nes_music_intro': 'assets/audio/nes_music_intro.mp3', // Authentic retro NES-style intro/title theme
             'nes_music_epic': 'assets/audio/epic-sci-fi-nes-theme.mp3' // Serious, epic space-themed intro theme
         };
+    }
+
+    clampVolumeLevel(level) {
+        const numericLevel = Number(level);
+        if (!Number.isFinite(numericLevel)) return 0;
+        return Math.max(0, Math.min(5, Math.round(numericLevel)));
+    }
+
+    volumeLevelToGain(level) {
+        return this.clampVolumeLevel(level) / 5;
+    }
+
+    setMusicVolumeLevel(level) {
+        this.musicVolumeLevel = this.clampVolumeLevel(level);
+        if (this.bgm) this.bgm.volume = this.volumeLevelToGain(this.musicVolumeLevel);
+    }
+
+    setSfxVolumeLevel(level) {
+        this.sfxVolumeLevel = this.clampVolumeLevel(level);
+    }
+
+    getMusicVolumeLevel() {
+        return this.musicVolumeLevel;
+    }
+
+    getSfxVolumeLevel() {
+        return this.sfxVolumeLevel;
     }
 
     async unlock() {
@@ -80,7 +109,7 @@ export class AudioManager {
 
         const bgm = new Audio(this.assetPaths[name]);
         bgm.loop = true;
-        bgm.volume = 0.4;
+        bgm.volume = this.volumeLevelToGain(this.musicVolumeLevel);
         this.bgm = bgm;
 
         try {
@@ -112,7 +141,7 @@ export class AudioManager {
         if (name === 'explosion') volume = 0.5;
         if (name === 'thrust') volume = 0.05; // Very subtle for recurring thruster noise
         
-        gainNode.gain.value = Math.max(0, Math.min(1, volume * volumeScale));
+        gainNode.gain.value = Math.max(0, Math.min(1, volume * volumeScale * this.volumeLevelToGain(this.sfxVolumeLevel)));
         
         source.connect(gainNode);
         gainNode.connect(this.ctx.destination);
@@ -152,7 +181,7 @@ export class AudioManager {
         if (name === 'laser_fire') volume = 0.15;
         if (name === 'explosion') volume = 0.5;
         if (name === 'thrust') volume = 0.05;
-        gainNode.gain.value = volume;
+        gainNode.gain.value = volume * this.volumeLevelToGain(this.sfxVolumeLevel);
 
         const panner = this.ctx.createStereoPanner();
         panner.pan.value = avgPan;
