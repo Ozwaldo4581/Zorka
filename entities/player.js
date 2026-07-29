@@ -20,8 +20,10 @@ export class Player {
         this.isNPC = false;
         this.wasdMode = 'RELATIVE';
         this.aimLockActive = false;
+        this.aimLockType = null;
         this.lockedAimX = null;
         this.lockedAimY = null;
+        this.lockedAimTarget = null;
         
         // Power-up System
         this.powerUpCapsules = 0;
@@ -85,8 +87,39 @@ export class Player {
 
     clearAimLock() {
         this.aimLockActive = false;
+        this.aimLockType = null;
         this.lockedAimX = null;
         this.lockedAimY = null;
+        this.lockedAimTarget = null;
+    }
+
+    beginAimLock(worldX, worldY, target = null) {
+        this.aimLockActive = true;
+        this.aimLockType = target ? 'ENTITY' : 'POINT';
+        this.lockedAimTarget = target;
+        this.lockedAimX = target ? target.x : wrapCoordinate(worldX, WORLD_WIDTH);
+        this.lockedAimY = target ? target.y : wrapCoordinate(worldY, WORLD_HEIGHT);
+    }
+
+    resolveAimLock(asteroids) {
+        if (!this.aimLockActive || this.aimLockType !== 'ENTITY') return;
+
+        const target = this.lockedAimTarget;
+        const targetIsValid = target
+            && asteroids.includes(target)
+            && !target.isDestroyed
+            && Number.isFinite(target.x)
+            && Number.isFinite(target.y);
+
+        if (targetIsValid) {
+            this.lockedAimX = target.x;
+            this.lockedAimY = target.y;
+            return;
+        }
+
+        // Preserve the last valid position rather than retargeting or returning to live aim.
+        this.aimLockType = 'POINT';
+        this.lockedAimTarget = null;
     }
 
     setEvolutionForm(form) {
@@ -209,17 +242,11 @@ export class Player {
                 // Fallback to Keyboard/Mouse
                 // If split screen, anchor is at 1/4 width (center of left half)
                 const anchorX = isSplitScreen ? (DESIGN_WIDTH / 4) : (DESIGN_WIDTH / 2);
-                const viewport = { x: 0, y: 0, width: isSplitScreen ? DESIGN_WIDTH / 2 : DESIGN_WIDTH, height: DESIGN_HEIGHT };
 
-                if (mouse.m2Pressed && mouse.m2Held) {
-                    const target = camera.screenToWorld(mouse.x, mouse.y, viewport);
-                    this.lockedAimX = wrapCoordinate(target.x, WORLD_WIDTH);
-                    this.lockedAimY = wrapCoordinate(target.y, WORLD_HEIGHT);
-                    this.aimLockActive = true;
-                }
                 if (mouse.m2Released || !mouse.m2Held) this.clearAimLock();
 
                 if (this.aimLockActive) {
+                    this.resolveAimLock(asteroids);
                     const delta = nearestWrappedDisplacement(this.x, this.y, this.lockedAimX, this.lockedAimY);
                     if (Math.hypot(delta.x, delta.y) > 2) {
                         this.rotation = Math.atan2(delta.y, delta.x) + Math.PI / 2;
@@ -232,6 +259,7 @@ export class Player {
                         this.rotation = Math.atan2(dy, dx) + Math.PI / 2;
                     }
                 }
+                if (mouse.m2Released || !mouse.m2Held) this.clearAimLock();
 
                 if (this.wasdMode === 'ABSOLUTE' && !this.aimLockActive) {
                     if (keys['KeyW']) fy -= this.thrust;

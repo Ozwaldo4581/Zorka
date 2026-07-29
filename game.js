@@ -5,12 +5,13 @@ import { Projectile } from './entities/projectile.js';
 import { Camera } from './camera.js';
 import { HUD } from './ui/hud.js';
 import { AudioManager } from './audio_manager.js';
-import { checkCollision } from './physics.js';
+import { checkCollision, nearestWrappedDisplacement } from './physics.js';
 
 export const DESIGN_WIDTH = 1920;
 export const DESIGN_HEIGHT = 1080;
 export const WORLD_WIDTH = DESIGN_WIDTH * 9;
 export const WORLD_HEIGHT = DESIGN_HEIGHT * 9;
+const ASTEROID_TARGET_SELECTION_PADDING = 0;
 
 export class Game {
     constructor(containerId) {
@@ -1225,6 +1226,43 @@ export class Game {
         return camera;
     }
 
+    findAsteroidTargetAt(worldX, worldY) {
+        let bestTarget = null;
+        let bestDistanceSquared = Infinity;
+        let bestIndex = Infinity;
+
+        this.asteroids.forEach((asteroid, index) => {
+            if (!asteroid || asteroid.isDestroyed || !Number.isFinite(asteroid.x)
+                || !Number.isFinite(asteroid.y) || !Number.isFinite(asteroid.radius)) return;
+
+            const delta = nearestWrappedDisplacement(worldX, worldY, asteroid.x, asteroid.y);
+            const distanceSquared = delta.x * delta.x + delta.y * delta.y;
+            const selectionRadius = asteroid.radius + ASTEROID_TARGET_SELECTION_PADDING;
+            if (distanceSquared > selectionRadius * selectionRadius) return;
+
+            // Collection index is the deterministic tie-breaker because asteroid
+            // objects persist in this local collection until destruction/removal.
+            if (distanceSquared < bestDistanceSquared || (distanceSquared === bestDistanceSquared && index < bestIndex)) {
+                bestTarget = asteroid;
+                bestDistanceSquared = distanceSquared;
+                bestIndex = index;
+            }
+        });
+
+        return bestTarget;
+    }
+
+    beginPlayerOneAimLock(player, camera) {
+        const viewport = {
+            x: 0,
+            y: 0,
+            width: this.gameState === 'PVP' ? DESIGN_WIDTH / 2 : DESIGN_WIDTH,
+            height: DESIGN_HEIGHT
+        };
+        const worldPoint = camera.screenToWorld(this.mouse.x, this.mouse.y, viewport);
+        player.beginAimLock(worldPoint.x, worldPoint.y, this.findAsteroidTargetAt(worldPoint.x, worldPoint.y));
+    }
+
     resize() {
         const screenWidth = window.innerWidth;
         const screenHeight = window.innerHeight;
@@ -1554,6 +1592,9 @@ export class Game {
                 if (player.id <= 2 && !player.isNPC) {
                     const oldPrestigeLevel = player.prestigeLevel;
                     const inputCamera = player.id === 1 ? this.getPlayerOneCamera() : this.camera;
+                    if (player.id === 1 && this.mouse.m2Pressed && this.mouse.m2Held) {
+                        this.beginPlayerOneAimLock(player, inputCamera);
+                    }
                     player.update(dt, this.keys, this.mouse, inputCamera, this.players, this.asteroids, gamepads, this.gameState === 'PVP', this.transformationKills, this.hazards);
                     if (player.id === 1) {
                         this.mouse.m2Pressed = false;
