@@ -802,7 +802,7 @@ export class Player {
             ctx.strokeStyle = this.color; // Match ship color
             ctx.lineWidth = 3;
             ctx.beginPath();
-            const shieldRadius = this.radius * 1.5;
+            const shieldRadius = this.radius * 2.2;
             ctx.arc(0, 0, shieldRadius, 0, Math.PI * 2);
             ctx.stroke();
 
@@ -828,7 +828,7 @@ export class Player {
 
         ctx.rotate(this.rotation);
         
-        let size = this.radius * 3.5;
+        let size = this.radius * 3.6;
         if (this.isMartian) size *= 2;
         else if (this.isDimensionX) size *= 1.6; // 4 * 0.4 = 1.6
         else if (this.isEventHorizon) size *= (1 + (this.highTide || 0) * 0.02);
