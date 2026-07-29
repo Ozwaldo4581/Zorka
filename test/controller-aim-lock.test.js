@@ -4,6 +4,38 @@ import assert from 'node:assert/strict';
 import { Game, WORLD_WIDTH } from '../game.js';
 import { Player } from '../entities/player.js';
 
+test('keyboard thrust is always ship-relative regardless of aim lock', () => {
+    const updateWithTarget = (target = null) => {
+        const player = new Player(100, 100);
+        player.controlMode = 'KEYBOARD';
+        player.rotation = Math.PI / 2;
+        if (target) player.beginAimLock(target);
+
+        player.update(
+            0.1,
+            { KeyW: true },
+            { x: 960, y: 540, m2Held: Boolean(target), m2Released: false, clicked: false },
+            null,
+            [],
+            [],
+            [],
+            false,
+            20,
+            [],
+            () => true
+        );
+        return player;
+    };
+
+    const unlocked = updateWithTarget();
+    const locked = updateWithTarget({ x: 200, y: 100, radius: 10 });
+
+    assert.ok(unlocked.vx > 0);
+    assert.ok(Math.abs(unlocked.vy) < 1e-10);
+    assert.ok(locked.vx > 0);
+    assert.ok(Math.abs(locked.vy) < 1e-10);
+});
+
 test('LT hysteresis consumes one attempt until release', () => {
     const player = new Player(0, 0);
 
