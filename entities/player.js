@@ -18,6 +18,7 @@ export class Player {
         this.respawnTimer = 0;
         this.fireCooldown = 0;
         this.isNPC = false;
+        this.wasdMode = 'RELATIVE';
         
         // Power-up System
         this.powerUpCapsules = 0;
@@ -204,25 +205,33 @@ export class Player {
                     this.rotation = Math.atan2(dy, dx) + Math.PI / 2;
                 }
 
-                if (keys['KeyW']) {
-                    fx += Math.sin(this.rotation) * this.thrust;
-                    fy -= Math.cos(this.rotation) * this.thrust;
-                    this.isThrusting = true;
-                }
-                if (keys['KeyS']) {
-                    fx -= Math.sin(this.rotation) * this.thrust;
-                    fy += Math.cos(this.rotation) * this.thrust;
-                    this.isThrusting = true;
-                }
-                if (keys['KeyA']) {
-                    fx -= Math.cos(this.rotation) * this.thrust;
-                    fy -= Math.sin(this.rotation) * this.thrust;
-                    this.isThrusting = true;
-                }
-                if (keys['KeyD']) {
-                    fx += Math.cos(this.rotation) * this.thrust;
-                    fy += Math.sin(this.rotation) * this.thrust;
-                    this.isThrusting = true;
+                if (this.wasdMode === 'ABSOLUTE') {
+                    if (keys['KeyW']) fy -= this.thrust;
+                    if (keys['KeyS']) fy += this.thrust;
+                    if (keys['KeyA']) fx -= this.thrust;
+                    if (keys['KeyD']) fx += this.thrust;
+                    this.isThrusting = Boolean(keys['KeyW'] || keys['KeyS'] || keys['KeyA'] || keys['KeyD']);
+                } else {
+                    if (keys['KeyW']) {
+                        fx += Math.sin(this.rotation) * this.thrust;
+                        fy -= Math.cos(this.rotation) * this.thrust;
+                        this.isThrusting = true;
+                    }
+                    if (keys['KeyS']) {
+                        fx -= Math.sin(this.rotation) * this.thrust;
+                        fy += Math.cos(this.rotation) * this.thrust;
+                        this.isThrusting = true;
+                    }
+                    if (keys['KeyA']) {
+                        fx -= Math.cos(this.rotation) * this.thrust;
+                        fy -= Math.sin(this.rotation) * this.thrust;
+                        this.isThrusting = true;
+                    }
+                    if (keys['KeyD']) {
+                        fx += Math.cos(this.rotation) * this.thrust;
+                        fy += Math.sin(this.rotation) * this.thrust;
+                        this.isThrusting = true;
+                    }
                 }
                 
                 if (keys['Space']) {
