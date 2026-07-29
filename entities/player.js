@@ -185,6 +185,7 @@ export class Player {
                 if (gp.buttons[0].pressed || gp.buttons[1].pressed) {
                     this.activatePowerUp();
                 }
+
             }
             
             // Only use Keyboard/Mouse fallback when P1 hasn't chosen Gamepad control,
@@ -228,6 +229,7 @@ export class Player {
                     this.activatePowerUp();
                     keys['Space'] = false;
                 }
+
             }
         } else if (this.id === 2) {
             // Player 2: Controller ONLY
@@ -251,6 +253,7 @@ export class Player {
                 if (gp.buttons[0].pressed || gp.buttons[1].pressed) {
                     this.activatePowerUp();
                 }
+
             }
             // NO KEYBOARD FALLBACK FOR P2
         }
