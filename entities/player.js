@@ -795,7 +795,7 @@ export class Player {
         return projs;
     }
 
-    drawSpriteWithTint(ctx, img, size, accentAlpha = 0.7) {
+    drawSpriteWithTint(ctx, img, size, accentAlpha = .2) {
         if (!img) return;
 
         const usesBaseShip =
@@ -948,20 +948,20 @@ export class Player {
         
         // Forcefield
             if (this.hasForcefield) {
-                const shieldAlpha = 0.2;
+                const shieldAlpha = 0.8;
 
                 ctx.save();
 
                 ctx.globalAlpha = shieldAlpha;
                 ctx.strokeStyle = this.color;
-                ctx.lineWidth = 6;
+                ctx.lineWidth = 4;
                 ctx.beginPath();
 
                 const shieldRadius = this.radius * 2;
 
                 // Offset the shield slightly toward the rear of the ship.
                 const shieldOffsetX = 0;
-                const shieldOffsetY = 2;
+                const shieldOffsetY = 0;
 
                 ctx.arc(
                     shieldOffsetX,
