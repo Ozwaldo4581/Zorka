@@ -861,6 +861,7 @@ export class Player {
 
                 // Color the visible pixels while retaining light and dark values.
                 tintCtx.globalCompositeOperation = 'multiply';
+                tintCtx.globalAlpha = 0.6;
                 tintCtx.fillStyle = this.color;
                 tintCtx.fillRect(
                     0,
@@ -868,6 +869,9 @@ export class Player {
                     spriteSize,
                     spriteSize
                 );
+
+                // Reset opacity before restoring the sprite's transparency.
+                tintCtx.globalAlpha = 1;
 
                 // Restore the source image's exact transparency.
                 tintCtx.globalCompositeOperation = 'destination-in';
