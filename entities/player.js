@@ -95,11 +95,11 @@ export class Player {
         return true;
     }
 
-    resolveAimLock(asteroids) {
+    resolveAimLock(isTargetValid) {
         const target = this.lockedAimTarget;
         const targetIsValid = target
-            && asteroids.includes(target)
-            && !target.isDestroyed
+            && typeof isTargetValid === 'function'
+            && isTargetValid(target)
             && Number.isFinite(target.x)
             && Number.isFinite(target.y);
 
@@ -141,7 +141,7 @@ export class Player {
         }
     }
 
-    update(dt, keys, mouse, camera, others = [], asteroids = [], gamepads = [], isSplitScreen = false, transformationKills = 20, hazards = []) {
+    update(dt, keys, mouse, camera, others = [], asteroids = [], gamepads = [], isSplitScreen = false, transformationKills = 20, hazards = [], isAimTargetValid = null) {
         if (this.isDead) {
             this.clearAimLock();
             return;
@@ -198,8 +198,8 @@ export class Player {
             this.updateNPC(dt, others, asteroids, (f) => { fx = f.x; fy = f.y; }, hazards);
         } else if (this.id === 1) {
             // Player 1: Controller OR Keyboard
+            if (this.controlMode !== 'KEYBOARD') this.clearAimLock();
             if (gp) {
-                this.clearAimLock();
                 const lsX = gp.axes[0];
                 const lsY = gp.axes[1];
                 const deadzone = 0.15;
@@ -232,7 +232,8 @@ export class Player {
 
                 if (mouse.m2Released || !mouse.m2Held) this.clearAimLock();
 
-                const aimTarget = this.resolveAimLock(asteroids);
+                const aimTarget = this.resolveAimLock(isAimTargetValid);
+                const effectiveWasdMode = aimTarget ? 'RELATIVE' : this.wasdMode;
                 if (aimTarget) {
                     const delta = nearestWrappedDisplacement(this.x, this.y, aimTarget.x, aimTarget.y);
                     if (Math.hypot(delta.x, delta.y) > 2) {
@@ -246,7 +247,7 @@ export class Player {
                         this.rotation = Math.atan2(dy, dx) + Math.PI / 2;
                     }
                 }
-                if (this.wasdMode === 'ABSOLUTE') {
+                if (effectiveWasdMode === 'ABSOLUTE') {
                     if (keys['KeyW']) fy -= this.thrust;
                     if (keys['KeyS']) fy += this.thrust;
                     if (keys['KeyA']) fx -= this.thrust;
