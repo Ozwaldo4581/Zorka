@@ -524,6 +524,49 @@ export class Game {
             // arena card identifies the current mode instead.
         });
 
+        // General Options handlers
+        const refreshAudioOptionButtons = () => {
+            const musicLevel = this.audio.getMusicVolumeLevel();
+            const sfxLevel = this.audio.getSfxVolumeLevel();
+            document.querySelectorAll('.music-volume-btn').forEach(btn => {
+                btn.classList.toggle('selected', parseInt(btn.dataset.musicLevel) === musicLevel);
+            });
+            document.querySelectorAll('.sfx-volume-btn').forEach(btn => {
+                btn.classList.toggle('selected', parseInt(btn.dataset.sfxLevel) === sfxLevel);
+            });
+        };
+
+        document.getElementById('btn-main-options-open').addEventListener('click', () => {
+            const popup = document.getElementById('main-options-popup');
+            popup.classList.remove('hidden');
+            popup.querySelectorAll('.focused').forEach(el => el.classList.remove('focused'));
+            refreshAudioOptionButtons();
+            this.menuIndex = 0;
+            this.lastActiveMenuId = null;
+        });
+
+        document.getElementById('btn-main-options-back').addEventListener('click', () => {
+            const popup = document.getElementById('main-options-popup');
+            popup.classList.add('hidden');
+            popup.querySelectorAll('.focused').forEach(el => el.classList.remove('focused'));
+            this.menuIndex = 0;
+            this.lastActiveMenuId = null;
+        });
+
+        document.querySelectorAll('.music-volume-btn').forEach(btn => {
+            btn.addEventListener('click', () => {
+                this.audio.setMusicVolumeLevel(parseInt(btn.dataset.musicLevel));
+                refreshAudioOptionButtons();
+            });
+        });
+
+        document.querySelectorAll('.sfx-volume-btn').forEach(btn => {
+            btn.addEventListener('click', () => {
+                this.audio.setSfxVolumeLevel(parseInt(btn.dataset.sfxLevel));
+                refreshAudioOptionButtons();
+            });
+        });
+
         // Arena Options Handlers
         document.getElementById('btn-options-open').addEventListener('click', () => {
             document.getElementById('options-popup').classList.remove('hidden');
@@ -853,6 +896,7 @@ export class Game {
     }
 
     startGame(mode, customShipCount) {
+        this.audio.stopAllLoops();
         this.gameState = mode;
         document.getElementById('menu-overlay').classList.add('hidden');
         this.closePauseMenu();
@@ -1013,11 +1057,14 @@ export class Game {
             this.network.leave();
         }
         this.closePauseMenu();
+        this.audio.stopAllLoops();
         this.gameState = 'MENU';
         document.getElementById('menu-overlay').classList.remove('hidden');
         document.getElementById('main-menu').classList.remove('hidden');
         document.getElementById('solo-menu').classList.add('hidden');
         document.getElementById('online-menu').classList.add('hidden');
+        document.getElementById('main-options-popup').classList.add('hidden');
+        document.getElementById('main-options-popup').querySelectorAll('.focused').forEach(el => el.classList.remove('focused'));
         document.getElementById('controls-selection').classList.add('hidden');
         this.menuIndex = 0;
         this.lastActiveMenuId = 'main-menu';
@@ -1230,7 +1277,7 @@ export class Game {
 
         // Determine the current active menu container, checking for popups first
         let activeMenu = null;
-        const potentialContainers = ['botless-popup', 'options-popup', 'solo-menu', 'online-menu', 'main-menu'];
+        const potentialContainers = ['main-options-popup', 'botless-popup', 'options-popup', 'solo-menu', 'online-menu', 'main-menu'];
         for (const id of potentialContainers) {
             const el = document.getElementById(id);
             if (el && !el.classList.contains('hidden')) {
@@ -1554,12 +1601,28 @@ export class Game {
             if (v.finished) this.vfx.splice(i, 1);
         }
 
-        // Thruster Sounds Removed
-
         this.checkCollisions();
+        this.updateThrusterAudio();
         
         if (this.players[0]) {
             this.camera.follow(this.players[0]);
+        }
+    }
+
+    updateThrusterAudio() {
+        const isLocalPlayerThrusting = this.players.some(player => (
+            player
+            && !player.isNPC
+            && player.id <= 2
+            && !player.isDead
+            && !player.isEliminated
+            && player.isThrusting
+        ));
+
+        if (isLocalPlayerThrusting) {
+            this.audio.startLoop('thrust', 'local-thruster', 1);
+        } else {
+            this.audio.stopLoop('local-thruster');
         }
     }
 
