@@ -1,6 +1,6 @@
-import { updateNewtonian, checkCollision, nearestWrappedDisplacement, wrapCoordinate } from '../physics.js';
+import { updateNewtonian, checkCollision, nearestWrappedDisplacement } from '../physics.js';
 import { Projectile } from './projectile.js';
-import { DESIGN_WIDTH, DESIGN_HEIGHT, WORLD_WIDTH, WORLD_HEIGHT } from '../game.js';
+import { DESIGN_WIDTH, DESIGN_HEIGHT } from '../game.js';
 
 export class Player {
     constructor(x, y, id = 1, color = '#00ffff') {
@@ -19,10 +19,6 @@ export class Player {
         this.fireCooldown = 0;
         this.isNPC = false;
         this.wasdMode = 'RELATIVE';
-        this.aimLockActive = false;
-        this.aimLockType = null;
-        this.lockedAimX = null;
-        this.lockedAimY = null;
         this.lockedAimTarget = null;
         
         // Power-up System
@@ -86,24 +82,20 @@ export class Player {
     }
 
     clearAimLock() {
-        this.aimLockActive = false;
-        this.aimLockType = null;
-        this.lockedAimX = null;
-        this.lockedAimY = null;
         this.lockedAimTarget = null;
     }
 
-    beginAimLock(worldX, worldY, target = null) {
-        this.aimLockActive = true;
-        this.aimLockType = target ? 'ENTITY' : 'POINT';
+    get aimLockActive() {
+        return this.lockedAimTarget !== null;
+    }
+
+    beginAimLock(target) {
+        if (!target) return false;
         this.lockedAimTarget = target;
-        this.lockedAimX = target ? target.x : wrapCoordinate(worldX, WORLD_WIDTH);
-        this.lockedAimY = target ? target.y : wrapCoordinate(worldY, WORLD_HEIGHT);
+        return true;
     }
 
     resolveAimLock(asteroids) {
-        if (!this.aimLockActive || this.aimLockType !== 'ENTITY') return;
-
         const target = this.lockedAimTarget;
         const targetIsValid = target
             && asteroids.includes(target)
@@ -111,15 +103,10 @@ export class Player {
             && Number.isFinite(target.x)
             && Number.isFinite(target.y);
 
-        if (targetIsValid) {
-            this.lockedAimX = target.x;
-            this.lockedAimY = target.y;
-            return;
-        }
+        if (targetIsValid) return target;
 
-        // Preserve the last valid position rather than retargeting or returning to live aim.
-        this.aimLockType = 'POINT';
-        this.lockedAimTarget = null;
+        this.clearAimLock();
+        return null;
     }
 
     setEvolutionForm(form) {
@@ -245,9 +232,9 @@ export class Player {
 
                 if (mouse.m2Released || !mouse.m2Held) this.clearAimLock();
 
-                if (this.aimLockActive) {
-                    this.resolveAimLock(asteroids);
-                    const delta = nearestWrappedDisplacement(this.x, this.y, this.lockedAimX, this.lockedAimY);
+                const aimTarget = this.resolveAimLock(asteroids);
+                if (aimTarget) {
+                    const delta = nearestWrappedDisplacement(this.x, this.y, aimTarget.x, aimTarget.y);
                     if (Math.hypot(delta.x, delta.y) > 2) {
                         this.rotation = Math.atan2(delta.y, delta.x) + Math.PI / 2;
                     }
@@ -259,9 +246,7 @@ export class Player {
                         this.rotation = Math.atan2(dy, dx) + Math.PI / 2;
                     }
                 }
-                if (mouse.m2Released || !mouse.m2Held) this.clearAimLock();
-
-                if (this.wasdMode === 'ABSOLUTE' && !this.aimLockActive) {
+                if (this.wasdMode === 'ABSOLUTE') {
                     if (keys['KeyW']) fy -= this.thrust;
                     if (keys['KeyS']) fy += this.thrust;
                     if (keys['KeyA']) fx -= this.thrust;
