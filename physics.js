@@ -8,6 +8,24 @@ export function wrap(entity) {
     if (entity.y >= WORLD_HEIGHT) entity.y = entity.y % WORLD_HEIGHT;
 }
 
+export function wrapCoordinate(value, size) {
+    return ((value % size) + size) % size;
+}
+
+export function shortestWrappedDelta(from, to, size) {
+    let delta = to - from;
+    if (delta > size / 2) delta -= size;
+    if (delta < -size / 2) delta += size;
+    return delta;
+}
+
+export function nearestWrappedDisplacement(fromX, fromY, toX, toY) {
+    return {
+        x: shortestWrappedDelta(fromX, toX, WORLD_WIDTH),
+        y: shortestWrappedDelta(fromY, toY, WORLD_HEIGHT)
+    };
+}
+
 export function checkCollision(a, b) {
     const dx = a.x - b.x;
     const dy = a.y - b.y;
