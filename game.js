@@ -104,7 +104,7 @@ export class Game {
 
     async loadAssets() {
         this.assets = {
-            ship: await this.loadImage('assets/player_ship.webp'),
+            ship: await this.loadImage('assets/ShipNeonWhite.png'),
             ufo: await this.loadImage('assets/1000008891.png'),
             cyborg: await this.loadImage('assets/cyborg_ship.webp'),
             dimensionX: await this.loadImage('assets/dimension_x_monster.webp'),

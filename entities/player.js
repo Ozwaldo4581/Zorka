@@ -783,20 +783,124 @@ export class Player {
     }
 
     drawSpriteWithTint(ctx, img, size, accentAlpha = 0.7) {
-        if (this.color === '#00ffff' || this.isDimensionX) {
-            ctx.drawImage(img, -size / 2, -size / 2, size, size);
+        if (!img) return;
+
+        const usesBaseShip =
+            !this.isMartian &&
+            !this.isCyborg &&
+            !this.isDimensionX &&
+            !this.isEventHorizon;
+
+        // The normal ship now uses a white/grayscale source image.
+        // Multiply applies the exact player color while retaining the
+        // source image's highlights, shadows, glow, and transparency.
+        if (usesBaseShip) {
+            const spriteSize = Math.max(1, Math.ceil(size));
+            const cacheKey = `${this.color}:${spriteSize}`;
+
+            if (!this._whiteTintCache) {
+                this._whiteTintCache = new Map();
+            }
+
+            let tintedCanvas = this._whiteTintCache.get(cacheKey);
+
+            if (!tintedCanvas) {
+                tintedCanvas = document.createElement('canvas');
+                tintedCanvas.width = spriteSize;
+                tintedCanvas.height = spriteSize;
+
+                const tintCtx = tintedCanvas.getContext('2d');
+
+                if (!tintCtx) {
+                    ctx.drawImage(
+                        img,
+                        -size / 2,
+                        -size / 2,
+                        size,
+                        size
+                    );
+                    return;
+                }
+
+                // Draw the white/grayscale source.
+                tintCtx.drawImage(
+                    img,
+                    0,
+                    0,
+                    spriteSize,
+                    spriteSize
+                );
+
+                // Color the visible pixels while retaining light and dark values.
+                tintCtx.globalCompositeOperation = 'multiply';
+                tintCtx.fillStyle = this.color;
+                tintCtx.fillRect(
+                    0,
+                    0,
+                    spriteSize,
+                    spriteSize
+                );
+
+                // Restore the source image's exact transparency.
+                tintCtx.globalCompositeOperation = 'destination-in';
+                tintCtx.drawImage(
+                    img,
+                    0,
+                    0,
+                    spriteSize,
+                    spriteSize
+                );
+
+                tintCtx.globalCompositeOperation = 'source-over';
+
+                this._whiteTintCache.set(cacheKey, tintedCanvas);
+            }
+
+            ctx.drawImage(
+                tintedCanvas,
+                -size / 2,
+                -size / 2,
+                size,
+                size
+            );
+
+            return;
+        }
+
+        // Preserve the existing behavior for special transformation artwork.
+        if (this.isDimensionX || this.color === '#00ffff') {
+            ctx.drawImage(
+                img,
+                -size / 2,
+                -size / 2,
+                size,
+                size
+            );
             return;
         }
 
         const filter = this.getHueFilter(this.color);
+
         if (!filter) {
-            ctx.drawImage(img, -size / 2, -size / 2, size, size);
+            ctx.drawImage(
+                img,
+                -size / 2,
+                -size / 2,
+                size,
+                size
+            );
             return;
         }
 
         ctx.save();
         ctx.filter = filter;
-        ctx.drawImage(img, -size / 2, -size / 2, size, size);
+        ctx.drawImage(
+            img,
+            -size / 2,
+            -size / 2,
+            size,
+            size
+        );
         ctx.restore();
     }
 
