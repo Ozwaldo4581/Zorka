@@ -459,7 +459,7 @@ export class Game {
             this.mouse.x = (e.clientX - rect.left) / this.scale;
             this.mouse.y = (e.clientY - rect.top) / this.scale;
 
-            // Locked cursor presentation is updated from its world point each frame.
+            // Locked cursor presentation is projected from its target each frame.
             if (this.domCursor && !this.players[0]?.aimLockActive) {
                 this.domCursor.style.left = `${e.clientX}px`;
                 this.domCursor.style.top = `${e.clientY}px`;
@@ -1260,7 +1260,9 @@ export class Game {
             height: DESIGN_HEIGHT
         };
         const worldPoint = camera.screenToWorld(this.mouse.x, this.mouse.y, viewport);
-        player.beginAimLock(worldPoint.x, worldPoint.y, this.findAsteroidTargetAt(worldPoint.x, worldPoint.y));
+        const target = this.findAsteroidTargetAt(worldPoint.x, worldPoint.y);
+        if (!target) return false;
+        return player.beginAimLock(target);
     }
 
     resize() {
@@ -1814,6 +1816,9 @@ export class Game {
         target.hits++;
         if (target.hits >= target.maxHits) {
             target.isDestroyed = true;
+            for (const player of this.players) {
+                if (player.lockedAimTarget === target) player.clearAimLock();
+            }
             // Spatial audio
             const cameras = this.getActiveCameras();
             this.audio.playSpatial('explosion', target.x, target.y, cameras, WORLD_WIDTH, WORLD_HEIGHT);
@@ -2219,7 +2224,11 @@ export class Game {
         const p1 = this.players.find(p => p.id === 1);
         if (p1?.aimLockActive && p1.controlMode === 'KEYBOARD') {
             const viewport = { x: 0, y: 0, width: this.gameState === 'PVP' ? DESIGN_WIDTH / 2 : DESIGN_WIDTH, height: DESIGN_HEIGHT };
-            const point = this.getPlayerOneCamera().worldToScreen(p1.lockedAimX, p1.lockedAimY, viewport);
+            const point = this.getPlayerOneCamera().worldToScreen(
+                p1.lockedAimTarget.x,
+                p1.lockedAimTarget.y,
+                viewport
+            );
             const onScreen = point.x >= viewport.x && point.x <= viewport.x + viewport.width
                 && point.y >= viewport.y && point.y <= viewport.y + viewport.height;
             this.domCursor.style.display = onScreen ? 'block' : 'none';
