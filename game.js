@@ -470,8 +470,7 @@ export class Game {
             this.mouse.x = (e.clientX - rect.left) / this.scale;
             this.mouse.y = (e.clientY - rect.top) / this.scale;
 
-            // Locked cursor presentation is projected from its target each frame.
-            if (this.domCursor && !this.players[0]?.aimLockActive) {
+            if (this.domCursor) {
                 this.domCursor.style.left = `${e.clientX}px`;
                 this.domCursor.style.top = `${e.clientY}px`;
                 this.domCursor.style.display = 'block';
@@ -2343,24 +2342,7 @@ export class Game {
         
         // Sync DOM cursor color with player color
         const p1 = this.players.find(p => p.id === 1);
-        if (p1?.aimLockActive && p1.controlMode === 'KEYBOARD') {
-            const viewport = { x: 0, y: 0, width: this.gameState === 'PVP' ? DESIGN_WIDTH / 2 : DESIGN_WIDTH, height: DESIGN_HEIGHT };
-            const point = this.getPlayerOneCamera().worldToScreen(
-                p1.lockedAimTarget.x,
-                p1.lockedAimTarget.y,
-                viewport
-            );
-            const onScreen = point.x >= viewport.x && point.x <= viewport.x + viewport.width
-                && point.y >= viewport.y && point.y <= viewport.y + viewport.height;
-            this.domCursor.style.display = onScreen ? 'block' : 'none';
-            if (onScreen) {
-                const rect = this.canvas.getBoundingClientRect();
-                this.domCursor.style.left = `${rect.left + point.x * this.scale}px`;
-                this.domCursor.style.top = `${rect.top + point.y * this.scale}px`;
-            }
-        } else {
-            this.domCursor.style.display = 'block';
-        }
+        this.domCursor.style.display = 'block';
         const color = (p1 && !p1.isNPC) ? p1.color : '#00ffff';
         
         this.domCursor.style.setProperty('--cursor-color', color);
@@ -2461,7 +2443,7 @@ export class Game {
         this.ctx.fillRect(0, 0, DESIGN_WIDTH, DESIGN_HEIGHT);
 
         this.drawWorld(this.ctx, this.camera);
-        this.drawControllerAimLockMarker(this.ctx, this.players[0], this.camera);
+        this.drawAimLockOutline(this.ctx, this.players[0], this.camera);
     }
 
     drawSplitScreen() {
@@ -2485,7 +2467,7 @@ export class Game {
         // Shift drawing to left half center
         this.ctx.translate(-DESIGN_WIDTH / 4, 0); 
         this.drawWorld(this.ctx, p1Cam);
-        this.drawControllerAimLockMarker(this.ctx, p1, p1Cam);
+        this.drawAimLockOutline(this.ctx, p1, p1Cam);
         this.ctx.restore();
 
         // Right half for P2
@@ -2504,7 +2486,7 @@ export class Game {
 
         this.ctx.translate(DESIGN_WIDTH / 4, 0);
         this.drawWorld(this.ctx, p2Cam);
-        this.drawControllerAimLockMarker(this.ctx, p2, p2Cam);
+        this.drawAimLockOutline(this.ctx, p2, p2Cam);
         this.ctx.restore();
 
         // Divider
@@ -2528,8 +2510,8 @@ export class Game {
         this.vfx.forEach(v => v.draw(ctx, this.assets, camera));
     }
 
-    drawControllerAimLockMarker(ctx, player, camera) {
-        if (!player?.aimLockActive || player.controlMode !== 'GAMEPAD') return;
+    drawAimLockOutline(ctx, player, camera) {
+        if (!player?.aimLockActive) return;
         ctx.save();
         camera.apply(ctx, player.lockedAimTarget.x, player.lockedAimTarget.y);
         const radius = Math.max(32, player.lockedAimTarget.radius + 12);

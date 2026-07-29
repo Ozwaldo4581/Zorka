@@ -60,3 +60,38 @@ test('controller assignment preserves P1/P2 pad selection', () => {
     p1.controlMode = 'KEYBOARD';
     assert.equal(Game.prototype.getAssignedGamepad.call(fakeGame, p2, [pad0]), pad0);
 });
+
+test('aim-lock outline is derived from each player target regardless of input mode', () => {
+    const drawnArcs = [];
+    const ctx = {
+        save() {},
+        restore() {},
+        setLineDash() {},
+        beginPath() {},
+        stroke() {},
+        arc(x, y, radius) { drawnArcs.push({ x, y, radius }); }
+    };
+    const camera = {
+        zoom: 1,
+        apply(_ctx, x, y) { this.appliedAt = { x, y }; }
+    };
+    const keyboardPlayer = new Player(0, 0, 1, '#00ffff');
+    keyboardPlayer.controlMode = 'KEYBOARD';
+    keyboardPlayer.beginAimLock({ x: 40, y: 50, radius: 20 });
+
+    Game.prototype.drawAimLockOutline.call({}, ctx, keyboardPlayer, camera);
+
+    assert.deepEqual(camera.appliedAt, { x: 40, y: 50 });
+    assert.deepEqual(drawnArcs, [{ x: 0, y: 0, radius: 32 }]);
+
+    const gamepadPlayer = new Player(0, 0, 2, '#ff00ff');
+    gamepadPlayer.controlMode = 'GAMEPAD';
+    gamepadPlayer.beginAimLock({ x: 80, y: 90, radius: 30 });
+    Game.prototype.drawAimLockOutline.call({}, ctx, gamepadPlayer, camera);
+    assert.deepEqual(camera.appliedAt, { x: 80, y: 90 });
+    assert.deepEqual(drawnArcs.at(-1), { x: 0, y: 0, radius: 42 });
+
+    keyboardPlayer.clearAimLock();
+    Game.prototype.drawAimLockOutline.call({}, ctx, keyboardPlayer, camera);
+    assert.equal(drawnArcs.length, 2);
+});
