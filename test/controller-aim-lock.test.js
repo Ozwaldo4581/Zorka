@@ -4,36 +4,114 @@ import assert from 'node:assert/strict';
 import { Game, WORLD_WIDTH } from '../game.js';
 import { Player } from '../entities/player.js';
 
-test('keyboard thrust is always ship-relative regardless of aim lock', () => {
-    const updateWithTarget = (target = null) => {
-        const player = new Player(100, 100);
-        player.controlMode = 'KEYBOARD';
-        player.rotation = Math.PI / 2;
-        if (target) player.beginAimLock(target);
+const mouseInput = overrides => ({
+    x: 1920,
+    y: 540,
+    m2Held: false,
+    m2Released: false,
+    clicked: false,
+    ...overrides
+});
 
-        player.update(
-            0.1,
-            { KeyW: true },
-            { x: 960, y: 540, m2Held: Boolean(target), m2Released: false, clicked: false },
-            null,
-            [],
-            [],
-            [],
-            false,
-            20,
-            [],
-            () => true
-        );
-        return player;
-    };
+const gamepadInput = ({ leftX = 0, leftY = -1, rightX = 1, rightY = 0 } = {}) => ({
+    axes: [leftX, leftY, rightX, rightY],
+    buttons: Array.from({ length: 16 }, () => ({ pressed: false, value: 0 }))
+});
 
-    const unlocked = updateWithTarget();
-    const locked = updateWithTarget({ x: 200, y: 100, radius: 10 });
+const updateKeyboard = (player, { targetIsValid = () => true, mouse = {}, keys = { KeyW: true } } = {}) => {
+    player.controlMode = 'KEYBOARD';
+    player.update(0.1, keys, mouseInput(mouse), null, [], [], [], false, 20, [], targetIsValid);
+};
 
-    assert.ok(unlocked.vx > 0);
-    assert.ok(Math.abs(unlocked.vy) < 1e-10);
+const updateController = (player, pad, targetIsValid = () => true) => {
+    player.controlMode = 'GAMEPAD';
+    player.update(0.1, {}, mouseInput(), null, [], [], [pad], false, 20, [], targetIsValid);
+};
+
+test('keyboard movement is absolute unlocked and relative only with a valid lock', () => {
+    const player = new Player(100, 100);
+
+    updateKeyboard(player);
+    assert.ok(Math.abs(player.vx) < 1e-10);
+    assert.ok(player.vy < 0);
+
+    player.vx = 0;
+    player.vy = 0;
+    player.x = 100;
+    player.y = 100;
+    player.beginAimLock({ x: 200, y: 100, radius: 10 });
+    updateKeyboard(player, { mouse: { m2Held: true } });
+    assert.ok(player.vx > 0);
+    assert.ok(Math.abs(player.vy) < 1e-10);
+
+    player.vx = 0;
+    player.vy = 0;
+    player.x = 100;
+    player.y = 100;
+    updateKeyboard(player, { mouse: { m2Released: true } });
+    assert.equal(player.aimLockActive, false);
+    assert.ok(Math.abs(player.vx) < 1e-10);
+    assert.ok(player.vy < 0);
+});
+
+test('invalid and failed mouse locks remain absolute', () => {
+    const invalidated = new Player(100, 100);
+    invalidated.beginAimLock({ x: 200, y: 100, radius: 10 });
+    updateKeyboard(invalidated, { mouse: { m2Held: true }, targetIsValid: () => false });
+    assert.equal(invalidated.aimLockActive, false);
+    assert.ok(Math.abs(invalidated.vx) < 1e-10);
+    assert.ok(invalidated.vy < 0);
+
+    const failed = new Player(100, 100);
+    updateKeyboard(failed, { mouse: { m2Held: true } });
+    assert.equal(failed.aimLockActive, false);
+    assert.ok(Math.abs(failed.vx) < 1e-10);
+    assert.ok(failed.vy < 0);
+});
+
+test('controller movement shares the valid-lock transition', () => {
+    const player = new Player(100, 100);
+    const pad = gamepadInput();
+
+    updateController(player, pad);
+    assert.ok(Math.abs(player.vx) < 1e-10);
+    assert.ok(player.vy < 0);
+
+    player.vx = 0;
+    player.vy = 0;
+    player.x = 100;
+    player.y = 100;
+    player.beginAimLock({ x: 200, y: 100, radius: 10 });
+    updateController(player, pad);
+    assert.ok(player.vx > 0);
+    assert.ok(Math.abs(player.vy) < 1e-10);
+
+    player.vx = 0;
+    player.vy = 0;
+    player.x = 100;
+    player.y = 100;
+    player.clearAimLock();
+    updateController(player, pad);
+    assert.ok(Math.abs(player.vx) < 1e-10);
+    assert.ok(player.vy < 0);
+});
+
+test('movement selection is independent per player and does not affect NPC steering', () => {
+    const unlocked = new Player(100, 100);
+    const locked = new Player(100, 100);
+    locked.beginAimLock({ x: 200, y: 100, radius: 10 });
+    updateKeyboard(unlocked);
+    updateKeyboard(locked, { mouse: { m2Held: true } });
+    assert.ok(unlocked.vy < 0);
     assert.ok(locked.vx > 0);
-    assert.ok(Math.abs(locked.vy) < 1e-10);
+
+    const npc = new Player(100, 100, 3);
+    npc.isNPC = true;
+    npc.beginAimLock({ x: 200, y: 100, radius: 10 });
+    npc.updateNPC = (_dt, _others, _asteroids, setForce) => setForce({ x: 123, y: 456 });
+    npc.update(0.1, { KeyW: true }, mouseInput({ m2Held: true }), null, [], [], [], false, 20, [], () => true);
+    assert.ok(npc.vx > 0);
+    assert.ok(npc.vy > 0);
 });
 
 test('LT hysteresis consumes one attempt until release', () => {
@@ -52,6 +130,29 @@ test('LT hysteresis consumes one attempt until release', () => {
     assert.equal(player.updateControllerAimLockTrigger(0.25, 0.65, 0.25), false);
     assert.equal(player.aimLockActive, false);
     assert.equal(player.updateControllerAimLockTrigger(0.65, 0.65, 0.25), true);
+});
+
+test('failed LT acquisition and held LT after invalidation stay absolute without reacquiring', () => {
+    const player = new Player(100, 100);
+    const pad = gamepadInput();
+
+    assert.equal(player.updateControllerAimLockTrigger(0.7, 0.65, 0.25), true);
+    updateController(player, pad);
+    assert.equal(player.aimLockActive, false);
+    assert.ok(Math.abs(player.vx) < 1e-10);
+    assert.ok(player.vy < 0);
+    assert.equal(player.updateControllerAimLockTrigger(1, 0.65, 0.25), false);
+
+    player.vx = 0;
+    player.vy = 0;
+    player.x = 100;
+    player.y = 100;
+    player.beginAimLock({ x: 200, y: 100, radius: 10 });
+    updateController(player, pad, () => false);
+    assert.equal(player.aimLockActive, false);
+    assert.ok(Math.abs(player.vx) < 1e-10);
+    assert.ok(player.vy < 0);
+    assert.equal(player.updateControllerAimLockTrigger(1, 0.65, 0.25), false);
 });
 
 test('controller aim uses normalized right stick and facing fallback', () => {
