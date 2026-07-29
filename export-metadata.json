@@ -1,0 +1,16 @@
+{
+  "name": "Zorka: Battle for the Solar Tides Multiplayer",
+  "revisionLabel": "Adjust ghost follow distance and simplify Martian firing logic",
+  "description": "Zorka: Battle for the Solar Tides is a twin stick top-down arena space shooter. Test your skills in the Solo Arena, then face off head-to-head in the Local PVP Arena. Online Multiplayer is not yet supported.\n\nController recommended.\n\nFeatures:\n\na sandbox space shooter arena with up to 8 ships\n\nsolo or split screen heads up; no online multiplayer\n\nNewtonian physics provide an intuitive space flight feel\n\nthe only way to \"break\" is to accelerate in an opposing direction; i.e. momentum matters\n\nshoot enemy ships, satellites, and space debris to earn power up capsules\n\nconsume power up capsules to gain more guns, missiles, and more\n\nsave or spend - better rewards cost more capsules\n\nlose all powerups and capsules on death and start again\n\navoid asteroids, destroy them, or use them for cover in dogfights\n\npress Play to jump into the arena, or customize your game with the Options menu\n\ncustomize asteroid density, debris density, satellite density, starting shields, enemy aggression level, and more in the Options menu\n\nEnemy Ships - destroy them before they destroy you\n\nAsteroids - bump into one, and you're dead\n\nSpace Debris - like an asteroid, but awards a power up capsule; hidden among the asteroids\n\nSatellite - a (mostly) predictable rogue satellite, awards a power up capsule;",
+  "mode": "Universal",
+  "exportDate": "2026-07-29T01:39:21.105Z",
+  "rosebudBuiltInSplash": {
+    "present": true,
+    "version": 1
+  },
+  "assetCount": 26,
+  "assetTypes": [
+    "image",
+    "audio"
+  ]
+}

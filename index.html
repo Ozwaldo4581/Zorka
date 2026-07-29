@@ -1,0 +1,565 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Zorka: Battle for the Solar Tides</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700&family=Inter:wght@400;600;800&display=swap" rel="stylesheet">
+    <!--
+      Rosebud defaults disable accidental selection, context menus, tap highlights,
+      and native dragging during gameplay while preserving text editing. Most games
+      need no customization.
+    -->
+    <link rel="stylesheet" href="./rosebud-game-defaults.css" />
+    <script src="./rosebud-game-defaults.js" defer></script>
+    <script type="importmap">
+      {
+        "imports": {
+          "@supabase/supabase-js": "https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.47.10/+esm"
+        }
+      }
+    </script>
+    <style>
+      html, body, #game-container { width: 100%; height: 100%; margin: 0; padding: 0; background: #050505; overflow: hidden; }
+      body { touch-action: none; font-family: 'Orbitron', sans-serif; color: white; cursor: none !important; }
+      * { cursor: none !important; } /* Force custom cursor everywhere */
+      #custom-cursor {
+        position: fixed;
+        width: 40px;
+        height: 40px;
+        pointer-events: none;
+        z-index: 1000;
+        transform: translate(-50%, -50%);
+        display: none;
+        box-sizing: border-box;
+      }
+      .cursor-line {
+        position: absolute;
+        background: var(--cursor-color, #00ffff);
+        box-shadow: 0 0 12px var(--cursor-color, #00ffff), 0 0 4px #fff;
+      }
+      /* Standard Crosshair (Reverted to previous 4-line style) */
+      .cursor-style-0 { width: 30px; height: 30px; position: relative; }
+      .cursor-style-0 .cursor-line { background: var(--cursor-color, #00ffff); box-shadow: 0 0 10px var(--cursor-color, #00ffff); position: absolute; }
+      .cursor-style-0 .line-n { top: 0; left: 50%; width: 3px; height: 12px; transform: translateX(-50%); }
+      .cursor-style-0 .line-s { bottom: 0; left: 50%; width: 3px; height: 12px; transform: translateX(-50%); }
+      .cursor-style-0 .line-e { right: 0; top: 50%; width: 12px; height: 3px; transform: translateY(-50%); }
+      .cursor-style-0 .line-w { left: 0; top: 50%; width: 12px; height: 3px; transform: translateY(-50%); }
+
+      /* Circle & Cross */
+      .cursor-style-1 { width: 30px; height: 30px; border: 2px solid var(--cursor-color, #00ffff); border-radius: 50%; box-shadow: 0 0 12px var(--cursor-color, #00ffff); position: relative; }
+      .cursor-style-1 .cursor-line-h { top: 50%; left: 20%; right: 20%; height: 2px; transform: translateY(-50%); }
+      .cursor-style-1 .cursor-line-v { left: 50%; top: 20%; bottom: 20%; width: 2px; transform: translateX(-50%); }
+
+      /* Dot */
+      .cursor-style-2 { width: 12px !important; height: 12px !important; background: var(--cursor-color, #00ffff); border-radius: 50%; box-shadow: 0 0 15px var(--cursor-color, #00ffff), 0 0 5px #fff; position: relative; }
+
+      /* Square Bracket */
+      .cursor-style-3 { width: 30px; height: 30px; position: relative; }
+      .cursor-style-3 .cursor-line { width: 10px; height: 10px; border: 3px solid var(--cursor-color, #00ffff); background: transparent; box-shadow: none; }
+      .cursor-style-3 .cursor-tl { top: 0; left: 0; border-right: 0; border-bottom: 0; }
+      .cursor-style-3 .cursor-tr { top: 0; right: 0; border-left: 0; border-bottom: 0; }
+      .cursor-style-3 .cursor-bl { bottom: 0; left: 0; border-right: 0; border-top: 0; }
+      .cursor-style-3 .cursor-br { bottom: 0; right: 0; border-left: 0; border-top: 0; }
+
+      /* X-Style Triangles (Updated Style 4) */
+      .cursor-style-4 { width: 30px; height: 30px; position: relative; }
+      .cursor-style-4 .cursor-line { width: 0; height: 0; background: transparent; border-left: 6px solid transparent; border-right: 6px solid transparent; border-bottom: 12px solid var(--cursor-color, #00ffff); box-shadow: none; position: absolute; }
+      .cursor-style-4 .x1 { top: 0; right: 0; transform: rotate(45deg); }
+      .cursor-style-4 .x2 { bottom: 0; right: 0; transform: rotate(135deg); }
+      .cursor-style-4 .x3 { bottom: 0; left: 0; transform: rotate(225deg); }
+      .cursor-style-4 .x4 { top: 0; left: 0; transform: rotate(315deg); }
+
+      /* Triangles (+) */
+      .cursor-style-5 { width: 30px; height: 30px; position: relative; }
+      .cursor-style-5 .cursor-line { width: 0; height: 0; background: transparent; border-left: 6px solid transparent; border-right: 6px solid transparent; border-bottom: 12px solid var(--cursor-color, #00ffff); box-shadow: none; position: absolute; }
+      .cursor-style-5 .t1 { top: 0; left: 50%; transform: translateX(-50%); }
+      .cursor-style-5 .t2 { bottom: 0; left: 50%; transform: translateX(-50%) rotate(180deg); }
+      .cursor-style-5 .t3 { left: 0; top: 50%; transform: translateY(-50%) rotate(-90deg); }
+      .cursor-style-5 .t4 { right: 0; top: 50%; transform: translateY(-50%) rotate(90deg); }
+
+      .cursor-preview {
+        position: relative;
+        width: 30px;
+        height: 30px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        pointer-events: none;
+        margin: auto;
+        --cursor-color: #00ffff; /* Default preview color */
+      }
+      .count-btn.cursor-option-btn {
+        width: 60px;
+        height: 60px;
+        padding: 0;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+      }
+      
+      canvas { display: block; }
+      #menu-overlay {
+        position: absolute;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        display: flex;
+        flex-direction: column;
+        justify-content: center;
+        align-items: center;
+        background: rgba(0, 0, 0, 0.85);
+        z-index: 10;
+        transition: opacity 0.5s ease;
+      }
+      #menu-overlay.hidden {
+        opacity: 0;
+        pointer-events: none;
+      }
+      h1 { font-size: 4rem; margin-bottom: 2rem; text-shadow: 0 0 20px #00ffff; }
+      .menu-button {
+        padding: 1rem 2rem;
+        margin: 0.5rem;
+        font-family: 'Orbitron', sans-serif;
+        font-size: 1.5rem;
+        background: transparent;
+        color: #00ffff;
+        border: 2px solid #00ffff;
+        transition: all 0.2s;
+        width: 300px;
+      }
+      .menu-button:hover, .menu-button.focused {
+        background: #00ffff;
+        color: black;
+        box-shadow: 0 0 20px #00ffff;
+        outline: none;
+      }
+      .menu-button.selected {
+        background: rgba(0, 255, 255, 0.2);
+        color: #00ffff;
+      }
+      .controls-hint {
+        margin-top: 2rem;
+        font-family: 'Inter', sans-serif;
+        color: #888;
+        text-align: center;
+      }
+      .hidden {
+        display: none !important;
+      }
+      .count-btn {
+        padding: 1rem;
+        font-family: 'Orbitron', sans-serif;
+        font-size: 1.5rem;
+        background: transparent;
+        color: #00ffff;
+        border: 2px solid #00ffff;
+        transition: all 0.2s;
+        width: 80px;
+        text-align: center;
+      }
+      .count-btn:hover, .count-btn.focused {
+        background: #00ffff;
+        color: black;
+        box-shadow: 0 0 15px #00ffff;
+        outline: none;
+        border-color: #fff;
+      }
+      .count-btn.selected {
+        background: #00ffff;
+        color: black;
+      }
+      .lobby-item {
+        width: 100%;
+        padding: 10px;
+        border: 1px solid #00ffff;
+        background: rgba(0, 255, 255, 0.05);
+        margin-bottom: 5px;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        transition: background 0.2s;
+      }
+      .lobby-item:hover, .lobby-item.focused {
+        background: rgba(0, 255, 255, 0.3);
+        border-color: #fff;
+      }
+      .lobby-item.selected {
+        background: rgba(0, 255, 255, 0.2);
+      }
+      #lobby-list {
+        width: 400px;
+        height: 200px;
+        overflow-y: auto;
+        border: 1px solid #333;
+        padding: 10px;
+        background: rgba(0, 0, 0, 0.5);
+        margin-bottom: 1rem;
+      }
+    </style>
+  
+<style>
+    #rosebud-exported-splash {
+        position: fixed;
+        inset: 0;
+        z-index: 2147483647;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        background: #000;
+        opacity: 1;
+        transition: opacity 500ms ease-in-out;
+    }
+
+    #rosebud-exported-splash.is-hiding {
+        opacity: 0;
+    }
+
+    #rosebud-exported-splash .rosebud-exported-splash__content {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 20px;
+        text-align: center;
+        color: #fff;
+        font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    }
+
+    #rosebud-exported-splash .rosebud-exported-splash__logo {
+        width: 100px;
+        height: 100px;
+        animation: rosebud-exported-splash-breathe 2.4s ease-in-out infinite;
+    }
+
+    #rosebud-exported-splash .rosebud-exported-splash__text {
+        display: flex;
+        flex-direction: column;
+        gap: 4px;
+        font-size: 16px;
+        line-height: 1.25;
+        letter-spacing: 0.06em;
+    }
+
+    #rosebud-exported-splash .rosebud-exported-splash__text strong {
+        font-weight: 700;
+    }
+
+    #rosebud-exported-splash .rosebud-exported-splash__text span:last-child {
+        opacity: 0.88;
+    }
+
+    @keyframes rosebud-exported-splash-breathe {
+        0%,
+        100% {
+            transform: scale(1);
+        }
+        50% {
+            transform: scale(1.05);
+        }
+    }
+</style></head>
+  <body>
+<div id="rosebud-exported-splash" aria-live="polite">
+    <div class="rosebud-exported-splash__content">
+        <img
+            class="rosebud-exported-splash__logo"
+            src="__rosebud/rosebud-icon.png"
+            alt="Rosebud Logo"
+            width="100"
+            height="100"
+        />
+        <div class="rosebud-exported-splash__text" aria-label="Rosebud.AI Make Games">
+            <strong>Rosebud.AI</strong>
+            <span>Make Games</span>
+        </div>
+    </div>
+</div>
+    <div id="game-container"></div>
+    <div id="custom-cursor"></div>
+    <div id="menu-overlay">
+      <div id="main-menu">
+        <h1>ZORKA</h1>
+        <h2 style="color: #00ffff; font-size: 1.2rem; margin-top: -1.5rem; margin-bottom: 2rem; letter-spacing: 0.5rem;">BATTLE FOR THE SOLAR TIDES</h2>
+        
+        <button class="menu-button" id="btn-solo-open">SOLO ARENA</button>
+        <button class="menu-button" id="btn-pvp">LOCAL PVP ARENA</button>
+      </div>
+
+      <div id="solo-menu" class="hidden" style="display: flex; flex-direction: column; align-items: center; width: 100%;">
+        <h1>SOLO ARENA</h1>
+        
+        <h2 style="color: #00ffff; font-size: 1.2rem; margin-top: -1.0rem; margin-bottom: 0.5rem; text-align: center;">SELECT NUMBER OF ENEMY BOTS IN THE LOBBY</h2>
+        <div style="color: #888; font-size: 0.9rem; margin-bottom: 1.5rem; text-align: center; font-family: 'Inter', sans-serif;">Press Join Selected Arena to Launch Game.</div>
+        
+        <div style="display: flex; gap: 10px; margin-bottom: 2rem; justify-content: center; flex-wrap: wrap;">
+          <button class="count-btn bot-count-btn" data-bot-count="1">1</button>
+          <button class="count-btn bot-count-btn" data-bot-count="2">2</button>
+          <button class="count-btn bot-count-btn" data-bot-count="3">3</button>
+          <button class="count-btn bot-count-btn" data-bot-count="4">4</button>
+          <button class="count-btn bot-count-btn" data-bot-count="5">5</button>
+          <button class="count-btn bot-count-btn" data-bot-count="6">6</button>
+          <button class="count-btn bot-count-btn" data-bot-count="7">7</button>
+        </div>
+
+        <div id="mock-lobby-box" style="width: 600px; border: 1px solid #00ffff; padding: 15px; background: transparent; margin-bottom: 1.5rem; display: flex; flex-direction: column; align-items: center; box-sizing: border-box;">
+          <!-- Content will be populated by JS -->
+        </div>
+
+        <button class="menu-button" id="btn-solo-join" style="width: 400px; margin-bottom: 1.5rem; background: #00ffff; color: black; display: flex; flex-direction: column; align-items: center; justify-content: center; height: auto; padding: 1.5rem 2rem;">
+          <span style="font-size: 2.5rem; font-weight: 800; margin-bottom: 0.2rem;">PLAY</span>
+          <span style="font-size: 1rem; letter-spacing: 0.1rem;">JOIN SELECTED ARENA</span>
+        </button>
+
+        <!-- Controls Selection (shown for SOLO and PVP) -->
+        <div id="controls-selection" class="hidden" style="margin-bottom: 1.5rem; width: 100%; display: flex; flex-direction: column; align-items: center;">
+          
+          <div id="controls-dual-layout" style="display: flex; gap: 20px; width: 100%; justify-content: center; flex-wrap: wrap;">
+            <div id="p1-control-box" style="background: transparent; padding: 20px; border: 1px solid #00ffff; border-radius: 8px; width: 400px;">
+              <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
+                <span style="font-size: 1.0rem;">P1 CONTROL:</span>
+                <div id="p1-control-options" style="display: flex; gap: 10px;">
+                  <button class="count-btn" id="p1-keyboard-btn" style="width: 140px; font-size: 0.8rem;">KEYBOARD</button>
+                  <button class="count-btn" id="p1-gamepad-btn" style="width: 140px; font-size: 0.8rem;">GAMEPAD</button>
+                </div>
+              </div>
+              <div id="gamepad-status" style="margin-top: 15px; font-size: 0.8rem; color: #ff8800; text-align: center;"></div>
+            </div>
+
+            <div id="p2-control-line" class="hidden" style="background: transparent; padding: 20px; border: 1px solid #00ffff; border-radius: 8px; width: 400px;">
+              <div style="display: flex; justify-content: space-between; align-items: center;">
+                <span style="font-size: 1.2rem;">P2 CONTROL:</span>
+                <button class="count-btn selected" disabled style="width: 140px; font-size: 0.8rem;">GAMEPAD</button>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Transformation Setting -->
+        <div id="transformation-setting" class="hidden" style="margin-bottom: 1.5rem; background: rgba(0,255,255,0.1); padding: 15px; border: 1px solid #00ffff; border-radius: 8px; width: 400px; display: flex; flex-direction: column; align-items: center; gap: 10px;">
+          <div style="font-size: 1.0rem;">TRANSFORMATION:</div>
+          <div style="display: flex; align-items: center; gap: 15px;">
+            <button class="count-btn" id="trans-dec" style="width: 50px; height: 50px; font-size: 1.5rem;">-</button>
+            <span id="trans-value" style="font-size: 2rem; width: 60px; text-align: center; color: #fff;">12</span>
+            <button class="count-btn" id="trans-inc" style="width: 50px; height: 50px; font-size: 1.5rem;">+</button>
+          </div>
+        </div>
+
+        <!-- Options Popup -->
+        <div id="options-popup" class="hidden" style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; z-index: 40; background: rgba(0,0,0,0.85); display: flex; align-items: center; justify-content: center;">
+          <div style="background: #050505; border: 2px solid #00ffff; padding: 40px; border-radius: 8px; width: 600px; text-align: center; box-shadow: 0 0 40px rgba(0,255,255,0.3); display: flex; flex-direction: column; align-items: center;">
+            <h2 style="color: #00ffff; margin-bottom: 2rem;">ARENA OPTIONS</h2>
+            
+            <div style="margin-bottom: 2rem; width: 100%;">
+              <div style="font-size: 1.1rem; color: #fff; margin-bottom: 1rem;">ASTEROID DENSITY</div>
+              <div style="display: flex; gap: 10px; justify-content: center;">
+                <button class="count-btn density-btn" data-density="0">0</button>
+                <button class="count-btn density-btn" data-density="1">1</button>
+                <button class="count-btn density-btn" data-density="2">2</button>
+                <button class="count-btn density-btn" data-density="3">3</button>
+                <button class="count-btn density-btn" data-density="4">4</button>
+                <button class="count-btn density-btn" data-density="5">5</button>
+              </div>
+            </div>
+
+            <div style="margin-bottom: 2rem; width: 100%;">
+              <div style="font-size: 1.1rem; color: #fff; margin-bottom: 1rem;">DEBRIS DENSITY</div>
+              <div style="display: flex; gap: 10px; justify-content: center;">
+                <button class="count-btn debris-btn" data-debris="0">0</button>
+                <button class="count-btn debris-btn" data-debris="1">1</button>
+                <button class="count-btn debris-btn" data-debris="2">2</button>
+                <button class="count-btn debris-btn" data-debris="3">3</button>
+                <button class="count-btn debris-btn" data-debris="4">4</button>
+                <button class="count-btn debris-btn" data-debris="5">5</button>
+              </div>
+            </div>
+
+            <div style="margin-bottom: 2rem; width: 100%;">
+              <div style="font-size: 1.1rem; color: #fff; margin-bottom: 1rem;">SATELLITE DENSITY</div>
+              <div style="display: flex; gap: 10px; justify-content: center;">
+                <button class="count-btn satellite-btn" data-satellite="0">0</button>
+                <button class="count-btn satellite-btn" data-satellite="1">1</button>
+                <button class="count-btn satellite-btn" data-satellite="2">2</button>
+                <button class="count-btn satellite-btn" data-satellite="3">3</button>
+                <button class="count-btn satellite-btn" data-satellite="4">4</button>
+                <button class="count-btn satellite-btn" data-satellite="5">5</button>
+              </div>
+            </div>
+
+            <div style="margin-bottom: 2rem; width: 100%;">
+              <div style="font-size: 1.1rem; color: #fff; margin-bottom: 1rem;">BOT AGGRESSION</div>
+              <div style="display: flex; gap: 10px; justify-content: center;">
+                <button class="count-btn aggression-btn" data-aggression="0">?</button>
+                <button class="count-btn aggression-btn" data-aggression="1">1</button>
+                <button class="count-btn aggression-btn" data-aggression="2">2</button>
+                <button class="count-btn aggression-btn" data-aggression="3">3</button>
+                <button class="count-btn aggression-btn" data-aggression="4">4</button>
+                <button class="count-btn aggression-btn" data-aggression="5">5</button>
+              </div>
+              <div id="aggression-label" style="margin-top: 15px; font-size: 1.2rem; color: #00ffff; font-weight: bold;">Random<br><span style="font-size: 0.8rem; font-weight: normal; color: #888;">(random bot aggression every spawn)</span></div>
+            </div>
+
+            <div style="margin-bottom: 2rem; width: 100%;">
+              <div style="font-size: 1.1rem; color: #fff; margin-bottom: 1rem;">SHIELDS</div>
+              <div style="display: flex; gap: 10px; justify-content: center;">
+                <button class="count-btn shield-btn" data-shield="0">0</button>
+                <button class="count-btn shield-btn" data-shield="1">1</button>
+                <button class="count-btn shield-btn" data-shield="2">2</button>
+                <button class="count-btn shield-btn" data-shield="3">3</button>
+                <button class="count-btn shield-btn" data-shield="4">4</button>
+                <button class="count-btn shield-btn" data-shield="5">5</button>
+              </div>
+            </div>
+
+            <div style="margin-bottom: 2rem; width: 100%;">
+              <div style="font-size: 1.1rem; color: #fff; margin-bottom: 1rem;">CROSSHAIR STYLE</div>
+              <div style="display: flex; gap: 10px; justify-content: center;">
+                <button class="count-btn cursor-option-btn" data-cursor="0">
+                  <div class="cursor-preview cursor-style-0">
+                    <div class="cursor-line line-n"></div>
+                    <div class="cursor-line line-s"></div>
+                    <div class="cursor-line line-e"></div>
+                    <div class="cursor-line line-w"></div>
+                  </div>
+                </button>
+                <button class="count-btn cursor-option-btn" data-cursor="1">
+                  <div class="cursor-preview cursor-style-1">
+                    <div class="cursor-line cursor-line-h"></div>
+                    <div class="cursor-line cursor-line-v"></div>
+                  </div>
+                </button>
+                <button class="count-btn cursor-option-btn" data-cursor="2">
+                  <div class="cursor-preview cursor-style-2"></div>
+                </button>
+                <button class="count-btn cursor-option-btn" data-cursor="3">
+                  <div class="cursor-preview cursor-style-3">
+                    <div class="cursor-line cursor-tl"></div>
+                    <div class="cursor-line cursor-tr"></div>
+                    <div class="cursor-line cursor-bl"></div>
+                    <div class="cursor-line cursor-br"></div>
+                  </div>
+                </button>
+                <button class="count-btn cursor-option-btn" data-cursor="4">
+                  <div class="cursor-preview cursor-style-4">
+                    <div class="cursor-line x1"></div>
+                    <div class="cursor-line x2"></div>
+                    <div class="cursor-line x3"></div>
+                    <div class="cursor-line x4"></div>
+                  </div>
+                </button>
+                <button class="count-btn cursor-option-btn" data-cursor="5">
+                  <div class="cursor-preview cursor-style-5">
+                    <div class="cursor-line t1"></div>
+                    <div class="cursor-line t2"></div>
+                    <div class="cursor-line t3"></div>
+                    <div class="cursor-line t4"></div>
+                  </div>
+                </button>
+              </div>
+            </div>
+
+            <button class="menu-button" id="btn-options-back" style="border-color: #ff00ff; color: #ff00ff; width: 300px; margin-top: 1rem;">BACK</button>
+          </div>
+        </div>
+
+        <button class="menu-button" id="btn-options-open" style="width: 400px; margin-bottom: 0.5rem;">OPTIONS</button>
+        <button class="menu-button" id="btn-solo-back" style="border-color: #ff00ff; color: #ff00ff; width: 400px;">BACK</button>
+      </div>
+
+      <div id="online-menu" class="hidden" style="display: flex; flex-direction: column; align-items: center; width: 100%;">
+        <h1>ONLINE PVP ARENA</h1>
+
+        <h2 style="color: #00ffff; font-size: 1.2rem; margin-top: -1.0rem; margin-bottom: 0.5rem; text-align: center;">SELECT AN ACTIVE ARENA FROM THE LOBBY</h2>
+        <div style="color: #888; font-size: 0.9rem; margin-bottom: 1.5rem; text-align: center; font-family: 'Inter', sans-serif;">Press Join Selected Arena to Launch Game.</div>
+
+        <div id="lobby-list" style="width: 600px; height: 180px; overflow-y: auto; border: 1px solid #00ffff; padding: 10px; background: transparent; margin-bottom: 1.5rem;"></div>
+
+        <button class="menu-button" id="btn-online-join" disabled style="width: 400px; margin-bottom: 1.5rem; background: #00ffff; color: black; display: flex; flex-direction: column; align-items: center; justify-content: center; height: auto; padding: 1.5rem 2rem;">
+          <span style="font-size: 2.5rem; font-weight: 800; margin-bottom: 0.2rem;">PLAY</span>
+          <span style="font-size: 1rem; letter-spacing: 0.1rem;">JOIN SELECTED ARENA</span>
+        </button>
+
+        <button class="menu-button" id="btn-online-quick-join" style="width: 400px; margin-bottom: 1.5rem;">QUICK START (HOST/JOIN)</button>
+
+        <div id="online-controls-selection" style="margin-bottom: 1.5rem; background: transparent; padding: 20px; border: 1px solid #00ffff; border-radius: 8px; width: 400px;">
+          <div style="display: flex; justify-content: space-between; align-items: center;">
+            <span style="font-size: 1.2rem;">YOUR CONTROL:</span>
+            <div style="display: flex; gap: 10px;">
+              <button class="count-btn" id="online-keyboard-btn" style="width: 140px; font-size: 0.8rem;">KEYBOARD</button>
+              <button class="count-btn" id="online-gamepad-btn" style="width: 140px; font-size: 0.8rem;">GAMEPAD</button>
+            </div>
+          </div>
+          <div id="online-gamepad-status" style="margin-top: 15px; font-size: 0.8rem; color: #ff8800; text-align: center;"></div>
+        </div>
+
+        <button class="menu-button" id="btn-online-back" style="border-color: #ff00ff; color: #ff00ff; width: 400px;">BACK</button>
+      </div>
+
+      <div id="status-text" style="margin-top: 10px; color: #ff8800;"></div>
+    </div>
+
+    <!-- Floating in-game pause menu: overlays gameplay without pausing the simulation -->
+    <div id="pause-menu" class="hidden" style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; z-index: 20; pointer-events: none; display: flex; align-items: center; justify-content: center;">
+      <div style="pointer-events: auto; background: rgba(0, 0, 0, 0.92); border: 2px solid #00ffff; border-radius: 10px; padding: 30px 40px; box-shadow: 0 0 30px rgba(0, 255, 255, 0.5); display: flex; flex-direction: column; align-items: center; gap: 15px;">
+        <h2 style="margin: 0 0 10px 0; color: #00ffff; letter-spacing: 0.2rem; font-size: 1.5rem;">GAME MENU</h2>
+        <button class="menu-button" id="btn-pause-continue" style="width: 220px;">CONTINUE</button>
+        <button class="menu-button" id="btn-pause-quit" style="width: 220px; border-color: #ff00ff; color: #ff00ff;">RETURN TO MENU</button>
+      </div>
+    </div>
+
+    <!-- Confirmation Popup for Botless Lobby -->
+    <div id="botless-popup" class="hidden" style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; z-index: 30; background: rgba(0,0,0,0.8); display: flex; align-items: center; justify-content: center;">
+      <div style="background: #050505; border: 2px solid #00ffff; padding: 30px; border-radius: 8px; width: 450px; text-align: center; box-shadow: 0 0 30px rgba(0,255,255,0.3);">
+        <p style="font-size: 1.1rem; color: #fff; margin-bottom: 2rem; line-height: 1.6;">You are launching into a lobby with no bots. Return to add bots or continue to flight practice.</p>
+        <div style="display: flex; gap: 20px; justify-content: center;">
+          <button class="menu-button" id="btn-botless-continue" style="width: 180px; font-size: 1.2rem;">CONTINUE</button>
+          <button class="menu-button" id="btn-botless-back" style="width: 180px; font-size: 1.2rem; border-color: #ff00ff; color: #ff00ff;">BACK</button>
+        </div>
+      </div>
+    </div>
+
+    <script type="module" src="main.js"></script>
+    <script src="https://storage.googleapis.com/rosebud_staticfiles/ChatManager.js"></script>
+    <script src="https://storage.googleapis.com/rosebud_staticfiles/ImageGenerator.js"></script>
+    <script src="https://storage.googleapis.com/rosebud_staticfiles/ProgressLogger.js"></script>
+    <script src="https://storage.googleapis.com/rosebud_staticfiles/OGP.js"></script>
+  
+<script>
+    (() => {
+        const splashRoot = document.getElementById('rosebud-exported-splash');
+        if (!splashRoot) return;
+
+        let isReady = false;
+        let isMinimumVisibleTimeElapsed = false;
+        let isHidden = false;
+
+        const maybeHideSplash = () => {
+            if (isHidden || !isReady || !isMinimumVisibleTimeElapsed) return;
+
+            isHidden = true;
+            splashRoot.classList.add('is-hiding');
+            window.setTimeout(() => splashRoot.remove(), 500);
+        };
+
+        const markReady = () => {
+            isReady = true;
+            maybeHideSplash();
+        };
+
+        window.setTimeout(() => {
+            isMinimumVisibleTimeElapsed = true;
+            maybeHideSplash();
+        }, 1000);
+
+        if (document.readyState === 'complete') {
+            markReady();
+        } else {
+            window.addEventListener('load', markReady, { once: true });
+        }
+
+        
+    })();
+</script></body>
+</html>

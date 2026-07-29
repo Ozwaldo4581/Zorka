@@ -1,0 +1,250 @@
+import { updateNewtonian } from '../physics.js';
+import { WORLD_WIDTH, WORLD_HEIGHT } from '../game.js';
+
+export class Projectile {
+    constructor(x, y, vx, vy, color = '#00ffff') {
+        this.x = x;
+        this.y = y;
+        this.vx = vx;
+        this.vy = vy;
+        this.color = color;
+        this.radius = 8;
+        this.lifeSpan = 1.0; 
+        this.rotation = Math.atan2(vy, vx) + Math.PI / 2;
+        this.canWrap = true;
+        this.isLaser = false;
+        this.isGhost = false;
+        this.isMissile = false;
+        this.isDecoy = false;
+        this.isTentacle = false;
+        this.isSkinnyMissile = false;
+        this.isOrbital = false;
+        this.orbitalAngle = 0;
+        this.orbitalDistance = 150;
+        this.tentacleLength = 0;
+        this.maxTentacleLength = 550; // Decreased from 800
+        this.tentaclePhase = 'OUT'; // OUT or IN
+        this.missileTarget = null;
+        this.aoeRadius = 0;
+    }
+
+    update(dt, asteroids = [], players = [], hazards = []) {
+        if (this.isMissile) {
+            this.updateMissile(dt, players, hazards);
+        } else if (this.isTentacle) {
+            this.updateTentacle(dt);
+        } else if (this.isOrbital) {
+            this.updateOrbital(dt);
+        } else {
+            this.x += this.vx * dt;
+            this.y += this.vy * dt;
+        }
+
+        if (this.canWrap) {
+            if (this.x < 0) this.x += WORLD_WIDTH;
+            if (this.x > WORLD_WIDTH) this.x -= WORLD_WIDTH;
+            if (this.y < 0) this.y += WORLD_HEIGHT;
+            if (this.y > WORLD_HEIGHT) this.y -= WORLD_HEIGHT;
+        } else {
+            // Destroy non-wrapping projectiles when they leave the world bounds
+            if (this.x < 0 || this.x > WORLD_WIDTH || this.y < 0 || this.y > WORLD_HEIGHT) {
+                this.lifeSpan = 0;
+            }
+        }
+
+        if (!this.isMissile && !this.isTentacle) {
+            this.lifeSpan -= dt;
+        }
+    }
+
+    updateOrbital(dt) {
+        if (this.owner) {
+            this.orbitalAngle += dt * 2; // Speed of orbit
+            this.x = this.owner.x + Math.cos(this.orbitalAngle) * this.orbitalDistance;
+            this.y = this.owner.y + Math.sin(this.orbitalAngle) * this.orbitalDistance;
+        }
+    }
+
+    updateTentacle(dt) {
+        const speed = 1200; // Tentacle speed matching Earthling projectile
+        
+        // Immediate cleanup if owner is no longer Dimension X
+        if (!this.owner || !this.owner.isDimensionX || this.owner.isDead) {
+            this.tentaclePhase = 'IN';
+        }
+
+        if (this.tentaclePhase === 'OUT') {
+            this.tentacleLength += speed * dt;
+            if (this.tentacleLength >= this.maxTentacleLength) {
+                this.tentacleLength = this.maxTentacleLength;
+                this.tentaclePhase = 'IN';
+            }
+        } else {
+            this.tentacleLength -= speed * dt;
+            if (this.tentacleLength <= 0) {
+                this.tentacleLength = 0;
+                this.lifeSpan = 0; // Destroy tentacle
+            }
+        }
+
+        if (this.owner) {
+            this.x = this.owner.x + Math.sin(this.rotation) * this.tentacleLength;
+            this.y = this.owner.y - Math.cos(this.rotation) * this.tentacleLength;
+        }
+    }
+
+    updateMissile(dt, players, hazards) {
+        // Missiles home in on players and satellites, ignoring the firing owner and the dead/destroyed.
+        // Homing behavior now only kicks in when within one screen length (DESIGN_WIDTH) of a target.
+        const HOMING_RANGE = 1920; 
+
+        if (!this.missileTarget || this.missileTarget.isDead || this.missileTarget.isDestroyed) {
+            let minDist = Infinity;
+            this.missileTarget = null;
+            
+            // Check players
+            players.forEach(pl => {
+                if (pl === this.owner || pl.isDead) return;
+                const d = Math.hypot(pl.x - this.x, pl.y - this.y);
+                if (d < minDist && d < HOMING_RANGE) {
+                    minDist = d;
+                    this.missileTarget = pl;
+                }
+            });
+
+            // Check satellites (with equal priority)
+            hazards.forEach(h => {
+                if (!h.isSatellite || h.isDestroyed) return;
+                const d = Math.hypot(h.x - this.x, h.y - this.y);
+                if (d < minDist && d < HOMING_RANGE) {
+                    minDist = d;
+                    this.missileTarget = h;
+                }
+            });
+        }
+
+        if (this.missileTarget) {
+            // Re-check distance to target to ensure we are still within homing range
+            const dist = Math.hypot(this.missileTarget.x - this.x, this.missileTarget.y - this.y);
+            
+            if (dist < HOMING_RANGE) {
+                const dx = this.missileTarget.x - this.x;
+                const dy = this.missileTarget.y - this.y;
+                const targetRot = Math.atan2(dy, dx) + Math.PI / 2;
+                const currentRot = Math.atan2(this.vy, this.vx) + Math.PI / 2;
+                
+                // Turn toward target
+                let diff = targetRot - currentRot;
+                while (diff > Math.PI) diff -= Math.PI * 2;
+                while (diff < -Math.PI) diff += Math.PI * 2;
+                
+                // Restored agility (increased from 2.2 to 2.7 to reduce turning radius)
+                const newRot = currentRot + diff * dt * 2.7;
+                const speed = Math.hypot(this.vx, this.vy);
+                this.vx = Math.sin(newRot) * speed;
+                this.vy = -Math.cos(newRot) * speed;
+                this.rotation = newRot;
+            } else {
+                // Target lost (out of range), reset target
+                this.missileTarget = null;
+            }
+        }
+
+        this.x += this.vx * dt;
+        this.y += this.vy * dt;
+    }
+
+    draw(ctx, assets, camera) {
+        ctx.save();
+        camera.apply(ctx, this.x, this.y);
+        
+        if (this.isTentacle && this.owner) {
+            // Do not draw tentacle if owner is no longer Dimension X
+            if (!this.owner.isDimensionX || this.owner.isDead) {
+                ctx.restore();
+                return;
+            }
+            ctx.restore();
+            ctx.save();
+            // Draw stretchy tentacle arm
+            ctx.strokeStyle = this.color;
+            ctx.lineWidth = 24; // Doubled from 12
+            ctx.lineCap = 'round';
+            ctx.shadowBlur = 10;
+            ctx.shadowColor = this.color;
+
+            // Apply camera relative to owner
+            camera.apply(ctx, this.owner.x, this.owner.y);
+            
+            ctx.beginPath();
+            ctx.moveTo(0, 0);
+            ctx.lineTo(Math.sin(this.rotation) * this.tentacleLength, -Math.cos(this.rotation) * this.tentacleLength);
+            ctx.stroke();
+
+            // Tip of tentacle (claw/sucker)
+            ctx.fillStyle = '#fff';
+            ctx.beginPath();
+            ctx.arc(Math.sin(this.rotation) * this.tentacleLength, -Math.cos(this.rotation) * this.tentacleLength, 30, 0, Math.PI * 2); // Doubled from 15
+            ctx.fill();
+        } else if (this.isOrbital) {
+            // Draw satellite
+            const size = this.radius * 3;
+            ctx.rotate(this.orbitalAngle + Math.PI / 2);
+            ctx.drawImage(assets.satellite, -size / 2, -size / 2, size, size);
+        } else if (this.isSkinnyMissile) {
+            ctx.rotate(this.rotation);
+            ctx.shadowBlur = 12;
+            ctx.shadowColor = this.color;
+            ctx.fillStyle = this.color;
+            ctx.fillRect(-3, -22, 6, 44); // Skinny version
+            ctx.fillStyle = '#ffffff'; 
+            ctx.fillRect(-3, -22, 6, 10); 
+            ctx.shadowBlur = 0;
+            ctx.fillStyle = '#ffaa00'; 
+            ctx.fillRect(-2, 22, 4, 15); 
+        } else if (this.isDecoy) {
+            // Draw as a larger, slightly glitchy asteroid
+            ctx.globalAlpha = 0.8;
+            const size = 120;
+            ctx.shadowBlur = 10;
+            ctx.shadowColor = this.color;
+            ctx.drawImage(assets.asteroid, -size / 2, -size / 2, size, size);
+            
+            // Subtle digital glitch overlay
+            ctx.strokeStyle = this.color;
+            ctx.lineWidth = 2;
+            ctx.strokeRect(-size / 2 - 2, -size / 2 - 2, size + 4, size + 4);
+        } else if (this.isLaser) {
+            ctx.fillStyle = this.color;
+            ctx.shadowBlur = 15;
+            ctx.shadowColor = this.color;
+            ctx.rotate(this.rotation);
+            ctx.fillRect(-3, -40, 6, 80);
+        } else if (this.isMissile) {
+            ctx.rotate(this.rotation);
+            ctx.shadowBlur = 12;
+            ctx.shadowColor = this.color;
+            ctx.fillStyle = this.color;
+            ctx.fillRect(-9, -22, 18, 44);
+            ctx.fillStyle = '#ffffff'; // White nose for contrast
+            ctx.fillRect(-9, -22, 18, 10); // Nose highlight
+            ctx.shadowBlur = 0;
+            ctx.fillStyle = '#ff2200'; // Engine fire remains red-orange
+            ctx.fillRect(-5, 22, 10, 22); // Engine fire
+        } else {
+            if (this.isGhost) ctx.globalAlpha = 0.6;
+            // Draw as a glowing sphere
+            const gradient = ctx.createRadialGradient(0, 0, 0, 0, 0, this.radius);
+            gradient.addColorStop(0, '#fff');
+            gradient.addColorStop(0.4, this.color);
+            gradient.addColorStop(1, 'transparent');
+            
+            ctx.fillStyle = gradient;
+            ctx.beginPath();
+            ctx.arc(0, 0, this.radius * 2, 0, Math.PI * 2);
+            ctx.fill();
+        }
+        
+        ctx.restore();
+    }
+}

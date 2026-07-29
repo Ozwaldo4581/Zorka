@@ -1,0 +1,19 @@
+# JavaScript dependencies and Vite build output
+node_modules/
+dist/
+
+# Local editor and operating-system files
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# Capacitor / Android generated output (add Capacitor's source files later)
+android/.gradle/
+android/build/
+android/app/build/
+
+# Local environment settings and secrets
+.env
+.env.*
+!.env.example
