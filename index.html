@@ -141,6 +141,50 @@
         background: rgba(0, 255, 255, 0.2);
         color: #00ffff;
       }
+      #main-menu {
+        text-align: center;
+      }
+      .main-menu-actions {
+        display: flex;
+        justify-content: center;
+      }
+      .options-popup {
+        position: absolute;
+        inset: 0;
+        z-index: 40;
+        background: rgba(0, 0, 0, 0.85);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+      }
+      .options-panel {
+        box-sizing: border-box;
+        width: min(684px, calc(100% - 2rem));
+        padding: 40px;
+        background: #050505;
+        border: 2px solid #00ffff;
+        border-radius: 8px;
+        box-shadow: 0 0 40px rgba(0, 255, 255, 0.3);
+        text-align: center;
+      }
+      .options-panel h2 {
+        margin: 0 0 1rem;
+        color: #00ffff;
+        font-size: 1.1rem;
+      }
+      .options-group {
+        margin-bottom: 2rem;
+      }
+      .options-button-row {
+        display: flex;
+        gap: 10px;
+        justify-content: center;
+      }
+      .mouse-control-btn {
+        width: 190px;
+        font-size: 1rem;
+        opacity: 0.65;
+      }
       .controls-hint {
         margin-top: 2rem;
         font-family: 'Inter', sans-serif;
@@ -336,7 +380,45 @@
         <h2 style="color: #00ffff; font-size: 1.2rem; margin-top: -1.5rem; margin-bottom: 2rem; letter-spacing: 0.5rem;">BATTLE FOR THE SOLAR TIDES</h2>
         
         <button class="menu-button" id="btn-solo-open">SOLO ARENA</button>
-        <button class="menu-button" id="btn-pvp">LOCAL PVP ARENA</button>
+        <div class="main-menu-actions">
+          <button class="menu-button" id="btn-pvp">LOCAL PVP ARENA</button>
+          <button class="menu-button" id="btn-main-options-open">OPTIONS</button>
+        </div>
+      </div>
+
+      <div id="main-options-popup" class="hidden options-popup">
+        <div class="options-panel">
+          <div class="options-group">
+            <h2>MUSIC VOLUME</h2>
+            <div class="options-button-row">
+              <button class="count-btn music-volume-btn" data-music-level="0">0</button>
+              <button class="count-btn music-volume-btn" data-music-level="1">1</button>
+              <button class="count-btn music-volume-btn" data-music-level="2">2</button>
+              <button class="count-btn music-volume-btn" data-music-level="3">3</button>
+              <button class="count-btn music-volume-btn" data-music-level="4">4</button>
+              <button class="count-btn music-volume-btn" data-music-level="5">5</button>
+            </div>
+          </div>
+          <div class="options-group">
+            <h2>SOUND SFX</h2>
+            <div class="options-button-row">
+              <button class="count-btn sfx-volume-btn" data-sfx-level="0">0</button>
+              <button class="count-btn sfx-volume-btn" data-sfx-level="1">1</button>
+              <button class="count-btn sfx-volume-btn" data-sfx-level="2">2</button>
+              <button class="count-btn sfx-volume-btn" data-sfx-level="3">3</button>
+              <button class="count-btn sfx-volume-btn" data-sfx-level="4">4</button>
+              <button class="count-btn sfx-volume-btn" data-sfx-level="5">5</button>
+            </div>
+          </div>
+          <div class="options-group">
+            <h2>MOUSE CONTROLS</h2>
+            <div class="options-button-row">
+              <button class="count-btn mouse-control-btn" aria-disabled="true">ABSOLUTE</button>
+              <button class="count-btn mouse-control-btn" aria-disabled="true">RELATIVE</button>
+            </div>
+          </div>
+          <button class="menu-button" id="btn-main-options-back">BACK</button>
+        </div>
       </div>
 
       <div id="solo-menu" class="hidden arena-setup">
