@@ -79,7 +79,7 @@ export class Game {
         this.cursorVisible = true;
         
         // New Arena Options
-        this.asteroidDensityLevel = 3; // Default to 3 (scaled 0-5)
+        this.asteroidDensityLevel = 1; // Default to 3 (scaled 0-5)
         this.debrisDensityLevel = 3; 
         this.satelliteDensityLevel = 3;
         this.startingShieldCharges = 3;
