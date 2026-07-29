@@ -5,12 +5,13 @@ import { Projectile } from './entities/projectile.js';
 import { Camera } from './camera.js';
 import { HUD } from './ui/hud.js';
 import { AudioManager } from './audio_manager.js';
-import { checkCollision } from './physics.js';
+import { checkCollision, nearestWrappedDisplacement } from './physics.js';
 
 export const DESIGN_WIDTH = 1920;
 export const DESIGN_HEIGHT = 1080;
 export const WORLD_WIDTH = DESIGN_WIDTH * 9;
 export const WORLD_HEIGHT = DESIGN_HEIGHT * 9;
+const ASTEROID_TARGET_SELECTION_PADDING = 0;
 
 export class Game {
     constructor(containerId) {
@@ -46,7 +47,7 @@ export class Game {
 
         this.lastTime = 0;
         this.keys = {};
-        this.mouse = { x: 0, y: 0, clicked: false };
+        this.mouse = { x: 0, y: 0, clicked: false, m2Held: false, m2Pressed: false, m2Released: false };
         this.domCursor = document.getElementById('custom-cursor');
 
         // Controller Menu Navigation
@@ -134,6 +135,7 @@ export class Game {
 
     spawnPlayers(mode, customShipCount, onlineRoomConfig) {
         this.gameState = mode;
+        this.resetMouseLockInput();
         // Keep space_ambient playing
         this.players = [];
 
@@ -457,22 +459,39 @@ export class Game {
             this.mouse.x = (e.clientX - rect.left) / this.scale;
             this.mouse.y = (e.clientY - rect.top) / this.scale;
 
-            // Update DOM cursor position
-            if (this.domCursor) {
+            // Locked cursor presentation is updated from its world point each frame.
+            if (this.domCursor && !this.players[0]?.aimLockActive) {
                 this.domCursor.style.left = `${e.clientX}px`;
                 this.domCursor.style.top = `${e.clientY}px`;
                 this.domCursor.style.display = 'block';
             }
         });
-        window.addEventListener('mousedown', () => {
+        window.addEventListener('mousedown', (e) => {
             if (this.gameState === 'SPLASH') {
                 this.advanceFromSplash();
                 return;
             }
-            this.mouse.clicked = true;
+            if (e.button === 0) this.mouse.clicked = true;
+            if (e.button === 2 && !this.mouse.m2Held && e.target === this.canvas && this.isInGameplayState()
+                && !this.isPauseMenuOpen && this.players[0]?.controlMode === 'KEYBOARD') {
+                this.mouse.m2Held = true;
+                this.mouse.m2Pressed = true;
+            }
             this.audio.unlock();
         });
-        window.addEventListener('mouseup', () => this.mouse.clicked = false);
+        window.addEventListener('mouseup', (e) => {
+            if (e.button === 0) this.mouse.clicked = false;
+            if (e.button === 2) {
+                const wasHeld = this.mouse.m2Held;
+                this.mouse.m2Held = false;
+                this.mouse.m2Released = wasHeld;
+            }
+        });
+        this.canvas.addEventListener('contextmenu', (e) => e.preventDefault());
+        window.addEventListener('blur', () => this.resetMouseLockInput());
+        document.addEventListener('visibilitychange', () => {
+            if (document.hidden) this.resetMouseLockInput();
+        });
 
         // Menu buttons
         document.getElementById('btn-solo-open').addEventListener('click', () => {
@@ -888,6 +907,13 @@ export class Game {
         return this.gameState !== 'MENU' && this.gameState !== 'SPLASH';
     }
 
+    resetMouseLockInput() {
+        this.mouse.m2Held = false;
+        this.mouse.m2Pressed = false;
+        this.mouse.m2Released = false;
+        this.players[0]?.clearAimLock();
+    }
+
     togglePauseMenu() {
         if (this.isPauseMenuOpen) {
             this.closePauseMenu();
@@ -897,6 +923,7 @@ export class Game {
     }
 
     openPauseMenu() {
+        this.resetMouseLockInput();
         this.isPauseMenuOpen = true;
         document.getElementById('pause-menu').classList.remove('hidden');
 
@@ -1125,6 +1152,7 @@ export class Game {
     }
 
     returnToMenu() {
+        this.resetMouseLockInput();
         if (this.network) {
             this.network.leave();
         }
@@ -1188,6 +1216,51 @@ export class Game {
             return [p1Cam, p2Cam];
         }
         return [this.camera];
+    }
+
+    getPlayerOneCamera() {
+        if (this.gameState !== 'PVP') return this.camera;
+        const camera = new Camera();
+        camera.zoom = this.camera.zoom * 0.8;
+        camera.follow(this.players[0]);
+        return camera;
+    }
+
+    findAsteroidTargetAt(worldX, worldY) {
+        let bestTarget = null;
+        let bestDistanceSquared = Infinity;
+        let bestIndex = Infinity;
+
+        this.asteroids.forEach((asteroid, index) => {
+            if (!asteroid || asteroid.isDestroyed || !Number.isFinite(asteroid.x)
+                || !Number.isFinite(asteroid.y) || !Number.isFinite(asteroid.radius)) return;
+
+            const delta = nearestWrappedDisplacement(worldX, worldY, asteroid.x, asteroid.y);
+            const distanceSquared = delta.x * delta.x + delta.y * delta.y;
+            const selectionRadius = asteroid.radius + ASTEROID_TARGET_SELECTION_PADDING;
+            if (distanceSquared > selectionRadius * selectionRadius) return;
+
+            // Collection index is the deterministic tie-breaker because asteroid
+            // objects persist in this local collection until destruction/removal.
+            if (distanceSquared < bestDistanceSquared || (distanceSquared === bestDistanceSquared && index < bestIndex)) {
+                bestTarget = asteroid;
+                bestDistanceSquared = distanceSquared;
+                bestIndex = index;
+            }
+        });
+
+        return bestTarget;
+    }
+
+    beginPlayerOneAimLock(player, camera) {
+        const viewport = {
+            x: 0,
+            y: 0,
+            width: this.gameState === 'PVP' ? DESIGN_WIDTH / 2 : DESIGN_WIDTH,
+            height: DESIGN_HEIGHT
+        };
+        const worldPoint = camera.screenToWorld(this.mouse.x, this.mouse.y, viewport);
+        player.beginAimLock(worldPoint.x, worldPoint.y, this.findAsteroidTargetAt(worldPoint.x, worldPoint.y));
     }
 
     resize() {
@@ -1518,7 +1591,15 @@ export class Game {
             if (!player.isDead) {
                 if (player.id <= 2 && !player.isNPC) {
                     const oldPrestigeLevel = player.prestigeLevel;
-                    player.update(dt, this.keys, this.mouse, this.camera, this.players, this.asteroids, gamepads, this.gameState === 'PVP', this.transformationKills, this.hazards);
+                    const inputCamera = player.id === 1 ? this.getPlayerOneCamera() : this.camera;
+                    if (player.id === 1 && this.mouse.m2Pressed && this.mouse.m2Held) {
+                        this.beginPlayerOneAimLock(player, inputCamera);
+                    }
+                    player.update(dt, this.keys, this.mouse, inputCamera, this.players, this.asteroids, gamepads, this.gameState === 'PVP', this.transformationKills, this.hazards);
+                    if (player.id === 1) {
+                        this.mouse.m2Pressed = false;
+                        this.mouse.m2Released = false;
+                    }
                     
                     if (player.prestigeLevel > oldPrestigeLevel) {
                         prestigeTriggers.push(player);
@@ -1682,6 +1763,7 @@ export class Game {
     }
 
     respawnPlayer(player) {
+        player.clearAimLock();
         player.isDead = false;
         player.vx = 0;
         player.vy = 0;
@@ -1823,6 +1905,7 @@ export class Game {
         }
 
         player.isDead = true;
+        player.clearAimLock();
         player.respawnTimer = 2;
         
         // Reset ALL power-up progress on death
@@ -2134,6 +2217,20 @@ export class Game {
         
         // Sync DOM cursor color with player color
         const p1 = this.players.find(p => p.id === 1);
+        if (p1?.aimLockActive && p1.controlMode === 'KEYBOARD') {
+            const viewport = { x: 0, y: 0, width: this.gameState === 'PVP' ? DESIGN_WIDTH / 2 : DESIGN_WIDTH, height: DESIGN_HEIGHT };
+            const point = this.getPlayerOneCamera().worldToScreen(p1.lockedAimX, p1.lockedAimY, viewport);
+            const onScreen = point.x >= viewport.x && point.x <= viewport.x + viewport.width
+                && point.y >= viewport.y && point.y <= viewport.y + viewport.height;
+            this.domCursor.style.display = onScreen ? 'block' : 'none';
+            if (onScreen) {
+                const rect = this.canvas.getBoundingClientRect();
+                this.domCursor.style.left = `${rect.left + point.x * this.scale}px`;
+                this.domCursor.style.top = `${rect.top + point.y * this.scale}px`;
+            }
+        } else {
+            this.domCursor.style.display = 'block';
+        }
         const color = (p1 && !p1.isNPC) ? p1.color : '#00ffff';
         
         this.domCursor.style.setProperty('--cursor-color', color);
