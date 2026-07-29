@@ -1,4 +1,5 @@
 import { DESIGN_WIDTH, DESIGN_HEIGHT, WORLD_WIDTH, WORLD_HEIGHT } from './game.js';
+import { nearestWrappedDisplacement } from './physics.js';
 
 export class Camera {
     constructor() {
@@ -14,6 +15,21 @@ export class Camera {
         // Target is the center of the camera
         this.x = target.x;
         this.y = target.y;
+    }
+
+    screenToWorld(screenX, screenY, viewport = { x: 0, y: 0, width: DESIGN_WIDTH, height: DESIGN_HEIGHT }) {
+        return {
+            x: this.x + (screenX - (viewport.x + viewport.width / 2)) / this.zoom,
+            y: this.y + (screenY - (viewport.y + viewport.height / 2)) / this.zoom
+        };
+    }
+
+    worldToScreen(worldX, worldY, viewport = { x: 0, y: 0, width: DESIGN_WIDTH, height: DESIGN_HEIGHT }) {
+        const delta = nearestWrappedDisplacement(this.x, this.y, worldX, worldY);
+        return {
+            x: viewport.x + viewport.width / 2 + delta.x * this.zoom,
+            y: viewport.y + viewport.height / 2 + delta.y * this.zoom
+        };
     }
 
     apply(ctx, worldX, worldY) {

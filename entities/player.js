@@ -1,4 +1,4 @@
-import { updateNewtonian, checkCollision } from '../physics.js';
+import { updateNewtonian, checkCollision, nearestWrappedDisplacement, wrapCoordinate } from '../physics.js';
 import { Projectile } from './projectile.js';
 import { DESIGN_WIDTH, DESIGN_HEIGHT, WORLD_WIDTH, WORLD_HEIGHT } from '../game.js';
 
@@ -19,6 +19,9 @@ export class Player {
         this.fireCooldown = 0;
         this.isNPC = false;
         this.wasdMode = 'RELATIVE';
+        this.aimLockActive = false;
+        this.lockedAimX = null;
+        this.lockedAimY = null;
         
         // Power-up System
         this.powerUpCapsules = 0;
@@ -80,6 +83,12 @@ export class Player {
         this.accuracyLevel = 1 + Math.floor(Math.random() * 5);
     }
 
+    clearAimLock() {
+        this.aimLockActive = false;
+        this.lockedAimX = null;
+        this.lockedAimY = null;
+    }
+
     setEvolutionForm(form) {
         this.isMartian = form === 'MARTIAN';
         this.isCyborg = form === 'CYBORG';
@@ -113,7 +122,10 @@ export class Player {
     }
 
     update(dt, keys, mouse, camera, others = [], asteroids = [], gamepads = [], isSplitScreen = false, transformationKills = 20, hazards = []) {
-        if (this.isDead) return;
+        if (this.isDead) {
+            this.clearAimLock();
+            return;
+        }
 
         // Update immunity
         if (this.spawnImmunityTimer > 0) {
@@ -167,6 +179,7 @@ export class Player {
         } else if (this.id === 1) {
             // Player 1: Controller OR Keyboard
             if (gp) {
+                this.clearAimLock();
                 const lsX = gp.axes[0];
                 const lsY = gp.axes[1];
                 const deadzone = 0.15;
@@ -196,16 +209,31 @@ export class Player {
                 // Fallback to Keyboard/Mouse
                 // If split screen, anchor is at 1/4 width (center of left half)
                 const anchorX = isSplitScreen ? (DESIGN_WIDTH / 4) : (DESIGN_WIDTH / 2);
-                const dx = mouse.x - anchorX;
-                const dy = mouse.y - (DESIGN_HEIGHT / 2);
-                
-                // Only update rotation via mouse if mouse moved or clicked (to avoid fighting gamepad)
-                const mouseDeadzone = 2;
-                if (Math.abs(dx) > mouseDeadzone || Math.abs(dy) > mouseDeadzone || mouse.clicked) {
-                    this.rotation = Math.atan2(dy, dx) + Math.PI / 2;
+                const viewport = { x: 0, y: 0, width: isSplitScreen ? DESIGN_WIDTH / 2 : DESIGN_WIDTH, height: DESIGN_HEIGHT };
+
+                if (mouse.m2Pressed && mouse.m2Held) {
+                    const target = camera.screenToWorld(mouse.x, mouse.y, viewport);
+                    this.lockedAimX = wrapCoordinate(target.x, WORLD_WIDTH);
+                    this.lockedAimY = wrapCoordinate(target.y, WORLD_HEIGHT);
+                    this.aimLockActive = true;
+                }
+                if (mouse.m2Released || !mouse.m2Held) this.clearAimLock();
+
+                if (this.aimLockActive) {
+                    const delta = nearestWrappedDisplacement(this.x, this.y, this.lockedAimX, this.lockedAimY);
+                    if (Math.hypot(delta.x, delta.y) > 2) {
+                        this.rotation = Math.atan2(delta.y, delta.x) + Math.PI / 2;
+                    }
+                } else {
+                    const dx = mouse.x - anchorX;
+                    const dy = mouse.y - (DESIGN_HEIGHT / 2);
+                    const mouseDeadzone = 2;
+                    if (Math.abs(dx) > mouseDeadzone || Math.abs(dy) > mouseDeadzone || mouse.clicked) {
+                        this.rotation = Math.atan2(dy, dx) + Math.PI / 2;
+                    }
                 }
 
-                if (this.wasdMode === 'ABSOLUTE') {
+                if (this.wasdMode === 'ABSOLUTE' && !this.aimLockActive) {
                     if (keys['KeyW']) fy -= this.thrust;
                     if (keys['KeyS']) fy += this.thrust;
                     if (keys['KeyA']) fx -= this.thrust;
