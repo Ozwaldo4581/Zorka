@@ -11,7 +11,12 @@ export const DESIGN_WIDTH = 1920;
 export const DESIGN_HEIGHT = 1080;
 export const WORLD_WIDTH = DESIGN_WIDTH * 9;
 export const WORLD_HEIGHT = DESIGN_HEIGHT * 9;
-const ASTEROID_TARGET_SELECTION_PADDING = 0;
+const TARGET_TIE_PRIORITY = Object.freeze({
+    player: 0,
+    missile: 1,
+    hazard: 2,
+    asteroid: 3
+});
 
 export class Game {
     constructor(containerId) {
@@ -1226,26 +1231,76 @@ export class Game {
         return camera;
     }
 
-    findAsteroidTargetAt(worldX, worldY) {
+    getAimLockCandidates(lockingPlayer) {
+        const candidates = [];
+        let stableIndex = 0;
+        const add = (entity, type) => candidates.push({
+            entity,
+            tiePriority: TARGET_TIE_PRIORITY[type],
+            stableIndex: stableIndex++
+        });
+
+        this.players.forEach(player => {
+            if (player !== lockingPlayer && !player.isDead && !player.isEliminated) add(player, 'player');
+        });
+        this.projectiles.forEach(projectile => {
+            if ((projectile.isMissile || projectile.isSkinnyMissile)
+                && !projectile.hasDetonated && !projectile.isRemoved && projectile.lifeSpan > 0) {
+                add(projectile, 'missile');
+            }
+        });
+        this.hazards.forEach(hazard => {
+            if ((hazard instanceof SpaceDebris || hazard instanceof Satellite) && !hazard.isDestroyed) add(hazard, 'hazard');
+        });
+        this.asteroids.forEach(asteroid => {
+            if (asteroid instanceof Asteroid && !asteroid.isDestroyed) add(asteroid, 'asteroid');
+        });
+
+        return candidates;
+    }
+
+    isValidAimLockTarget(lockingPlayer, target) {
+        if (!target || target === lockingPlayer) return false;
+        if (target instanceof Player) {
+            return this.players.includes(target) && !target.isDead && !target.isEliminated;
+        }
+        if (target instanceof Asteroid) {
+            return this.asteroids.includes(target) && !target.isDestroyed;
+        }
+        if (target instanceof SpaceDebris || target instanceof Satellite) {
+            return this.hazards.includes(target) && !target.isDestroyed;
+        }
+        if (target instanceof Projectile) {
+            return this.projectiles.includes(target)
+                && (target.isMissile || target.isSkinnyMissile)
+                && !target.hasDetonated
+                && !target.isRemoved
+                && target.lifeSpan > 0;
+        }
+        return false;
+    }
+
+    findAimLockTargetAt(lockingPlayer, worldX, worldY) {
         let bestTarget = null;
         let bestDistanceSquared = Infinity;
+        let bestTiePriority = Infinity;
         let bestIndex = Infinity;
 
-        this.asteroids.forEach((asteroid, index) => {
-            if (!asteroid || asteroid.isDestroyed || !Number.isFinite(asteroid.x)
-                || !Number.isFinite(asteroid.y) || !Number.isFinite(asteroid.radius)) return;
+        this.getAimLockCandidates(lockingPlayer).forEach(({ entity, tiePriority, stableIndex }) => {
+            if (!Number.isFinite(entity.x) || !Number.isFinite(entity.y) || !Number.isFinite(entity.radius)) return;
 
-            const delta = nearestWrappedDisplacement(worldX, worldY, asteroid.x, asteroid.y);
+            const delta = nearestWrappedDisplacement(worldX, worldY, entity.x, entity.y);
             const distanceSquared = delta.x * delta.x + delta.y * delta.y;
-            const selectionRadius = asteroid.radius + ASTEROID_TARGET_SELECTION_PADDING;
-            if (distanceSquared > selectionRadius * selectionRadius) return;
+            if (distanceSquared > entity.radius * entity.radius) return;
 
-            // Collection index is the deterministic tie-breaker because asteroid
-            // objects persist in this local collection until destruction/removal.
-            if (distanceSquared < bestDistanceSquared || (distanceSquared === bestDistanceSquared && index < bestIndex)) {
-                bestTarget = asteroid;
+            const winsTie = distanceSquared === bestDistanceSquared
+                && (tiePriority < bestTiePriority
+                    || (tiePriority === bestTiePriority && stableIndex < bestIndex));
+            if (distanceSquared < bestDistanceSquared || winsTie) {
+                bestTarget = entity;
                 bestDistanceSquared = distanceSquared;
-                bestIndex = index;
+                bestTiePriority = tiePriority;
+                bestIndex = stableIndex;
             }
         });
 
@@ -1260,7 +1315,7 @@ export class Game {
             height: DESIGN_HEIGHT
         };
         const worldPoint = camera.screenToWorld(this.mouse.x, this.mouse.y, viewport);
-        const target = this.findAsteroidTargetAt(worldPoint.x, worldPoint.y);
+        const target = this.findAimLockTargetAt(player, worldPoint.x, worldPoint.y);
         if (!target) return false;
         return player.beginAimLock(target);
     }
@@ -1597,7 +1652,8 @@ export class Game {
                     if (player.id === 1 && this.mouse.m2Pressed && this.mouse.m2Held) {
                         this.beginPlayerOneAimLock(player, inputCamera);
                     }
-                    player.update(dt, this.keys, this.mouse, inputCamera, this.players, this.asteroids, gamepads, this.gameState === 'PVP', this.transformationKills, this.hazards);
+                    const isAimTargetValid = target => this.isValidAimLockTarget(player, target);
+                    player.update(dt, this.keys, this.mouse, inputCamera, this.players, this.asteroids, gamepads, this.gameState === 'PVP', this.transformationKills, this.hazards, isAimTargetValid);
                     if (player.id === 1) {
                         this.mouse.m2Pressed = false;
                         this.mouse.m2Released = false;
@@ -1723,7 +1779,7 @@ export class Game {
         for (let i = this.projectiles.length - 1; i >= 0; i--) {
             const p = this.projectiles[i];
             if (p.isOrbital && (!p.owner || p.owner.isEliminated || p.owner.isDead)) {
-                this.projectiles.splice(i, 1);
+                this.removeProjectile(p);
                 continue;
             }
             p.update(dt, this.asteroids, this.players, this.hazards);
@@ -1738,13 +1794,13 @@ export class Game {
                     }
                 }
                 if (!isVisible) {
-                    this.projectiles.splice(i, 1);
+                    this.removeProjectile(p);
                     continue;
                 }
             }
             
             if (p.lifeSpan < 0 && !p.isOrbital) {
-                this.projectiles.splice(i, 1);
+                this.removeProjectile(p);
                 continue;
             }
         }
@@ -1880,7 +1936,14 @@ export class Game {
         if (index === -1) return false;
         this.projectiles.splice(index, 1);
         projectile.isRemoved = true;
+        this.clearAimLocksForTarget(projectile);
         return true;
+    }
+
+    clearAimLocksForTarget(target) {
+        for (const player of this.players) {
+            if (player.lockedAimTarget === target) player.clearAimLock();
+        }
     }
 
     applyPrestigeShieldPulse(sourcePlayer) {
@@ -1911,6 +1974,7 @@ export class Game {
 
         player.isDead = true;
         player.clearAimLock();
+        this.clearAimLocksForTarget(player);
         player.respawnTimer = 2;
         
         // Reset ALL power-up progress on death
