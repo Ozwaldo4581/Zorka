@@ -142,11 +142,15 @@
         color: #00ffff;
       }
       #main-menu {
-        text-align: center;
+        display: flex;
+          flex-direction: column;
+          align-items: center;
       }
       .main-menu-actions {
         display: flex;
-        justify-content: center;
+        flex-direction: column;
+        align-items: center;
+        gap: 26px;
       }
       .options-popup {
         position: absolute;
@@ -181,7 +185,9 @@
         justify-content: center;
       }
       .mouse-control-btn {
-        width: 190px;
+        width: auto;
+        min-width: 190px;
+        padding: 1rem 1.5rem;
         font-size: 1rem;
         opacity: 0.65;
       }
@@ -379,10 +385,16 @@
         <h1>ZORKA</h1>
         <h2 style="color: #00ffff; font-size: 1.2rem; margin-top: -1.5rem; margin-bottom: 2rem; letter-spacing: 0.5rem;">BATTLE FOR THE SOLAR TIDES</h2>
         
-        <button class="menu-button" id="btn-solo-open">SOLO ARENA</button>
         <div class="main-menu-actions">
-          <button class="menu-button" id="btn-pvp">LOCAL PVP ARENA</button>
-          <button class="menu-button" id="btn-main-options-open">OPTIONS</button>
+          <button class="menu-button" id="btn-solo-open">SOLO ARENA</button>
+
+          <button class="menu-button" id="btn-pvp">
+          LOCAL PVP<br>ARENA
+           </button>
+
+          <button class="menu-button" id="btn-main-options-open">
+           OPTIONS
+           </button>
         </div>
       </div>
 
@@ -411,13 +423,59 @@
             </div>
           </div>
           <div class="options-group">
-            <h2>MOUSE CONTROLS</h2>
+            <h2>WASD CONTROLS</h2>
             <div class="options-button-row">
               <button class="count-btn mouse-control-btn" aria-disabled="true">ABSOLUTE</button>
               <button class="count-btn mouse-control-btn" aria-disabled="true">RELATIVE</button>
             </div>
           </div>
-          <button class="menu-button" id="btn-main-options-back">BACK</button>
+          <div class="options-group">
+            <h2>CROSSHAIR STYLE</h2>
+            <div class="options-button-row">
+              <button class="count-btn cursor-option-btn" data-cursor="0">
+                <div class="cursor-preview cursor-style-0">
+                  <div class="cursor-line line-n"></div>
+                  <div class="cursor-line line-s"></div>
+                  <div class="cursor-line line-e"></div>
+                  <div class="cursor-line line-w"></div>
+                </div>
+              </button>
+              <button class="count-btn cursor-option-btn" data-cursor="1">
+                <div class="cursor-preview cursor-style-1">
+                  <div class="cursor-line cursor-line-h"></div>
+                  <div class="cursor-line cursor-line-v"></div>
+                </div>
+              </button>
+              <button class="count-btn cursor-option-btn" data-cursor="2">
+                <div class="cursor-preview cursor-style-2"></div>
+              </button>
+              <button class="count-btn cursor-option-btn" data-cursor="3">
+                <div class="cursor-preview cursor-style-3">
+                  <div class="cursor-line cursor-tl"></div>
+                  <div class="cursor-line cursor-tr"></div>
+                  <div class="cursor-line cursor-bl"></div>
+                  <div class="cursor-line cursor-br"></div>
+                </div>
+              </button>
+              <button class="count-btn cursor-option-btn" data-cursor="4">
+                <div class="cursor-preview cursor-style-4">
+                  <div class="cursor-line x1"></div>
+                  <div class="cursor-line x2"></div>
+                  <div class="cursor-line x3"></div>
+                  <div class="cursor-line x4"></div>
+                </div>
+              </button>
+              <button class="count-btn cursor-option-btn" data-cursor="5">
+                <div class="cursor-preview cursor-style-5">
+                  <div class="cursor-line t1"></div>
+                  <div class="cursor-line t2"></div>
+                  <div class="cursor-line t3"></div>
+                  <div class="cursor-line t4"></div>
+                </div>
+              </button>
+            </div>
+          </div>
+          <button class="menu-button" id="btn-main-options-back" style="border-color: #ff00ff; color: #ff00ff;">BACK</button>
         </div>
       </div>
 
@@ -520,52 +578,6 @@
               </div>
             </div>
 
-            <div style="margin-bottom: 2rem; width: 100%;">
-              <div style="font-size: 1.1rem; color: #fff; margin-bottom: 1rem;">CROSSHAIR STYLE</div>
-              <div style="display: flex; gap: 10px; justify-content: center;">
-                <button class="count-btn cursor-option-btn" data-cursor="0">
-                  <div class="cursor-preview cursor-style-0">
-                    <div class="cursor-line line-n"></div>
-                    <div class="cursor-line line-s"></div>
-                    <div class="cursor-line line-e"></div>
-                    <div class="cursor-line line-w"></div>
-                  </div>
-                </button>
-                <button class="count-btn cursor-option-btn" data-cursor="1">
-                  <div class="cursor-preview cursor-style-1">
-                    <div class="cursor-line cursor-line-h"></div>
-                    <div class="cursor-line cursor-line-v"></div>
-                  </div>
-                </button>
-                <button class="count-btn cursor-option-btn" data-cursor="2">
-                  <div class="cursor-preview cursor-style-2"></div>
-                </button>
-                <button class="count-btn cursor-option-btn" data-cursor="3">
-                  <div class="cursor-preview cursor-style-3">
-                    <div class="cursor-line cursor-tl"></div>
-                    <div class="cursor-line cursor-tr"></div>
-                    <div class="cursor-line cursor-bl"></div>
-                    <div class="cursor-line cursor-br"></div>
-                  </div>
-                </button>
-                <button class="count-btn cursor-option-btn" data-cursor="4">
-                  <div class="cursor-preview cursor-style-4">
-                    <div class="cursor-line x1"></div>
-                    <div class="cursor-line x2"></div>
-                    <div class="cursor-line x3"></div>
-                    <div class="cursor-line x4"></div>
-                  </div>
-                </button>
-                <button class="count-btn cursor-option-btn" data-cursor="5">
-                  <div class="cursor-preview cursor-style-5">
-                    <div class="cursor-line t1"></div>
-                    <div class="cursor-line t2"></div>
-                    <div class="cursor-line t3"></div>
-                    <div class="cursor-line t4"></div>
-                  </div>
-                </button>
-              </div>
-            </div>
 
             <button class="menu-button" id="btn-options-back" style="border-color: #ff00ff; color: #ff00ff; width: 300px; margin-top: 1rem;">BACK</button>
           </div>
