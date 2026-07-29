@@ -190,6 +190,57 @@
       .lobby-item.selected {
         background: rgba(0, 255, 255, 0.2);
       }
+      .arena-setup {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        width: min(100%, 760px);
+        /* Keep each setup choice visually distinct, like the arena mockup. */
+        gap: 1.75rem;
+      }
+      .arena-setup .menu-button,
+      .arena-setup .count-btn {
+        margin: 0;
+      }
+      .arena-play-button {
+        width: 270px !important;
+        min-height: 118px;
+        padding: 1rem 2rem !important;
+      }
+      .arena-lobby {
+        width: min(100%, 600px) !important;
+        margin: 0 !important;
+        padding: 10px !important;
+      }
+      .arena-bot-picker {
+        display: flex;
+        gap: 12px;
+        justify-content: center;
+        flex-wrap: wrap;
+      }
+      .arena-bot-label {
+        margin: -0.25rem 0 0;
+        color: #00ffff;
+        font-size: 1rem;
+        text-align: center;
+      }
+      .arena-controls-summary {
+        margin: -0.25rem 0;
+        color: #888;
+        font-family: 'Inter', sans-serif;
+        font-size: 0.75rem;
+        text-align: center;
+      }
+      .arena-secondary-button {
+        width: 270px !important;
+        font-size: 1.15rem;
+      }
+      @media (max-height: 760px) {
+        .arena-setup { gap: 0.95rem; }
+        .arena-play-button { min-height: 90px; }
+        .arena-play-button span:first-child { font-size: 2rem !important; }
+        .count-btn { padding: 0.7rem; }
+      }
       #lobby-list {
         width: 400px;
         height: 200px;
@@ -288,13 +339,17 @@
         <button class="menu-button" id="btn-pvp">LOCAL PVP ARENA</button>
       </div>
 
-      <div id="solo-menu" class="hidden" style="display: flex; flex-direction: column; align-items: center; width: 100%;">
-        <h1>SOLO ARENA</h1>
-        
-        <h2 style="color: #00ffff; font-size: 1.2rem; margin-top: -1.0rem; margin-bottom: 0.5rem; text-align: center;">SELECT NUMBER OF ENEMY BOTS IN THE LOBBY</h2>
-        <div style="color: #888; font-size: 0.9rem; margin-bottom: 1.5rem; text-align: center; font-family: 'Inter', sans-serif;">Press Join Selected Arena to Launch Game.</div>
-        
-        <div style="display: flex; gap: 10px; margin-bottom: 2rem; justify-content: center; flex-wrap: wrap;">
+      <div id="solo-menu" class="hidden arena-setup">
+        <button class="menu-button arena-play-button" id="btn-solo-join" style="background: #00ffff; color: black; display: flex; flex-direction: column; align-items: center; justify-content: center;">
+          <span style="font-size: 2.5rem; font-weight: 800; margin-bottom: 0.2rem;">PLAY</span>
+          <span style="font-size: 1rem; letter-spacing: 0.1rem;">JOIN SELECTED ARENA</span>
+        </button>
+
+        <div id="mock-lobby-box" class="arena-lobby" style="border: 1px solid #00ffff; background: transparent; display: flex; flex-direction: column; align-items: center; box-sizing: border-box;">
+          <!-- Content is populated by JS. -->
+        </div>
+
+        <div class="arena-bot-picker">
           <button class="count-btn bot-count-btn" data-bot-count="1">1</button>
           <button class="count-btn bot-count-btn" data-bot-count="2">2</button>
           <button class="count-btn bot-count-btn" data-bot-count="3">3</button>
@@ -303,49 +358,19 @@
           <button class="count-btn bot-count-btn" data-bot-count="6">6</button>
           <button class="count-btn bot-count-btn" data-bot-count="7">7</button>
         </div>
+        <h2 id="arena-bot-label" class="arena-bot-label">SELECT NUMBER OF ENEMY BOTS IN THE ARENA</h2>
 
-        <div id="mock-lobby-box" style="width: 600px; border: 1px solid #00ffff; padding: 15px; background: transparent; margin-bottom: 1.5rem; display: flex; flex-direction: column; align-items: center; box-sizing: border-box;">
-          <!-- Content will be populated by JS -->
-        </div>
-
-        <button class="menu-button" id="btn-solo-join" style="width: 400px; margin-bottom: 1.5rem; background: #00ffff; color: black; display: flex; flex-direction: column; align-items: center; justify-content: center; height: auto; padding: 1.5rem 2rem;">
-          <span style="font-size: 2.5rem; font-weight: 800; margin-bottom: 0.2rem;">PLAY</span>
-          <span style="font-size: 1rem; letter-spacing: 0.1rem;">JOIN SELECTED ARENA</span>
-        </button>
-
-        <!-- Controls Selection (shown for SOLO and PVP) -->
-        <div id="controls-selection" class="hidden" style="margin-bottom: 1.5rem; width: 100%; display: flex; flex-direction: column; align-items: center;">
-          
-          <div id="controls-dual-layout" style="display: flex; gap: 20px; width: 100%; justify-content: center; flex-wrap: wrap;">
-            <div id="p1-control-box" style="background: transparent; padding: 20px; border: 1px solid #00ffff; border-radius: 8px; width: 400px;">
-              <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
-                <span style="font-size: 1.0rem;">P1 CONTROL:</span>
-                <div id="p1-control-options" style="display: flex; gap: 10px;">
-                  <button class="count-btn" id="p1-keyboard-btn" style="width: 140px; font-size: 0.8rem;">KEYBOARD</button>
-                  <button class="count-btn" id="p1-gamepad-btn" style="width: 140px; font-size: 0.8rem;">GAMEPAD</button>
-                </div>
-              </div>
-              <div id="gamepad-status" style="margin-top: 15px; font-size: 0.8rem; color: #ff8800; text-align: center;"></div>
-            </div>
-
-            <div id="p2-control-line" class="hidden" style="background: transparent; padding: 20px; border: 1px solid #00ffff; border-radius: 8px; width: 400px;">
-              <div style="display: flex; justify-content: space-between; align-items: center;">
-                <span style="font-size: 1.2rem;">P2 CONTROL:</span>
-                <button class="count-btn selected" disabled style="width: 140px; font-size: 0.8rem;">GAMEPAD</button>
-              </div>
-            </div>
+        <!-- Control selection is automatic; hidden buttons preserve the existing input logic. -->
+        <div id="controls-selection" class="arena-controls-summary">
+          <span id="gamepad-status">Controls auto-detected</span>
+          <div hidden>
+            <button id="p1-keyboard-btn">KEYBOARD</button>
+            <button id="p1-gamepad-btn">GAMEPAD</button>
+            <div id="p2-control-line"></div>
           </div>
         </div>
 
-        <!-- Transformation Setting -->
-        <div id="transformation-setting" class="hidden" style="margin-bottom: 1.5rem; background: rgba(0,255,255,0.1); padding: 15px; border: 1px solid #00ffff; border-radius: 8px; width: 400px; display: flex; flex-direction: column; align-items: center; gap: 10px;">
-          <div style="font-size: 1.0rem;">TRANSFORMATION:</div>
-          <div style="display: flex; align-items: center; gap: 15px;">
-            <button class="count-btn" id="trans-dec" style="width: 50px; height: 50px; font-size: 1.5rem;">-</button>
-            <span id="trans-value" style="font-size: 2rem; width: 60px; text-align: center; color: #fff;">12</span>
-            <button class="count-btn" id="trans-inc" style="width: 50px; height: 50px; font-size: 1.5rem;">+</button>
-          </div>
-        </div>
+        <div id="transformation-setting" class="hidden"></div>
 
         <!-- Options Popup -->
         <div id="options-popup" class="hidden" style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; z-index: 40; background: rgba(0,0,0,0.85); display: flex; align-items: center; justify-content: center;">
@@ -464,8 +489,8 @@
           </div>
         </div>
 
-        <button class="menu-button" id="btn-options-open" style="width: 400px; margin-bottom: 0.5rem;">OPTIONS</button>
-        <button class="menu-button" id="btn-solo-back" style="border-color: #ff00ff; color: #ff00ff; width: 400px;">BACK</button>
+        <button class="menu-button arena-secondary-button" id="btn-options-open">Arena Options</button>
+        <button class="menu-button arena-secondary-button" id="btn-solo-back" style="border-color: #ff00ff; color: #ff00ff;">BACK</button>
       </div>
 
       <div id="online-menu" class="hidden" style="display: flex; flex-direction: column; align-items: center; width: 100%;">

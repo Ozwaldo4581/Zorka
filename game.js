@@ -499,8 +499,7 @@ export class Game {
             document.getElementById('transformation-setting').classList.add('hidden');
             
             // Re-purpose the Solo menu for PVP
-            document.querySelector('#solo-menu h1').innerText = 'LOCAL PVP ARENA';
-            document.querySelector('#solo-menu h2').innerText = 'SELECT NUMBER OF ENEMY BOTS IN THE LOBBY';
+            document.getElementById('arena-bot-label').innerText = 'SELECT NUMBER OF ENEMY BOTS IN THE ARENA';
             
             // Hide buttons 7 and 8 for PVP (max 6 bots)
             document.querySelectorAll('.bot-count-btn').forEach(btn => {
@@ -521,8 +520,8 @@ export class Game {
             document.getElementById('controls-selection').classList.add('hidden');
             document.getElementById('main-menu').classList.remove('hidden');
             
-            // Restore Solo header for next time
-            document.querySelector('#solo-menu h1').innerText = 'SOLO ARENA';
+            // The shared setup screen intentionally has no title; its selected
+            // arena card identifies the current mode instead.
         });
 
         // Arena Options Handlers
