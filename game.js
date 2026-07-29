@@ -73,6 +73,7 @@ export class Game {
         this.startingShieldCharges = 3;
         this.botAggressionLevel = 0; // 0 = Random, 1-5 = Fixed
         this.selectedCursorStyle = 0; // Default crosshair
+        this.optionsOpenedFromPause = false;
 
         this.generateStars();
         this.init();
@@ -537,10 +538,20 @@ export class Game {
         };
 
         document.getElementById('btn-main-options-open').addEventListener('click', () => {
+            this.optionsOpenedFromPause = false;
+
             const popup = document.getElementById('main-options-popup');
             popup.classList.remove('hidden');
             popup.querySelectorAll('.focused').forEach(el => el.classList.remove('focused'));
             refreshAudioOptionButtons();
+
+            document.querySelectorAll('.cursor-option-btn').forEach(btn => {
+                btn.classList.toggle(
+                    'selected',
+                    parseInt(btn.dataset.cursor, 10) === this.selectedCursorStyle
+                );
+            });
+
             this.menuIndex = 0;
             this.lastActiveMenuId = null;
         });
@@ -549,6 +560,17 @@ export class Game {
             const popup = document.getElementById('main-options-popup');
             popup.classList.add('hidden');
             popup.querySelectorAll('.focused').forEach(el => el.classList.remove('focused'));
+
+            if (this.optionsOpenedFromPause) {
+                // The main options popup lives inside menu-overlay, so hide the
+                // overlay again before restoring the separate pause-menu layer.
+                document.getElementById('menu-overlay').classList.add('hidden');
+                document.getElementById('pause-menu').classList.remove('hidden');
+                this.isPauseMenuOpen = true;
+                this.optionsOpenedFromPause = false;
+                this.pauseMenuCooldown = 0.3;
+            }
+
             this.menuIndex = 0;
             this.lastActiveMenuId = null;
         });
@@ -765,6 +787,35 @@ export class Game {
         document.getElementById('btn-pause-continue').addEventListener('click', () => {
             this.closePauseMenu();
         });
+
+        document.getElementById('btn-pause-options').addEventListener('click', () => {
+            this.optionsOpenedFromPause = true;
+
+            const pauseMenu = document.getElementById('pause-menu');
+            pauseMenu.classList.add('hidden');
+            pauseMenu.querySelectorAll('.focused').forEach(el => el.classList.remove('focused'));
+
+            // main-options-popup is a child of menu-overlay. Gameplay keeps
+            // menu-overlay hidden, so reveal that layer before showing the popup.
+            document.getElementById('menu-overlay').classList.remove('hidden');
+
+            const popup = document.getElementById('main-options-popup');
+            popup.classList.remove('hidden');
+            popup.querySelectorAll('.focused').forEach(el => el.classList.remove('focused'));
+
+            refreshAudioOptionButtons();
+
+            document.querySelectorAll('.cursor-option-btn').forEach(btn => {
+                btn.classList.toggle(
+                    'selected',
+                    parseInt(btn.dataset.cursor, 10) === this.selectedCursorStyle
+                );
+            });
+
+            this.menuIndex = 0;
+            this.lastActiveMenuId = null;
+        });
+
         document.getElementById('btn-pause-quit').addEventListener('click', () => {
             this.closePauseMenu();
             this.returnToMenu();
