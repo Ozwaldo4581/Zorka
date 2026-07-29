@@ -18,7 +18,6 @@ export class Player {
         this.respawnTimer = 0;
         this.fireCooldown = 0;
         this.isNPC = false;
-        this.wasdMode = 'RELATIVE';
         this.lockedAimTarget = null;
         this.controllerAimLockLatched = false;
         this.controllerAimLockArmed = true;
@@ -143,6 +142,17 @@ export class Player {
         return null;
     }
 
+    getDirectionalThrust(inputX, inputY, useRelativeMovement) {
+        if (!useRelativeMovement) {
+            return { x: inputX * this.thrust, y: inputY * this.thrust };
+        }
+
+        return {
+            x: (inputX * Math.cos(this.rotation) - inputY * Math.sin(this.rotation)) * this.thrust,
+            y: (inputX * Math.sin(this.rotation) + inputY * Math.cos(this.rotation)) * this.thrust
+        };
+    }
+
     setEvolutionForm(form) {
         this.isMartian = form === 'MARTIAN';
         this.isCyborg = form === 'CYBORG';
@@ -237,12 +247,6 @@ export class Player {
                 const lsY = gp.axes[1];
                 const deadzone = 0.15;
 
-                if (Math.abs(lsX) > deadzone || Math.abs(lsY) > deadzone) {
-                    fx += lsX * this.thrust;
-                    fy += lsY * this.thrust;
-                    this.isThrusting = true;
-                }
-
                 const aimTarget = this.resolveAimLock(isAimTargetValid);
                 if (aimTarget) {
                     const delta = nearestWrappedDisplacement(this.x, this.y, aimTarget.x, aimTarget.y);
@@ -253,6 +257,13 @@ export class Player {
                     if (Math.abs(rsX) > deadzone || Math.abs(rsY) > deadzone) {
                         this.rotation = Math.atan2(rsY, rsX) + Math.PI / 2;
                     }
+                }
+
+                if (Math.abs(lsX) > deadzone || Math.abs(lsY) > deadzone) {
+                    const force = this.getDirectionalThrust(lsX, lsY, Boolean(aimTarget));
+                    fx += force.x;
+                    fy += force.y;
+                    this.isThrusting = true;
                 }
 
                 if (gp.buttons[0].pressed || gp.buttons[1].pressed) {
@@ -272,7 +283,6 @@ export class Player {
                 if (mouse.m2Released || !mouse.m2Held) this.clearAimLock();
 
                 const aimTarget = this.resolveAimLock(isAimTargetValid);
-                const effectiveWasdMode = aimTarget ? 'RELATIVE' : this.wasdMode;
                 if (aimTarget) {
                     const delta = nearestWrappedDisplacement(this.x, this.y, aimTarget.x, aimTarget.y);
                     if (Math.hypot(delta.x, delta.y) > 2) {
@@ -286,33 +296,13 @@ export class Player {
                         this.rotation = Math.atan2(dy, dx) + Math.PI / 2;
                     }
                 }
-                if (effectiveWasdMode === 'ABSOLUTE') {
-                    if (keys['KeyW']) fy -= this.thrust;
-                    if (keys['KeyS']) fy += this.thrust;
-                    if (keys['KeyA']) fx -= this.thrust;
-                    if (keys['KeyD']) fx += this.thrust;
-                    this.isThrusting = Boolean(keys['KeyW'] || keys['KeyS'] || keys['KeyA'] || keys['KeyD']);
-                } else {
-                    if (keys['KeyW']) {
-                        fx += Math.sin(this.rotation) * this.thrust;
-                        fy -= Math.cos(this.rotation) * this.thrust;
-                        this.isThrusting = true;
-                    }
-                    if (keys['KeyS']) {
-                        fx -= Math.sin(this.rotation) * this.thrust;
-                        fy += Math.cos(this.rotation) * this.thrust;
-                        this.isThrusting = true;
-                    }
-                    if (keys['KeyA']) {
-                        fx -= Math.cos(this.rotation) * this.thrust;
-                        fy -= Math.sin(this.rotation) * this.thrust;
-                        this.isThrusting = true;
-                    }
-                    if (keys['KeyD']) {
-                        fx += Math.cos(this.rotation) * this.thrust;
-                        fy += Math.sin(this.rotation) * this.thrust;
-                        this.isThrusting = true;
-                    }
+                const inputX = Number(Boolean(keys['KeyD'])) - Number(Boolean(keys['KeyA']));
+                const inputY = Number(Boolean(keys['KeyS'])) - Number(Boolean(keys['KeyW']));
+                if (inputX !== 0 || inputY !== 0) {
+                    const force = this.getDirectionalThrust(inputX, inputY, Boolean(aimTarget));
+                    fx += force.x;
+                    fy += force.y;
+                    this.isThrusting = true;
                 }
                 
                 if (keys['Space']) {
@@ -328,12 +318,6 @@ export class Player {
                 const lsY = gp.axes[1];
                 const deadzone = 0.15;
 
-                if (Math.abs(lsX) > deadzone || Math.abs(lsY) > deadzone) {
-                    fx += lsX * this.thrust;
-                    fy += lsY * this.thrust;
-                    this.isThrusting = true;
-                }
-
                 const aimTarget = this.resolveAimLock(isAimTargetValid);
                 if (aimTarget) {
                     const delta = nearestWrappedDisplacement(this.x, this.y, aimTarget.x, aimTarget.y);
@@ -344,6 +328,13 @@ export class Player {
                     if (Math.abs(rsX) > deadzone || Math.abs(rsY) > deadzone) {
                         this.rotation = Math.atan2(rsY, rsX) + Math.PI / 2;
                     }
+                }
+
+                if (Math.abs(lsX) > deadzone || Math.abs(lsY) > deadzone) {
+                    const force = this.getDirectionalThrust(lsX, lsY, Boolean(aimTarget));
+                    fx += force.x;
+                    fy += force.y;
+                    this.isThrusting = true;
                 }
 
                 if (gp.buttons[0].pressed || gp.buttons[1].pressed) {
