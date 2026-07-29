@@ -508,9 +508,9 @@ export class Game {
             this.updateGamepadStatus();
             
             // No bot selected by default
-            this.selectedBotCount = 0;
+            this.selectedBotCount = 4;
             document.querySelectorAll('.bot-count-btn').forEach(b => b.classList.remove('selected'));
-            this.updateSoloMockLobby(0);
+            this.updateSoloMockLobby(4);
         });
 
         document.getElementById('btn-pvp').addEventListener('click', () => {
