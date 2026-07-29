@@ -62,6 +62,7 @@ export class Game {
         
         // P1 Control Mode: 'KEYBOARD' or 'GAMEPAD' (defaults to GAMEPAD across all modes)
         this.p1ControlMode = 'GAMEPAD'; 
+        this.p1WasdMode = 'RELATIVE';
         this.swapUI = false;
         this.transformationKills = 20;
         this.cursorVisible = true;
@@ -192,6 +193,7 @@ export class Game {
             // Name input removed from HTML, just use P1
             p1.name = "PLAYER 1";
             p1.controlMode = this.p1ControlMode;
+            p1.wasdMode = this.p1WasdMode;
             this.players.push(p1);
 
             // NPCs for Solo Battle
@@ -244,6 +246,7 @@ export class Game {
             p1.name = "PLAYER 1";
             p2.name = "PLAYER 2";
             p1.controlMode = this.p1ControlMode;
+            p1.wasdMode = this.p1WasdMode;
             p2.controlMode = 'GAMEPAD'; // P2 is always gamepad
             this.players.push(p1, p2);
 
@@ -537,6 +540,14 @@ export class Game {
             });
         };
 
+        const refreshWasdOptionButtons = () => {
+            document.querySelectorAll('.mouse-control-btn[data-wasd-mode]').forEach(btn => {
+                const isSelected = btn.dataset.wasdMode === this.p1WasdMode;
+                btn.classList.toggle('selected', isSelected);
+                btn.setAttribute('aria-pressed', String(isSelected));
+            });
+        };
+
         document.getElementById('btn-main-options-open').addEventListener('click', () => {
             this.optionsOpenedFromPause = false;
 
@@ -544,6 +555,7 @@ export class Game {
             popup.classList.remove('hidden');
             popup.querySelectorAll('.focused').forEach(el => el.classList.remove('focused'));
             refreshAudioOptionButtons();
+            refreshWasdOptionButtons();
 
             document.querySelectorAll('.cursor-option-btn').forEach(btn => {
                 btn.classList.toggle(
@@ -586,6 +598,15 @@ export class Game {
             btn.addEventListener('click', () => {
                 this.audio.setSfxVolumeLevel(parseInt(btn.dataset.sfxLevel));
                 refreshAudioOptionButtons();
+            });
+        });
+
+        document.querySelectorAll('.mouse-control-btn[data-wasd-mode]').forEach(btn => {
+            btn.addEventListener('click', () => {
+                this.p1WasdMode = btn.dataset.wasdMode;
+                const p1 = this.players.find(player => player.id === 1 && !player.isNPC);
+                if (p1) p1.wasdMode = this.p1WasdMode;
+                refreshWasdOptionButtons();
             });
         });
 
@@ -804,6 +825,7 @@ export class Game {
             popup.querySelectorAll('.focused').forEach(el => el.classList.remove('focused'));
 
             refreshAudioOptionButtons();
+            refreshWasdOptionButtons();
 
             document.querySelectorAll('.cursor-option-btn').forEach(btn => {
                 btn.classList.toggle(
