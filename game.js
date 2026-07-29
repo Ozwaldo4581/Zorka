@@ -17,6 +17,12 @@ const TARGET_TIE_PRIORITY = Object.freeze({
     hazard: 2,
     asteroid: 3
 });
+const CONTROLLER_LOCK_ACQUIRE_THRESHOLD = 0.65;
+const CONTROLLER_LOCK_RELEASE_THRESHOLD = 0.25;
+const CONTROLLER_LOCK_MAX_DISTANCE = DESIGN_WIDTH;
+const CONTROLLER_LOCK_TOLERANCE = 24;
+const CONTROLLER_AIM_DEADZONE = 0.15;
+const RAY_DISTANCE_TIE_EPSILON = 0.001;
 
 export class Game {
     constructor(containerId) {
@@ -493,9 +499,9 @@ export class Game {
             }
         });
         this.canvas.addEventListener('contextmenu', (e) => e.preventDefault());
-        window.addEventListener('blur', () => this.resetMouseLockInput());
+        window.addEventListener('blur', () => this.resetLockInputs());
         document.addEventListener('visibilitychange', () => {
-            if (document.hidden) this.resetMouseLockInput();
+            if (document.hidden) this.resetLockInputs();
         });
 
         // Menu buttons
@@ -919,6 +925,11 @@ export class Game {
         this.players[0]?.clearAimLock();
     }
 
+    resetLockInputs() {
+        this.resetMouseLockInput();
+        this.players.forEach(player => player.resetControllerAimLock(true));
+    }
+
     togglePauseMenu() {
         if (this.isPauseMenuOpen) {
             this.closePauseMenu();
@@ -928,7 +939,7 @@ export class Game {
     }
 
     openPauseMenu() {
-        this.resetMouseLockInput();
+        this.resetLockInputs();
         this.isPauseMenuOpen = true;
         document.getElementById('pause-menu').classList.remove('hidden');
 
@@ -1157,7 +1168,7 @@ export class Game {
     }
 
     returnToMenu() {
-        this.resetMouseLockInput();
+        this.resetLockInputs();
         if (this.network) {
             this.network.leave();
         }
@@ -1305,6 +1316,62 @@ export class Game {
         });
 
         return bestTarget;
+    }
+
+    findControllerAimLockTarget(lockingPlayer, direction) {
+        let bestTarget = null;
+        let bestAlongRay = Infinity;
+        let bestPerpendicular = Infinity;
+        let bestIndex = Infinity;
+
+        this.getAimLockCandidates(lockingPlayer).forEach(({ entity, stableIndex }) => {
+            if (!Number.isFinite(entity.x) || !Number.isFinite(entity.y) || !Number.isFinite(entity.radius)) return;
+            const delta = nearestWrappedDisplacement(lockingPlayer.x, lockingPlayer.y, entity.x, entity.y);
+            const alongRay = delta.x * direction.x + delta.y * direction.y;
+            if (alongRay <= 0 || alongRay > CONTROLLER_LOCK_MAX_DISTANCE) return;
+            const perpendicular = Math.abs(delta.x * direction.y - delta.y * direction.x);
+            if (perpendicular > entity.radius + CONTROLLER_LOCK_TOLERANCE) return;
+
+            const distanceTie = Math.abs(alongRay - bestAlongRay) <= RAY_DISTANCE_TIE_EPSILON;
+            const winsTie = distanceTie
+                && (perpendicular < bestPerpendicular
+                    || (perpendicular === bestPerpendicular && stableIndex < bestIndex));
+            if (alongRay < bestAlongRay - RAY_DISTANCE_TIE_EPSILON || winsTie) {
+                bestTarget = entity;
+                bestAlongRay = alongRay;
+                bestPerpendicular = perpendicular;
+                bestIndex = stableIndex;
+            }
+        });
+
+        return bestTarget;
+    }
+
+    getAssignedGamepad(player, gamepads) {
+        const connected = Array.from(gamepads).filter(gamepad => gamepad !== null);
+        if (player.id === 1 && player.controlMode === 'GAMEPAD') return connected[0] || null;
+        if (player.id !== 2) return null;
+        const p1OnGamepad = this.players[0]?.controlMode === 'GAMEPAD';
+        return (p1OnGamepad ? connected[1] : connected[0]) || null;
+    }
+
+    updateControllerAimLock(player, gamepad) {
+        if (!gamepad) {
+            player.resetControllerAimLock(true);
+            return;
+        }
+        const button = gamepad.buttons?.[6];
+        const hasAnalogValue = Number.isFinite(button?.value) && (button.value > 0 || !button.pressed);
+        const value = hasAnalogValue ? button.value : (button?.pressed ? 1 : 0);
+        const shouldAcquire = player.updateControllerAimLockTrigger(
+            value,
+            CONTROLLER_LOCK_ACQUIRE_THRESHOLD,
+            CONTROLLER_LOCK_RELEASE_THRESHOLD
+        );
+        if (!shouldAcquire) return;
+        const direction = player.getControllerAimDirection(gamepad, CONTROLLER_AIM_DEADZONE);
+        const target = this.findControllerAimLockTarget(player, direction);
+        if (target) player.beginAimLock(target);
     }
 
     beginPlayerOneAimLock(player, camera) {
@@ -1652,6 +1719,9 @@ export class Game {
                     if (player.id === 1 && this.mouse.m2Pressed && this.mouse.m2Held) {
                         this.beginPlayerOneAimLock(player, inputCamera);
                     }
+                    const assignedGamepad = this.getAssignedGamepad(player, gamepads);
+                    if (player.controlMode === 'GAMEPAD') this.updateControllerAimLock(player, assignedGamepad);
+                    else if (player.controllerAimLockLatched || !player.controllerAimLockArmed) player.resetControllerAimLock();
                     const isAimTargetValid = target => this.isValidAimLockTarget(player, target);
                     player.update(dt, this.keys, this.mouse, inputCamera, this.players, this.asteroids, gamepads, this.gameState === 'PVP', this.transformationKills, this.hazards, isAimTargetValid);
                     if (player.id === 1) {
@@ -1713,21 +1783,8 @@ export class Game {
                     }
 
                     // Gamepad Firing logic
-                    const gamepadsList = Array.from(gamepads).filter(g => g !== null);
-                    let gp = null;
-                    if (player.id === 1 && player.controlMode === 'GAMEPAD') {
-                        if (gamepadsList.length >= 1) gp = gamepadsList[0];
-                    } else if (player.id === 2) {
-                        const p1OnGamepad = this.players[0] && this.players[0].controlMode === 'GAMEPAD';
-                        if (p1OnGamepad) {
-                            if (gamepadsList.length >= 2) gp = gamepadsList[1];
-                        } else {
-                            if (gamepadsList.length >= 1) gp = gamepadsList[0];
-                        }
-                    }
-                    
-                    if (gp) {
-                        const rt = gp.buttons[7]; // R2 / RT
+                    if (assignedGamepad) {
+                        const rt = assignedGamepad.buttons[7]; // R2 / RT
                         if (rt && rt.pressed && player.fireCooldown <= 0) {
                             this.handleFire(player.id);
                         }
@@ -1821,7 +1878,7 @@ export class Game {
     }
 
     respawnPlayer(player) {
-        player.clearAimLock();
+        player.resetControllerAimLock(true);
         player.isDead = false;
         player.vx = 0;
         player.vy = 0;
@@ -1973,7 +2030,7 @@ export class Game {
         }
 
         player.isDead = true;
-        player.clearAimLock();
+        player.resetControllerAimLock(true);
         this.clearAimLocksForTarget(player);
         player.respawnTimer = 2;
         
@@ -2404,6 +2461,7 @@ export class Game {
         this.ctx.fillRect(0, 0, DESIGN_WIDTH, DESIGN_HEIGHT);
 
         this.drawWorld(this.ctx, this.camera);
+        this.drawControllerAimLockMarker(this.ctx, this.players[0], this.camera);
     }
 
     drawSplitScreen() {
@@ -2427,6 +2485,7 @@ export class Game {
         // Shift drawing to left half center
         this.ctx.translate(-DESIGN_WIDTH / 4, 0); 
         this.drawWorld(this.ctx, p1Cam);
+        this.drawControllerAimLockMarker(this.ctx, p1, p1Cam);
         this.ctx.restore();
 
         // Right half for P2
@@ -2445,6 +2504,7 @@ export class Game {
 
         this.ctx.translate(DESIGN_WIDTH / 4, 0);
         this.drawWorld(this.ctx, p2Cam);
+        this.drawControllerAimLockMarker(this.ctx, p2, p2Cam);
         this.ctx.restore();
 
         // Divider
@@ -2466,6 +2526,20 @@ export class Game {
             if (!p.isDead && !p.isEliminated) p.draw(ctx, this.assets, camera);
         });
         this.vfx.forEach(v => v.draw(ctx, this.assets, camera));
+    }
+
+    drawControllerAimLockMarker(ctx, player, camera) {
+        if (!player?.aimLockActive || player.controlMode !== 'GAMEPAD') return;
+        ctx.save();
+        camera.apply(ctx, player.lockedAimTarget.x, player.lockedAimTarget.y);
+        const radius = Math.max(32, player.lockedAimTarget.radius + 12);
+        ctx.strokeStyle = player.color;
+        ctx.lineWidth = 4 / camera.zoom;
+        ctx.setLineDash([12 / camera.zoom, 8 / camera.zoom]);
+        ctx.beginPath();
+        ctx.arc(0, 0, radius, 0, Math.PI * 2);
+        ctx.stroke();
+        ctx.restore();
     }
 
     drawBackground(ctx, camera) {
