@@ -20,6 +20,8 @@ export class Player {
         this.isNPC = false;
         this.wasdMode = 'RELATIVE';
         this.lockedAimTarget = null;
+        this.controllerAimLockLatched = false;
+        this.controllerAimLockArmed = true;
         
         // Power-up System
         this.powerUpCapsules = 0;
@@ -85,6 +87,38 @@ export class Player {
         this.lockedAimTarget = null;
     }
 
+    resetControllerAimLock(requireRelease = false) {
+        this.clearAimLock();
+        this.controllerAimLockLatched = false;
+        this.controllerAimLockArmed = !requireRelease;
+    }
+
+    updateControllerAimLockTrigger(value, acquireThreshold, releaseThreshold) {
+        if (value <= releaseThreshold) {
+            if (this.controllerAimLockLatched || !this.controllerAimLockArmed) this.clearAimLock();
+            this.controllerAimLockLatched = false;
+            this.controllerAimLockArmed = true;
+            return false;
+        }
+
+        if (value >= acquireThreshold && this.controllerAimLockArmed) {
+            this.clearAimLock();
+            this.controllerAimLockLatched = true;
+            this.controllerAimLockArmed = false;
+            return true;
+        }
+
+        return false;
+    }
+
+    getControllerAimDirection(gamepad, deadzone = 0.15) {
+        const x = Number.isFinite(gamepad?.axes?.[2]) ? gamepad.axes[2] : 0;
+        const y = Number.isFinite(gamepad?.axes?.[3]) ? gamepad.axes[3] : 0;
+        const magnitude = Math.hypot(x, y);
+        if (magnitude > deadzone) return { x: x / magnitude, y: y / magnitude };
+        return { x: Math.sin(this.rotation), y: -Math.cos(this.rotation) };
+    }
+
     get aimLockActive() {
         return this.lockedAimTarget !== null;
     }
@@ -143,7 +177,7 @@ export class Player {
 
     update(dt, keys, mouse, camera, others = [], asteroids = [], gamepads = [], isSplitScreen = false, transformationKills = 20, hazards = [], isAimTargetValid = null) {
         if (this.isDead) {
-            this.clearAimLock();
+            this.resetControllerAimLock(true);
             return;
         }
 
@@ -198,7 +232,6 @@ export class Player {
             this.updateNPC(dt, others, asteroids, (f) => { fx = f.x; fy = f.y; }, hazards);
         } else if (this.id === 1) {
             // Player 1: Controller OR Keyboard
-            if (this.controlMode !== 'KEYBOARD') this.clearAimLock();
             if (gp) {
                 const lsX = gp.axes[0];
                 const lsY = gp.axes[1];
@@ -210,10 +243,16 @@ export class Player {
                     this.isThrusting = true;
                 }
 
-                const rsX = gp.axes[2];
-                const rsY = gp.axes[3];
-                if (Math.abs(rsX) > deadzone || Math.abs(rsY) > deadzone) {
-                    this.rotation = Math.atan2(rsY, rsX) + Math.PI / 2;
+                const aimTarget = this.resolveAimLock(isAimTargetValid);
+                if (aimTarget) {
+                    const delta = nearestWrappedDisplacement(this.x, this.y, aimTarget.x, aimTarget.y);
+                    if (Math.hypot(delta.x, delta.y) > 2) this.rotation = Math.atan2(delta.y, delta.x) + Math.PI / 2;
+                } else {
+                    const rsX = gp.axes[2];
+                    const rsY = gp.axes[3];
+                    if (Math.abs(rsX) > deadzone || Math.abs(rsY) > deadzone) {
+                        this.rotation = Math.atan2(rsY, rsX) + Math.PI / 2;
+                    }
                 }
 
                 if (gp.buttons[0].pressed || gp.buttons[1].pressed) {
@@ -295,10 +334,16 @@ export class Player {
                     this.isThrusting = true;
                 }
 
-                const rsX = gp.axes[2];
-                const rsY = gp.axes[3];
-                if (Math.abs(rsX) > deadzone || Math.abs(rsY) > deadzone) {
-                    this.rotation = Math.atan2(rsY, rsX) + Math.PI / 2;
+                const aimTarget = this.resolveAimLock(isAimTargetValid);
+                if (aimTarget) {
+                    const delta = nearestWrappedDisplacement(this.x, this.y, aimTarget.x, aimTarget.y);
+                    if (Math.hypot(delta.x, delta.y) > 2) this.rotation = Math.atan2(delta.y, delta.x) + Math.PI / 2;
+                } else {
+                    const rsX = gp.axes[2];
+                    const rsY = gp.axes[3];
+                    if (Math.abs(rsX) > deadzone || Math.abs(rsY) > deadzone) {
+                        this.rotation = Math.atan2(rsY, rsX) + Math.PI / 2;
+                    }
                 }
 
                 if (gp.buttons[0].pressed || gp.buttons[1].pressed) {
