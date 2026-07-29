@@ -962,25 +962,46 @@ export class Player {
         camera.apply(ctx, this.x, this.y);
         
         // Forcefield
-        if (this.hasForcefield) {
-            ctx.strokeStyle = this.color; // Match ship color
-            ctx.lineWidth = 3;
-            ctx.beginPath();
-            const shieldRadius = this.radius * 2.2;
-            ctx.arc(0, 0, shieldRadius, 0, Math.PI * 2);
-            ctx.stroke();
+            if (this.hasForcefield) {
+                const shieldAlpha = 0.2;
+
+                ctx.save();
+
+                ctx.globalAlpha = shieldAlpha;
+                ctx.strokeStyle = this.color;
+                ctx.lineWidth = 6;
+                ctx.beginPath();
+
+                const shieldRadius = this.radius * 2;
+
+                // Offset the shield slightly toward the rear of the ship.
+                const shieldOffsetX = 0;
+                const shieldOffsetY = 2;
+
+                ctx.arc(
+                    shieldOffsetX,
+                    shieldOffsetY,
+                    shieldRadius,
+                    0,
+                    Math.PI * 2
+                );
+
+                ctx.stroke();
+                ctx.restore();
 
             // Shield charges number
             if (this.shieldCharges > 0) {
                 ctx.save();
-                // Number stays fixed (drawn BEFORE ship rotation)
+
+                // Keep the number fully opaque.
                 ctx.fillStyle = '#ffffff';
                 ctx.font = 'bold 16px Orbitron';
                 ctx.textAlign = 'center';
                 ctx.textBaseline = 'middle';
-                // Position at bottom right outside the shield
+
                 const offset = shieldRadius + 10;
                 ctx.fillText(this.shieldCharges, offset, offset);
+
                 ctx.restore();
             }
         }
