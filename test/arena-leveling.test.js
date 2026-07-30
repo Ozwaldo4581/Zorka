@@ -98,6 +98,58 @@ test('Projectile upgrades extend supported bursts without changing each round pa
     assert.equal(player.getGunProjectiles(0, 0, 0).length, 1);
 });
 
+test('Earthling Capsule 3 and the Martian base weapon share one laser definition', () => {
+    const earthling = new Player(0, 0);
+    earthling.activeGun = 'Laser';
+    earthling.projectileUpgradeCount = 4;
+
+    const martian = new Player(0, 0);
+    martian.setEvolutionForm('MARTIAN');
+    martian.projectileUpgradeCount = 4;
+
+    assert.deepEqual(earthling.resolveBaseProjectile(), martian.resolveBaseProjectile());
+    assert.equal(martian.resolveBaseProjectile().quantity, 7);
+    assert.equal(martian.getGunProjectiles(0, 0, 0)[0].isLaser, true);
+});
+
+test('Martian Capsule 3 duplicates every completed gun-pattern emission in parallel', () => {
+    const player = new Player(100, 100);
+    player.setEvolutionForm('MARTIAN');
+    player.martianParallelGuns = 2;
+
+    for (const [gun, patternSize] of [['Normal', 1], ['Antigun', 2], ['Double', 2]]) {
+        player.activeGun = gun;
+        const shots = player.getGunProjectiles(player.x, player.y, player.rotation);
+        assert.equal(shots.length, patternSize * 2);
+        for (let index = 0; index < patternSize; index++) {
+            const original = shots[index];
+            const duplicate = shots[index + patternSize];
+            assert.equal(duplicate.vx, original.vx);
+            assert.equal(duplicate.vy, original.vy);
+            assert.equal(duplicate.rotation, original.rotation);
+            assert.ok(Math.abs(Math.hypot(duplicate.x - original.x, duplicate.y - original.y) - 30) < 1e-9);
+            assert.equal(duplicate.isLaser, true);
+        }
+    }
+});
+
+test('Martian base fire shares Earthling cadence and Capsule 3 does not add a timer', () => {
+    const fireOnce = player => {
+        player.spawnImmunityTimer = 0;
+        const shots = player.fire();
+        return { shots, cooldown: player.fireCooldown, burstCount: player.burstCount };
+    };
+    const earthling = fireOnce(new Player(0, 0));
+    const martianPlayer = new Player(0, 0);
+    martianPlayer.setEvolutionForm('MARTIAN');
+    martianPlayer.martianParallelGuns = 2;
+    const martian = fireOnce(martianPlayer);
+
+    assert.equal(martian.cooldown, earthling.cooldown);
+    assert.equal(martian.burstCount, earthling.burstCount);
+    assert.equal(martian.shots.length, 2);
+});
+
 test('level reset clears level bonuses while preserving non-level shield capacity', () => {
     const player = new Player(0, 0);
     player.configureShields(2, 6);

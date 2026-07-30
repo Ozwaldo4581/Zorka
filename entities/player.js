@@ -2,6 +2,11 @@ import { updateNewtonian, checkCollision, nearestWrappedDisplacement } from '../
 import { Projectile } from './projectile.js';
 import { DESIGN_WIDTH, DESIGN_HEIGHT } from '../game.js';
 
+const BASE_GUN_COOLDOWN = 0.75;
+const BURST_INTERVAL = 0.05;
+const BASE_PROJECTILE_SPEED = 1200;
+const MARTIAN_PARALLEL_OFFSET = 30;
+
 export class Player {
     constructor(x, y, id = 1, color = '#00ffff') {
         this.x = x;
@@ -160,7 +165,7 @@ export class Player {
     }
 
     getBurstRoundCount() {
-        return 3 + Math.min(this.maxProjectileUpgrades, Math.max(0, this.projectileUpgradeCount));
+        return this.resolveBaseProjectile().quantity;
     }
 
     cancelBurstFire() {
@@ -284,6 +289,7 @@ export class Player {
     }
 
     setEvolutionForm(form) {
+        if (this.isMartian && form !== 'MARTIAN') this.martianParallelGuns = 1;
         this.isMartian = form === 'MARTIAN';
         this.isCyborg = form === 'CYBORG';
         this.isDimensionX = form === 'DIMENSION X';
@@ -832,11 +838,8 @@ export class Player {
                 break;
             case 3: // Laser (or Martian Parallel Guns)
                 if (this.isMartian) {
-                    if (this.martianParallelGuns === 1) {
-                        this.martianParallelGuns = 2;
-                    } else {
-                        this.martianParallelGuns++;
-                    }
+                    // Martian Capsule 3 adds one parallel copy to each base emission.
+                    this.martianParallelGuns = 2;
                 } else {
                     this.activeGun = 'Laser';
                     this.cancelBurstFire();
@@ -871,24 +874,24 @@ export class Player {
             const projectiles = [];
             
             // Check if this weapon supports burst
-            const isBurstWeapon = (this.activeGun === 'Normal' || this.activeGun === 'Antigun' || this.activeGun === 'Double');
+            const baseProjectile = this.resolveBaseProjectile();
+            const isBurstWeapon = !this.isCyborg && !this.isDimensionX;
 
             if (!isBurstShot) {
-                // Martian tier fires faster single shots instead of bursts
-                this.fireCooldown = (isBurstWeapon && !this.isMartian) ? 0.75 : 0.35; 
-                if (isBurstWeapon && !this.isMartian && !this.isCyborg && !this.isDimensionX) {
-                    this.burstCount = this.getBurstRoundCount() - 1;
-                    this.burstTimer = 0.05; // Rate of fire (0.05)
+                this.fireCooldown = isBurstWeapon ? BASE_GUN_COOLDOWN : 0.35;
+                if (isBurstWeapon) {
+                    this.burstCount = baseProjectile.quantity - 1;
+                    this.burstTimer = BURST_INTERVAL;
                 }
             }
 
             // Main Gun Fire
-            const mainProjs = this.getGunProjectiles(this.x, this.y, this.rotation);
+            const mainProjs = this.getGunProjectiles(this.x, this.y, this.rotation, baseProjectile);
             projectiles.push(...mainProjs);
 
             // Ghost Fire
             this.ghosts.forEach(ghost => {
-                const ghostProjs = this.getGunProjectiles(ghost.x, ghost.y, ghost.rotation);
+                const ghostProjs = this.getGunProjectiles(ghost.x, ghost.y, ghost.rotation, baseProjectile);
                 ghostProjs.forEach(p => p.isGhost = true);
                 projectiles.push(...ghostProjs);
             });
@@ -924,12 +927,37 @@ export class Player {
         return p;
     }
 
-    getGunProjectiles(x, y, rotation) {
-        const projs = [];
-        const speed = 1200;
+    getLaserProjectileDefinition() {
+        return {
+            kind: 'laser',
+            isLaser: true,
+            speed: BASE_PROJECTILE_SPEED,
+            radius: 8,
+            lifeSpan: 10,
+            canWrap: true
+        };
+    }
 
-        const createProj = (angle, noWrap = false, offsetX = 0, offsetY = 0) => {
-            const projSpeed = this.isCyborg ? speed * 0.5 : speed; // Cyborg orbs move 50% slower
+    resolveBaseProjectile() {
+        const quantity = 3 + Math.min(this.maxProjectileUpgrades, Math.max(0, this.projectileUpgradeCount));
+        const usesLaser = this.isMartian || (!this.isCyborg && !this.isDimensionX && this.activeGun === 'Laser');
+        const definition = usesLaser ? this.getLaserProjectileDefinition() : {
+            kind: 'projectile',
+            isLaser: false,
+            speed: BASE_PROJECTILE_SPEED,
+            radius: 8,
+            lifeSpan: 999999,
+            canWrap: true
+        };
+
+        return { ...definition, projectileLevel: this.projectileUpgradeCount, quantity };
+    }
+
+    getGunProjectiles(x, y, rotation, baseProjectile = this.resolveBaseProjectile()) {
+        const projs = [];
+
+        const createProj = (angle, lateralOffset = 0) => {
+            const projSpeed = this.isCyborg ? baseProjectile.speed * 0.5 : baseProjectile.speed;
             const vx = Math.sin(angle) * projSpeed;
             const vy = -Math.cos(angle) * projSpeed;
             
@@ -943,22 +971,17 @@ export class Player {
             let sy = y - Math.cos(angle) * spawnOffset;
             
             // Parallel offset (for Martian Laser upgrade)
-            if (offsetX !== 0 || offsetY !== 0) {
-                const perpAngle = angle + Math.PI / 2;
-                sx += Math.cos(perpAngle) * offsetX;
-                sy += Math.sin(perpAngle) * offsetX;
+            if (lateralOffset !== 0) {
+                sx += Math.cos(angle) * lateralOffset;
+                sy += Math.sin(angle) * lateralOffset;
             }
 
             const p = new Projectile(sx, sy, vx, vy, this.color);
             p.owner = this;
-            if (noWrap) p.canWrap = false;
-            
-            // Martian base projectile is a laser
-            if (this.isMartian) {
-                p.isLaser = true;
-                p.lifeSpan = 10;
-                p.canWrap = true; // Enabled wrapping
-            }
+            p.isLaser = baseProjectile.isLaser;
+            p.radius = baseProjectile.radius;
+            p.lifeSpan = baseProjectile.lifeSpan;
+            p.canWrap = baseProjectile.canWrap;
 
             // Cyborg base projectile is a single shot orb
             if (this.isCyborg) {
@@ -976,68 +999,43 @@ export class Player {
                 p.lifeSpan = 1.0; // Life handled by tentacle phase logic
             }
             
-            // Infinite life for standard ballistic types (Normal, Antigun, Double)
-            if (this.activeGun !== 'Laser' && !this.isMartian && !this.isCyborg && !this.isDimensionX) {
-                p.lifeSpan = 999999;
-            }
-            
             return p;
         };
 
-        const addBurstPair = (angle) => {
-            if (this.isMartian) {
-                // Parallel guns for Martian (scaled by capsule 4)
-                const count = this.martianParallelGuns || 1;
-                const totalWidth = (count - 1) * 30;
-                const startOffset = -totalWidth / 2;
-                for (let i = 0; i < count; i++) {
-                    projs.push(createProj(angle, false, startOffset + i * 30));
-                }
-            } else if (this.isCyborg && this.activeGun === 'Laser') {
-                // Cyborg Laser powerup: Decoy (Fake Asteroid)
-                const dp = createProj(angle);
-                dp.isDecoy = true;
-                dp.radius = 50; // Hitbox for the large decoy
-                dp.lifeSpan = 5.0; // Lasts longer
-                dp.vx *= 0.25; // Moves slower like an asteroid
-                dp.vy *= 0.25;
-                projs.push(dp);
-            } else if (this.isDimensionX && this.activeGun === 'Laser') {
-                // Dimension X Laser powerup: Dual tentacles
-                projs.push(createProj(angle - 0.3));
-                projs.push(createProj(angle + 0.3));
-            } else {
-                projs.push(createProj(angle, this.isMartian)); // Martian base is laser, others are not
-            }
-        };
+        if (this.isCyborg && this.activeGun === 'Laser') {
+            // Cyborg Laser powerup: Decoy (Fake Asteroid)
+            const dp = createProj(rotation);
+            dp.isDecoy = true;
+            dp.radius = 50; // Hitbox for the large decoy
+            dp.lifeSpan = 5.0; // Lasts longer
+            dp.vx *= 0.25; // Moves slower like an asteroid
+            dp.vy *= 0.25;
+            return [dp];
+        }
+        if (this.isDimensionX && this.activeGun === 'Laser') {
+            // Dimension X Laser powerup: Dual tentacles
+            return [createProj(rotation - 0.3), createProj(rotation + 0.3)];
+        }
 
-        switch (this.activeGun) {
+        const emissionAngles = [];
+        switch (this.activeGun === 'Laser' ? 'Normal' : this.activeGun) {
             case 'Antigun':
-                projs.push(createProj(rotation, false));
-                projs.push(createProj(rotation + Math.PI, false));
+                emissionAngles.push(rotation, rotation + Math.PI);
                 break;
             case 'Double':
-                projs.push(createProj(rotation - 0.25, false));
-                projs.push(createProj(rotation + 0.25, false));
-                break;
-            case 'Laser':
-                if (this.isMartian) {
-                    addBurstPair(rotation);
-                } else {
-                    const lp = createProj(rotation, false); // Standard laser now wraps
-                    lp.isLaser = true;
-                    lp.lifeSpan = 10;
-                    lp.canWrap = true;
-                    projs.push(lp);
-                }
+                emissionAngles.push(rotation - 0.25, rotation + 0.25);
                 break;
             default: // Normal
-                if (this.isMartian) {
-                    addBurstPair(rotation);
-                } else {
-                    addBurstPair(rotation);
-                }
+                emissionAngles.push(rotation);
                 break;
+        }
+
+        emissionAngles.forEach(angle => projs.push(createProj(angle)));
+
+        // Capsule 3 duplicates the completed Martian pattern without changing its
+        // angles, velocity, projectile snapshot, or trigger cadence.
+        if (this.isMartian && this.martianParallelGuns > 1) {
+            emissionAngles.forEach(angle => projs.push(createProj(angle, MARTIAN_PARALLEL_OFFSET)));
         }
         return projs;
     }
