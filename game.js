@@ -20,7 +20,8 @@ const TARGET_TIE_PRIORITY = Object.freeze({
 const CONTROLLER_LOCK_ACQUIRE_THRESHOLD = 0.65;
 const CONTROLLER_LOCK_RELEASE_THRESHOLD = 0.25;
 const CONTROLLER_LOCK_MAX_DISTANCE = DESIGN_WIDTH;
-const CONTROLLER_LOCK_TOLERANCE = 24;
+export const MOUSE_AIM_LOCK_PADDING = 18;
+export const CONTROLLER_AIM_LOCK_PADDING = 24;
 const CONTROLLER_AIM_DEADZONE = 0.15;
 const RAY_DISTANCE_TIE_EPSILON = 0.001;
 
@@ -470,7 +471,7 @@ export class Game {
             if (this.domCursor) {
                 this.domCursor.style.left = `${e.clientX}px`;
                 this.domCursor.style.top = `${e.clientY}px`;
-                this.domCursor.style.display = 'block';
+                this.domCursor.style.display = this.shouldHideMouseCursor() ? 'none' : 'block';
             }
         });
         window.addEventListener('mousedown', (e) => {
@@ -1270,6 +1271,8 @@ export class Game {
 
     findAimLockTargetAt(lockingPlayer, worldX, worldY) {
         let bestTarget = null;
+        let bestIsBufferedOnly = true;
+        let bestEdgeDistance = Infinity;
         let bestDistanceSquared = Infinity;
         let bestTiePriority = Infinity;
         let bestIndex = Infinity;
@@ -1279,13 +1282,21 @@ export class Game {
 
             const delta = nearestWrappedDisplacement(worldX, worldY, entity.x, entity.y);
             const distanceSquared = delta.x * delta.x + delta.y * delta.y;
-            if (distanceSquared > entity.radius * entity.radius) return;
+            const acquisitionRadius = entity.radius + MOUSE_AIM_LOCK_PADDING;
+            if (distanceSquared > acquisitionRadius * acquisitionRadius) return;
 
-            const winsTie = distanceSquared === bestDistanceSquared
-                && (tiePriority < bestTiePriority
-                    || (tiePriority === bestTiePriority && stableIndex < bestIndex));
-            if (distanceSquared < bestDistanceSquared || winsTie) {
+            const distance = Math.sqrt(distanceSquared);
+            const isBufferedOnly = distance > entity.radius;
+            const edgeDistance = isBufferedOnly ? distance - entity.radius : 0;
+            const rank = [Number(isBufferedOnly), edgeDistance, distanceSquared, tiePriority, stableIndex];
+            const bestRank = [Number(bestIsBufferedOnly), bestEdgeDistance, bestDistanceSquared, bestTiePriority, bestIndex];
+            const winsRanking = rank.some((value, index) =>
+                value < bestRank[index] && rank.slice(0, index).every((prior, priorIndex) => prior === bestRank[priorIndex])
+            );
+            if (winsRanking) {
                 bestTarget = entity;
+                bestIsBufferedOnly = isBufferedOnly;
+                bestEdgeDistance = edgeDistance;
                 bestDistanceSquared = distanceSquared;
                 bestTiePriority = tiePriority;
                 bestIndex = stableIndex;
@@ -1307,7 +1318,7 @@ export class Game {
             const alongRay = delta.x * direction.x + delta.y * direction.y;
             if (alongRay <= 0 || alongRay > CONTROLLER_LOCK_MAX_DISTANCE) return;
             const perpendicular = Math.abs(delta.x * direction.y - delta.y * direction.x);
-            if (perpendicular > entity.radius + CONTROLLER_LOCK_TOLERANCE) return;
+            if (perpendicular > entity.radius + CONTROLLER_AIM_LOCK_PADDING) return;
 
             const distanceTie = Math.abs(alongRay - bestAlongRay) <= RAY_DISTANCE_TIE_EPSILON;
             const winsTie = distanceTie
@@ -1417,8 +1428,10 @@ export class Game {
         requestAnimationFrame((t) => this.loop(t));
     }
 
-    // Hide the cursor if any gamepad input is detected
+    // Hide the cursor for gamepad-driven play, without letting P2 input hide P1's mouse cursor.
     updateGamepadVisibilityDetection() {
+        if (this.isInGameplayState() && this.getMouseControlledPlayer()) return;
+
         const gamepads = navigator.getGamepads ? navigator.getGamepads() : [];
         for (const gp of gamepads) {
             if (!gp) continue;
@@ -2316,7 +2329,11 @@ export class Game {
     }
 
     drawCrosshair() {
-        if (!this.cursorVisible || !this.domCursor) return;
+        if (!this.domCursor) return;
+        if (!this.cursorVisible || this.shouldHideMouseCursor()) {
+            this.domCursor.style.display = 'none';
+            return;
+        }
         
         // Sync DOM cursor color with player color
         const p1 = this.players.find(p => p.id === 1);
@@ -2333,6 +2350,23 @@ export class Game {
             this.domCursor.style.borderColor = 'transparent';
             this.domCursor.style.boxShadow = 'none';
         }
+    }
+
+    shouldHideMouseCursor() {
+        const mousePlayer = this.getMouseControlledPlayer();
+        const target = mousePlayer?.lockedAimTarget;
+        return Boolean(
+            target
+            && Number.isFinite(target.x)
+            && Number.isFinite(target.y)
+            && this.isValidAimLockTarget(mousePlayer, target)
+        );
+    }
+
+    getMouseControlledPlayer() {
+        return this.players.find(player =>
+            player.id === 1 && !player.isNPC && player.controlMode === 'KEYBOARD'
+        ) || null;
     }
 
     updateCursorVisuals() {

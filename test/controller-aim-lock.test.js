@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { Game, WORLD_WIDTH } from '../game.js';
+import { Game, MOUSE_AIM_LOCK_PADDING, WORLD_HEIGHT, WORLD_WIDTH } from '../game.js';
 import { Player } from '../entities/player.js';
 
 const mouseInput = overrides => ({
@@ -179,6 +179,99 @@ test('ray corridor is wrap-aware and chooses first hit with stable tie behavior'
     };
 
     assert.equal(Game.prototype.findControllerAimLockTarget.call(fakeGame, player, { x: 1, y: 0 }), offAxisNear);
+});
+
+const findMouseTarget = (candidates, x = 0, y = 0) => Game.prototype.findAimLockTargetAt.call({
+    getAimLockCandidates: () => candidates.map((entity, stableIndex) => ({
+        entity,
+        tiePriority: stableIndex,
+        stableIndex
+    }))
+}, {}, x, y);
+
+test('mouse acquisition accepts exact and padded hits but rejects outside misses without changing radii', () => {
+    const target = { x: 100, y: 100, radius: 10 };
+    const originalRadius = target.radius;
+
+    assert.equal(findMouseTarget([target], 105, 100), target);
+    assert.equal(findMouseTarget([target], 100 + target.radius + MOUSE_AIM_LOCK_PADDING - 1, 100), target);
+    assert.equal(findMouseTarget([target], 100 + target.radius + MOUSE_AIM_LOCK_PADDING + 1, 100), null);
+    assert.equal(target.radius, originalRadius);
+});
+
+test('mouse acquisition prioritizes exact hits, then the closest padded edge', () => {
+    const exact = { x: 8, y: 0, radius: 10 };
+    const buffered = { x: 2, y: 0, radius: 1 };
+    assert.equal(findMouseTarget([buffered, exact]), exact);
+
+    const fartherEdge = { x: 20, y: 0, radius: 5 };
+    const closerEdge = { x: 18, y: 0, radius: 10 };
+    assert.equal(findMouseTarget([fartherEdge, closerEdge]), closerEdge);
+});
+
+test('mouse acquisition padding remains wrap-aware across both world seams', () => {
+    const target = { x: WORLD_WIDTH - 5, y: WORLD_HEIGHT - 5, radius: 8 };
+    assert.equal(findMouseTarget([target], 4, 4), target);
+});
+
+test('cursor visibility derives only from a valid keyboard Player 1 lock', () => {
+    const p1 = new Player(0, 0, 1);
+    p1.controlMode = 'KEYBOARD';
+    const p2 = new Player(100, 0, 2);
+    p2.controlMode = 'GAMEPAD';
+    const fakeGame = {
+        players: [p1, p2],
+        projectiles: [],
+        hazards: [],
+        asteroids: [],
+        isValidAimLockTarget: Game.prototype.isValidAimLockTarget,
+        getMouseControlledPlayer: Game.prototype.getMouseControlledPlayer
+    };
+
+    assert.equal(Game.prototype.shouldHideMouseCursor.call(fakeGame), false);
+    p2.beginAimLock(p1);
+    assert.equal(Game.prototype.shouldHideMouseCursor.call(fakeGame), false);
+
+    p1.beginAimLock(p2);
+    assert.equal(Game.prototype.shouldHideMouseCursor.call(fakeGame), true);
+    p1.clearAimLock();
+    assert.equal(Game.prototype.shouldHideMouseCursor.call(fakeGame), false);
+
+    p1.beginAimLock(p2);
+    fakeGame.players = [p1];
+    assert.equal(Game.prototype.shouldHideMouseCursor.call(fakeGame), false);
+});
+
+test('controller activity does not hide the cursor while Player 1 owns mouse controls', () => {
+    const p1 = new Player(0, 0, 1);
+    p1.controlMode = 'KEYBOARD';
+    const fakeGame = {
+        players: [p1],
+        isInGameplayState: () => true,
+        getMouseControlledPlayer: Game.prototype.getMouseControlledPlayer
+    };
+
+    assert.doesNotThrow(() => Game.prototype.updateGamepadVisibilityDetection.call(fakeGame));
+});
+
+test('drawCrosshair hides and restores the DOM cursor from the derived lock state', () => {
+    const style = {
+        display: '',
+        setProperty() {}
+    };
+    const fakeGame = {
+        cursorVisible: true,
+        domCursor: { style },
+        players: [],
+        selectedCursorStyle: 0,
+        shouldHideMouseCursor: () => true
+    };
+
+    Game.prototype.drawCrosshair.call(fakeGame);
+    assert.equal(style.display, 'none');
+    fakeGame.shouldHideMouseCursor = () => false;
+    Game.prototype.drawCrosshair.call(fakeGame);
+    assert.equal(style.display, 'block');
 });
 
 test('controller assignment preserves P1/P2 pad selection', () => {
