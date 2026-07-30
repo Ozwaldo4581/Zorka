@@ -21,6 +21,7 @@ export class Player {
         this.lockedAimTarget = null;
         this.controllerAimLockLatched = false;
         this.controllerAimLockArmed = true;
+        this.faceButtonState = [false, false, false, false];
         
         // Power-up System
         this.powerUpCapsules = 0;
@@ -244,6 +245,33 @@ export class Player {
         return null;
     }
 
+    handleGamepadPowerUpIntents(gamepad) {
+        const pressed = [0, 1, 2, 3].map(index => Boolean(gamepad?.buttons?.[index]?.pressed));
+        const justPressed = pressed.map((value, index) => value && !this.faceButtonState[index]);
+        this.faceButtonState = pressed;
+
+        if (justPressed[0]) this.consumeCapsules();
+        if (justPressed[2]) this.useProjectileLevelPowerUp();
+        if (justPressed[3]) this.useSpeedLevelPowerUp();
+        if (justPressed[1]) this.useGeneralLevelPowerUp();
+    }
+
+    consumeCapsules() {
+        return this.activatePowerUp();
+    }
+
+    useProjectileLevelPowerUp() {
+        return this.applyLevelUpgrade('projectile');
+    }
+
+    useSpeedLevelPowerUp() {
+        return this.applyLevelUpgrade('speed');
+    }
+
+    useGeneralLevelPowerUp() {
+        return this.applyLevelUpgrade('shield');
+    }
+
     getDirectionalThrust(inputX, inputY, useRelativeMovement) {
         if (!useRelativeMovement) {
             return { x: inputX * this.thrust, y: inputY * this.thrust };
@@ -377,9 +405,7 @@ export class Player {
                     this.isThrusting = true;
                 }
 
-                if (this.pendingLevelUps === 0 && (gp.buttons[0].pressed || gp.buttons[1].pressed)) {
-                    this.activatePowerUp();
-                }
+                this.handleGamepadPowerUpIntents(gp);
 
             }
             
@@ -448,9 +474,7 @@ export class Player {
                     this.isThrusting = true;
                 }
 
-                if (this.pendingLevelUps === 0 && (gp.buttons[0].pressed || gp.buttons[1].pressed)) {
-                    this.activatePowerUp();
-                }
+                this.handleGamepadPowerUpIntents(gp);
 
             }
             // NO KEYBOARD FALLBACK FOR P2
@@ -792,7 +816,7 @@ export class Player {
     }
 
     activatePowerUp() {
-        if (this.powerUpCapsules === 0) return;
+        if (this.powerUpCapsules === 0) return false;
 
         const slot = this.powerUpCapsules;
         let success = true;
@@ -835,6 +859,7 @@ export class Player {
             this.powerUpCapsules = 0;
             this.powerUpError = null;
         }
+        return success;
     }
 
     fire(isBurstShot = false) {
@@ -894,6 +919,7 @@ export class Player {
         const p = new Projectile(x, y, vx, vy, this.color);
         p.owner = this;
         p.isMissile = true;
+        p.missileTarget = this.lockedAimTarget || (this.isNPC ? this.npcTarget : null);
         p.radius = 14; // Larger missile body/hitbox
         p.aoeRadius = 160; // Large area-of-effect blast radius on detonation
         return p;

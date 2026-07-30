@@ -72,7 +72,7 @@ Collision effects must be resolved from the current frame's authoritative entity
 | `Game` | Match state, entity collections, arena options, spawning, destruction results, death/respawn flow |
 | `Player` | Ship position/velocity/aim, control/NPC state, weapons, capsules, power-ups, shields, score, transformation state |
 | `Asteroid` | Size tier, hit count, radius, movement, rotation, destroyed flag |
-| `SpaceDebris` / `Satellite` | Hazard movement, hit state, reward identity, and satellite firing cadence |
+| `SpaceDebris` / `Satellite` | Hazard movement, hit state, XP reward identity, and satellite firing cadence |
 | `Projectile` | Position/velocity, lifespan, owner, weapon flags, target/orbit/tentacle state |
 | `physics.js` | Shared Newtonian movement, wrapping, and radius collision helpers; it owns no persistent game state |
 
@@ -92,21 +92,22 @@ The current world is a 9 × 9 grid of 1920 × 1080 design screens: **17280 × 97
 
 File: `entities/player.js`
 
-`Player` receives local keyboard/mouse or gamepad input, calculates thrust force, updates its aim, caps speed, and maintains its weapon/power-up state. NPC players use the same entity contract but produce force/fire intent through `updateNPC`.
+`Player` receives local keyboard/mouse or gamepad input, calculates thrust force, updates its aim, caps speed, and maintains its weapon/power-up state. NPC players use the same entity contract but produce force/fire intent through `updateNPC`. Target-lock state belongs to each `Player`; a missile snapshots its firing player’s lock at launch and is not redirected by another player’s lock.
 
 Rules:
 
 - The movement model belongs in `Player` plus `physics.js`.
 - `Game` interprets fire intent by creating projectiles and resolving their results.
 - Input widgets or HUD code may request actions but must not directly mutate player combat state.
+- Controller face buttons dispatch player-owned intents: A consumes capsules, X applies Projectile level, Y applies Speed level, and B applies the general Power-up (Shield) level.
 
 ### Arena Objects
 
 Files: `entities/asteroid.js`, `entities/hazards.js`
 
 - **Asteroids** are lethal cover/terrain. Large → three Medium → three Small; large asteroids are replenished after destruction.
-- **Space Debris** is asteroid-like, is destructible, and awards a capsule to the destroying ship.
-- **Satellites** are destructible, award a capsule, and fire predictable rogue projectiles.
+- **Space Debris** is asteroid-like, is destructible, and awards 5 XP but no capsule to the destroying ship.
+- **Satellites** are destructible, award 15 XP but no capsule, and fire predictable rogue projectiles.
 
 ### Combat, Rewards, and Destruction
 
@@ -114,7 +115,7 @@ Files: `game.js`, `entities/projectile.js`, `entities/player.js`
 
 `Player.fire()` defines weapon output. `Game.handleFire()` adds shots to the match. `Game.checkCollisions()` and `Game.hitTarget()` own hit results: projectile removal/piercing, asteroid splits, destruction effects, capsule rewards, and replacement spawning.
 
-Capsules are the central risk/reward economy. A player earns them from enemy-ship kills and reward targets, then spends the current capsule stack through `Player.activatePowerUp()` for weapon, missile, ghost, or forcefield upgrades. Death clears capsules and temporary power-ups.
+Capsules are the central risk/reward economy. A player earns them from enemy-ship kills, then spends the current capsule stack through `Player.activatePowerUp()` for weapon, missile, ghost, or forcefield upgrades. Death clears capsules and temporary power-ups.
 
 ### Death and Respawn
 

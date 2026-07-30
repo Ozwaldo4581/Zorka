@@ -1,4 +1,4 @@
-import { updateNewtonian } from '../physics.js';
+import { nearestWrappedDisplacement, updateNewtonian } from '../physics.js';
 import { WORLD_WIDTH, WORLD_HEIGHT } from '../game.js';
 
 export class Projectile {
@@ -28,9 +28,9 @@ export class Projectile {
         this.aoeRadius = 0;
     }
 
-    update(dt, asteroids = [], players = [], hazards = []) {
+    update(dt, asteroids = [], players = [], hazards = [], projectiles = []) {
         if (this.isMissile) {
-            this.updateMissile(dt, players, hazards);
+            this.updateMissile(dt, asteroids, players, hazards, projectiles);
         } else if (this.isTentacle) {
             this.updateTentacle(dt);
         } else if (this.isOrbital) {
@@ -93,61 +93,33 @@ export class Projectile {
         }
     }
 
-    updateMissile(dt, players, hazards) {
-        // Missiles home in on players and satellites, ignoring the firing owner and the dead/destroyed.
-        // Homing behavior now only kicks in when within one screen length (DESIGN_WIDTH) of a target.
-        const HOMING_RANGE = 1920; 
+    updateMissile(dt, asteroids, players, hazards, projectiles) {
+        const target = this.missileTarget;
+        const activeTargets = [...asteroids, ...players, ...hazards, ...projectiles];
+        const targetIsValid = target
+            && target !== this.owner
+            && activeTargets.includes(target)
+            && !target.isDead
+            && !target.isEliminated
+            && !target.isDestroyed
+            && !target.isRemoved;
 
-        if (!this.missileTarget || this.missileTarget.isDead || this.missileTarget.isDestroyed) {
-            let minDist = Infinity;
+        if (!targetIsValid) {
             this.missileTarget = null;
-            
-            // Check players
-            players.forEach(pl => {
-                if (pl === this.owner || pl.isDead) return;
-                const d = Math.hypot(pl.x - this.x, pl.y - this.y);
-                if (d < minDist && d < HOMING_RANGE) {
-                    minDist = d;
-                    this.missileTarget = pl;
-                }
-            });
+        } else {
+            const delta = nearestWrappedDisplacement(this.x, this.y, target.x, target.y);
+            const targetRot = Math.atan2(delta.y, delta.x) + Math.PI / 2;
+            const currentRot = Math.atan2(this.vy, this.vx) + Math.PI / 2;
+            let diff = targetRot - currentRot;
+            while (diff > Math.PI) diff -= Math.PI * 2;
+            while (diff < -Math.PI) diff += Math.PI * 2;
 
-            // Check satellites (with equal priority)
-            hazards.forEach(h => {
-                if (!h.isSatellite || h.isDestroyed) return;
-                const d = Math.hypot(h.x - this.x, h.y - this.y);
-                if (d < minDist && d < HOMING_RANGE) {
-                    minDist = d;
-                    this.missileTarget = h;
-                }
-            });
-        }
-
-        if (this.missileTarget) {
-            // Re-check distance to target to ensure we are still within homing range
-            const dist = Math.hypot(this.missileTarget.x - this.x, this.missileTarget.y - this.y);
-            
-            if (dist < HOMING_RANGE) {
-                const dx = this.missileTarget.x - this.x;
-                const dy = this.missileTarget.y - this.y;
-                const targetRot = Math.atan2(dy, dx) + Math.PI / 2;
-                const currentRot = Math.atan2(this.vy, this.vx) + Math.PI / 2;
-                
-                // Turn toward target
-                let diff = targetRot - currentRot;
-                while (diff > Math.PI) diff -= Math.PI * 2;
-                while (diff < -Math.PI) diff += Math.PI * 2;
-                
-                // Restored agility (increased from 2.2 to 2.7 to reduce turning radius)
-                const newRot = currentRot + diff * dt * 2.7;
-                const speed = Math.hypot(this.vx, this.vy);
-                this.vx = Math.sin(newRot) * speed;
-                this.vy = -Math.cos(newRot) * speed;
-                this.rotation = newRot;
-            } else {
-                // Target lost (out of range), reset target
-                this.missileTarget = null;
-            }
+            const maxTurn = 2.7 * dt;
+            const newRot = currentRot + Math.max(-maxTurn, Math.min(maxTurn, diff));
+            const speed = Math.hypot(this.vx, this.vy);
+            this.vx = Math.sin(newRot) * speed;
+            this.vy = -Math.cos(newRot) * speed;
+            this.rotation = Math.atan2(this.vy, this.vx) + Math.PI / 2;
         }
 
         this.x += this.vx * dt;

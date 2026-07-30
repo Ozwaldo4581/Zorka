@@ -76,8 +76,8 @@ Camera + HUD + AudioManager render/react
 | Ship flight, weapons, capsules, power-ups | `Player` | `Game.handleFire`, HUD, renderer |
 | Wrapping and shared movement math | `physics.js` | players, asteroids, hazards |
 | Asteroid hit tier and splitting outcome | `Asteroid` data + `Game.hitTarget` | render, collision logic |
-| Debris/satellite reward outcome | hazard data + `Game.hitTarget` | capsule economy, audio/VFX |
-| Projectile lifetime and special behavior | `Projectile` | collision resolution, renderer |
+| Debris/satellite reward outcome | hazard data + `Game.hitTarget` | XP progression, audio/VFX |
+| Projectile lifetime, launch-time target, and special behavior | `Projectile` | collision resolution, renderer |
 | Death, shields, respawn | `Game.playerDeath` / `Game.respawnPlayer` | HUD, VFX, audio |
 | Camera transform | `Camera` | world renderer |
 | HUD display | `HUD` | canvas presentation only |
@@ -89,8 +89,8 @@ Camera + HUD + AudioManager render/react
 | --- | --- | --- | --- |
 | Enemy ship | Damage/death unless shielded | Can be destroyed by weapons | Killer gains capsule and score progression |
 | Asteroid | Lethal unless shielded | Splits by tier; replenishes large asteroids | Terrain/cover, no capsule |
-| Space Debris | Lethal unless shielded | Destructible | Destroyer gains capsule; may respawn |
-| Satellite | Lethal unless shielded; fires rogue shots | Destructible | Destroyer gains capsule; replacement satellite spawns |
+| Space Debris | Lethal unless shielded | Destructible | Destroyer gains 5 XP and no capsule; may respawn |
+| Satellite | Lethal unless shielded; fires rogue shots | Destructible | Destroyer gains 15 XP and no capsule; replacement satellite spawns |
 | Power-up capsule stack | N/A | N/A | Player spends current stack to select an upgrade; death clears it |
 
 ## Presentation Boundary
