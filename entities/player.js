@@ -423,7 +423,7 @@ export class Player {
             
             // At max speed (800), one frame is ~13.3px. 
             // We want (shipSize + cushion) / 13.3 frames.
-            const framesPerShip = Math.ceil((shipSize + 15) / 13.3);
+            const framesPerShip = Math.ceil((shipSize + 180) / 13.3);
             const delay = (i + 1) * framesPerShip;
             
             const pos = this.history[Math.min(delay, this.history.length - 1)];

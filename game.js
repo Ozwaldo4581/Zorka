@@ -25,12 +25,12 @@ export const CONTROLLER_AIM_LOCK_PADDING = 24;
 const CONTROLLER_AIM_DEADZONE = 0.15;
 const RAY_DISTANCE_TIE_EPSILON = 0.001;
 export const SHIELD_RECHARGE_DELAYS = Object.freeze({
-    5: 10,
-    4: 8,
-    3: 6,
-    2: 4,
-    1: 2,
-    0: 0
+    0: null,
+    1: 10,
+    2: 7,
+    3: 4,
+    4: 1.5,
+    5: 0.5
 });
 
 export function getShieldRechargeDelay(optionValue) {
@@ -2244,6 +2244,23 @@ export class Game {
             this.hitTarget(a, p.owner);
         }
 
+        // AoE missiles and other AoE projectiles also damage debris and satellites.
+        // Collect first because hitTarget() may remove destroyed hazards from this.hazards.
+        const impactedHazards = [];
+        for (let j = this.hazards.length - 1; j >= 0; j--) {
+            const h = this.hazards[j];
+            if (!h || h.isDestroyed) continue;
+            const dist = Math.hypot(h.x - p.x, h.y - p.y);
+            if (dist < radius + h.radius) {
+                impactedHazards.push(h);
+            }
+        }
+
+        for (const h of impactedHazards) {
+            if (!h || h.isDestroyed) continue;
+            this.hitTarget(h, p.owner);
+        }
+
         // Check players
         for (let player of this.players) {
             if (player.isDead || player === p.owner) continue;
@@ -2254,9 +2271,9 @@ export class Game {
         }
     }
 
-    // Missiles detonate with a large area-of-effect blast: any asteroid caught in the blast
-    // is destroyed instantly (large asteroids die in a single hit instead of requiring three),
-    // and any other player caught in the radius is also killed by the explosion.
+    // Missiles detonate with a large area-of-effect blast: asteroids are destroyed instantly,
+    // debris and satellites take damage through their existing hit system, and any other
+    // player caught in the radius is killed by the explosion.
     detonateMissile(missile) {
         if (!missile || missile.hasDetonated) return;
         missile.hasDetonated = true;
@@ -2282,6 +2299,23 @@ export class Game {
             if (!a || a.isDestroyed) continue;
             a.hits = a.maxHits - 1; // Force destruction in one shot regardless of size
             this.hitTarget(a, missile.owner);
+        }
+
+        // Damage every debris or satellite caught in the blast radius.
+        // Collect first because hitTarget() may remove destroyed hazards from this.hazards.
+        const impactedHazards = [];
+        for (let j = this.hazards.length - 1; j >= 0; j--) {
+            const h = this.hazards[j];
+            if (!h || h.isDestroyed) continue;
+            const dist = Math.hypot(h.x - missile.x, h.y - missile.y);
+            if (dist < radius + h.radius) {
+                impactedHazards.push(h);
+            }
+        }
+
+        for (const h of impactedHazards) {
+            if (!h || h.isDestroyed) continue;
+            this.hitTarget(h, missile.owner);
         }
 
         // Catch any nearby players in the blast too
