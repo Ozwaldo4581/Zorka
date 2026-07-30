@@ -94,19 +94,62 @@ export class Projectile {
     }
 
     updateMissile(dt, asteroids, players, hazards, projectiles) {
-        const target = this.missileTarget;
-        const activeTargets = [...asteroids, ...players, ...hazards, ...projectiles];
-        const targetIsValid = target
-            && target !== this.owner
-            && activeTargets.includes(target)
-            && !target.isDead
-            && !target.isEliminated
-            && !target.isDestroyed
-            && !target.isRemoved;
+        const HOMING_RANGE = 1920;
+        const getDistance = target => {
+            const delta = nearestWrappedDisplacement(this.x, this.y, target.x, target.y);
+            return Math.hypot(delta.x, delta.y);
+        };
+        const isActiveTarget = target => {
+            if (!target || target === this || target === this.owner) return false;
+            if (players.includes(target)) return !target.isDead && !target.isEliminated;
+            if (asteroids.includes(target)) return !target.isDestroyed;
+            if (hazards.includes(target)) return !target.isDestroyed;
+            if (projectiles.includes(target)) {
+                return (target.isMissile || target.isSkinnyMissile)
+                    && !target.hasDetonated
+                    && !target.isRemoved
+                    && target.lifeSpan > 0;
+            }
+            return false;
+        };
 
-        if (!targetIsValid) {
-            this.missileTarget = null;
-        } else {
+        const lockedTarget = this.owner?.lockedAimTarget;
+        let target = isActiveTarget(lockedTarget) ? lockedTarget : null;
+
+        // missileTarget remains the missile-owned automatic fallback; the owner's
+        // explicit lock overrides it only for the current update.
+        if (!target) {
+            if (!isActiveTarget(this.missileTarget)) {
+                let minDist = Infinity;
+                this.missileTarget = null;
+
+                players.forEach(player => {
+                    if (player === this.owner || player.isDead || player.isEliminated) return;
+                    const distance = getDistance(player);
+                    if (distance < minDist && distance < HOMING_RANGE) {
+                        minDist = distance;
+                        this.missileTarget = player;
+                    }
+                });
+
+                hazards.forEach(hazard => {
+                    if (!hazard.isSatellite || hazard.isDestroyed) return;
+                    const distance = getDistance(hazard);
+                    if (distance < minDist && distance < HOMING_RANGE) {
+                        minDist = distance;
+                        this.missileTarget = hazard;
+                    }
+                });
+            }
+
+            if (this.missileTarget && getDistance(this.missileTarget) < HOMING_RANGE) {
+                target = this.missileTarget;
+            } else {
+                this.missileTarget = null;
+            }
+        }
+
+        if (target) {
             const delta = nearestWrappedDisplacement(this.x, this.y, target.x, target.y);
             const targetRot = Math.atan2(delta.y, delta.x) + Math.PI / 2;
             const currentRot = Math.atan2(this.vy, this.vx) + Math.PI / 2;

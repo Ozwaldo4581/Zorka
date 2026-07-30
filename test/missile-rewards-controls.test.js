@@ -10,7 +10,7 @@ const pad = (...pressed) => ({
     buttons: Array.from({ length: 16 }, (_, index) => ({ pressed: pressed.includes(index) }))
 });
 
-test('missiles snapshot their firing player lock independently', () => {
+test('active missiles read their firing player lock independently in real time', () => {
     const first = new Player(0, 0, 1);
     const second = new Player(0, 0, 2);
     const firstTarget = new Player(100, 0, 3);
@@ -20,29 +20,69 @@ test('missiles snapshot their firing player lock independently', () => {
 
     const firstMissile = first.createMissile(0, 0, 0);
     const secondMissile = second.createMissile(0, 0, 0);
-    first.beginAimLock(secondTarget);
-
     assert.equal(firstMissile.owner, first);
-    assert.equal(firstMissile.missileTarget, firstTarget);
     assert.equal(secondMissile.owner, second);
-    assert.equal(secondMissile.missileTarget, secondTarget);
+    firstMissile.update(0.1, [], [first, second, firstTarget, secondTarget], []);
+    secondMissile.update(0.1, [], [first, second, firstTarget, secondTarget], []);
+    assert.ok(firstMissile.vx > 0, 'first missile tracks its owner\'s right-side lock');
+    assert.ok(secondMissile.vx > 0, 'second missile tracks its owner\'s right-side lock');
+
+    first.beginAimLock({ ...secondTarget, x: -200 });
+    firstMissile.update(0.5, [], [first, second, firstTarget, secondTarget, first.lockedAimTarget], []);
+    secondMissile.update(0.1, [], [first, second, firstTarget, secondTarget], []);
+    assert.ok(firstMissile.vx < 0, 'changing player one lock redirects its active missile');
+    assert.ok(secondMissile.vx > 0, 'player one lock does not redirect player two missile');
 });
 
-test('missile steering uses the nearest wrapped target and clears invalid targets', () => {
+test('missiles auto-acquire with wrapped distance and resume it after lock release', () => {
     const owner = new Player(100, 100, 1);
     const target = new Player(WORLD_WIDTH - 5, 100, 2);
+    const lockedTarget = new Player(200, 100, 3);
     const missile = new Projectile(5, 100, 0, -100);
     missile.owner = owner;
     missile.isMissile = true;
-    missile.missileTarget = target;
 
     missile.update(0.1, [], [owner, target], []);
     assert.ok(missile.vx < 0, 'missile turns left across the horizontal seam');
     assert.equal(missile.missileTarget, target);
 
+    owner.beginAimLock(lockedTarget);
+    missile.update(0.5, [], [owner, target, lockedTarget], []);
+    assert.ok(missile.vx > 0, 'live lock overrides the automatic target');
+    assert.equal(missile.missileTarget, target, 'lock does not replace automatic fallback state');
+
+    owner.clearAimLock();
+    missile.vx = 0;
+    missile.vy = -100;
+    missile.update(0.1, [], [owner, target, lockedTarget], []);
+    assert.ok(missile.vx < 0, 'automatic target resumes immediately after release');
+
     target.isDead = true;
     missile.update(0.1, [], [owner, target], []);
-    assert.equal(missile.missileTarget, null);
+    assert.equal(missile.missileTarget, null, 'destroyed automatic target is discarded safely');
+});
+
+test('an invalid live lock falls back without changing the owner lock or another missile', () => {
+    const first = new Player(0, 0, 1);
+    const second = new Player(3000, 0, 2);
+    const firstFallback = new Player(-200, 0, 3);
+    const secondLock = new Player(200, 0, 4);
+    const destroyedLock = new Player(300, 0, 5);
+    destroyedLock.isDead = true;
+    first.beginAimLock(destroyedLock);
+    second.beginAimLock(secondLock);
+
+    const firstMissile = first.createMissile(0, 0, 0);
+    const secondMissile = second.createMissile(0, 0, 0);
+    const players = [first, second, firstFallback, secondLock, destroyedLock];
+    firstMissile.update(0.1, [], players, []);
+    secondMissile.update(0.1, [], players, []);
+
+    assert.equal(firstMissile.missileTarget, firstFallback);
+    assert.ok(firstMissile.vx < 0, 'invalid lock immediately uses automatic acquisition');
+    assert.ok(secondMissile.vx > 0, 'another owner\'s valid lock remains effective');
+    assert.equal(first.lockedAimTarget, destroyedLock, 'projectile validation does not mutate player truth');
+    assert.equal(second.lockedAimTarget, secondLock);
 });
 
 const rewardGame = killer => ({

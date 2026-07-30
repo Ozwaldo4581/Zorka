@@ -919,7 +919,6 @@ export class Player {
         const p = new Projectile(x, y, vx, vy, this.color);
         p.owner = this;
         p.isMissile = true;
-        p.missileTarget = this.lockedAimTarget || (this.isNPC ? this.npcTarget : null);
         p.radius = 14; // Larger missile body/hitbox
         p.aoeRadius = 160; // Large area-of-effect blast radius on detonation
         return p;
