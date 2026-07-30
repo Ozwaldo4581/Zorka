@@ -98,6 +98,7 @@ export class Game {
         this.startingShieldCharges = 3;
         this.shieldRechargeRate = 3;
         this.botAggressionLevel = 0; // 0 = Random, 1-5 = Fixed
+        this.hardcoreMode = true;
         this.selectedCursorStyle = 0; // Default crosshair
         this.optionsOpenedFromPause = false;
 
@@ -583,6 +584,14 @@ export class Game {
             });
         };
 
+        const refreshHardcoreOptionButtons = () => {
+            document.querySelectorAll('.hardcore-btn').forEach(btn => {
+                const enabled = btn.dataset.hardcore === 'true';
+                btn.classList.toggle('selected', enabled === this.hardcoreMode);
+                btn.setAttribute('aria-pressed', String(enabled === this.hardcoreMode));
+            });
+        };
+
         document.getElementById('btn-main-options-open').addEventListener('click', () => {
             this.optionsOpenedFromPause = false;
 
@@ -590,6 +599,7 @@ export class Game {
             popup.classList.remove('hidden');
             popup.querySelectorAll('.focused').forEach(el => el.classList.remove('focused'));
             refreshAudioOptionButtons();
+            refreshHardcoreOptionButtons();
 
             document.querySelectorAll('.cursor-option-btn').forEach(btn => {
                 btn.classList.toggle(
@@ -632,6 +642,13 @@ export class Game {
             btn.addEventListener('click', () => {
                 this.audio.setSfxVolumeLevel(parseInt(btn.dataset.sfxLevel));
                 refreshAudioOptionButtons();
+            });
+        });
+
+        document.querySelectorAll('.hardcore-btn').forEach(btn => {
+            btn.addEventListener('click', () => {
+                this.hardcoreMode = btn.dataset.hardcore === 'true';
+                refreshHardcoreOptionButtons();
             });
         });
 
@@ -863,6 +880,7 @@ export class Game {
             popup.querySelectorAll('.focused').forEach(el => el.classList.remove('focused'));
 
             refreshAudioOptionButtons();
+            refreshHardcoreOptionButtons();
 
             document.querySelectorAll('.cursor-option-btn').forEach(btn => {
                 btn.classList.toggle(
@@ -2050,9 +2068,21 @@ export class Game {
         }
 
         player.isDead = true;
+        player.cancelBurstFire();
         player.resetControllerAimLock(true);
         this.clearAimLocksForTarget(player);
         player.respawnTimer = 2;
+
+        // Award the confirmed kill before Hardcore clears the victim's progression.
+        if (killer && killer !== player && typeof killer.addCapsule === 'function') {
+            this.awardXP(killer, 100);
+            killer.addCapsule();
+            killer.score = (killer.score || 0) + 1;
+            killer.killStreak = (killer.killStreak || 0) + 1;
+            if (killer.killStreak > (killer.highTide || 0)) killer.highTide = killer.killStreak;
+        }
+
+        if (this.hardcoreMode) player.resetLevelProgress();
         
         // Reset ALL power-up progress on death
         player.powerUpCapsules = 0;
@@ -2076,18 +2106,6 @@ export class Game {
             window.ProgressLogger.logProgress('player_death');
         }
 
-        // Credit killer if it was another ship
-        if (killer && killer !== player && typeof killer.addCapsule === 'function') {
-            this.awardXP(killer, 100);
-            killer.addCapsule();
-            killer.score = (killer.score || 0) + 1;
-
-            // Kill streak / High Tide tracking
-            killer.killStreak = (killer.killStreak || 0) + 1;
-            if (killer.killStreak > (killer.highTide || 0)) {
-                killer.highTide = killer.killStreak;
-            }
-        }
     }
 
     awardXP(killer, amount) {

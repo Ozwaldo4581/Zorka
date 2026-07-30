@@ -75,6 +75,7 @@ export class Player {
         this.pendingLevelUps = 0;
         this.projectileUpgradeCount = 0;
         this.speedUpgradeCount = 0;
+        this.levelShieldUpgradeCount = 0;
         this.maxProjectileUpgrades = 10;
         this.maxSpeedUpgrades = 10;
 
@@ -122,7 +123,10 @@ export class Player {
         if (!this.canSelectLevelUpgrade(choice)) return false;
         if (choice === 'projectile') this.projectileUpgradeCount++;
         else if (choice === 'speed') this.speedUpgradeCount++;
-        else if (choice === 'shield') this.applyShieldUpgrade();
+        else if (choice === 'shield') {
+            this.levelShieldUpgradeCount++;
+            this.applyShieldUpgrade();
+        }
         this.pendingLevelUps--;
         return true;
     }
@@ -141,6 +145,32 @@ export class Player {
 
     getSpeedMultiplier() {
         return Math.min(2, 1 + this.speedUpgradeCount * 0.1);
+    }
+
+    getBurstRoundCount() {
+        return 3 + Math.min(this.maxProjectileUpgrades, Math.max(0, this.projectileUpgradeCount));
+    }
+
+    cancelBurstFire() {
+        this.burstCount = 0;
+        this.burstTimer = 0;
+        this.shouldTriggerBurstFire = false;
+    }
+
+    resetLevelProgress() {
+        this.totalXP = 0;
+        this.level = 0;
+        this.pendingLevelUps = 0;
+        this.projectileUpgradeCount = 0;
+        this.speedUpgradeCount = 0;
+
+        const levelShieldCapacity = Math.max(0, this.levelShieldUpgradeCount || 0);
+        this.maxShieldCharges = Math.max(0, this.maxShieldCharges - levelShieldCapacity);
+        this.levelShieldUpgradeCount = 0;
+        this.shieldCharges = Math.min(this.shieldCharges, this.maxShieldCharges);
+        this.hasForcefield = this.shieldCharges > 0;
+        this.shieldRechargeTimer = 0;
+        this.cancelBurstFire();
     }
 
     clearAimLock() {
@@ -751,6 +781,7 @@ export class Player {
         switch (slot) {
             case 1: // Random Antigun or Double
                 this.activeGun = this.slot1Type;
+                this.cancelBurstFire();
                 break;
             case 2: // Missile
                 this.hasMissile = true;
@@ -765,6 +796,7 @@ export class Player {
                     }
                 } else {
                     this.activeGun = 'Laser';
+                    this.cancelBurstFire();
                 }
                 break;
             case 4: // Ghost
@@ -801,7 +833,7 @@ export class Player {
                 // Martian tier fires faster single shots instead of bursts
                 this.fireCooldown = (isBurstWeapon && !this.isMartian) ? 0.75 : 0.35; 
                 if (isBurstWeapon && !this.isMartian && !this.isCyborg && !this.isDimensionX) {
-                    this.burstCount = 2; // Queue 2 more shots (total 3 shots per cycle)
+                    this.burstCount = this.getBurstRoundCount() - 1;
                     this.burstTimer = 0.05; // Rate of fire (0.05)
                 }
             }
@@ -935,31 +967,14 @@ export class Player {
             }
         };
 
-        const extraAngle = index => {
-            const distance = Math.ceil(index / 2) * 0.1;
-            return (index % 2 === 1 ? -1 : 1) * distance;
-        };
-
-        const supportsProjectileUpgrade = !this.isMartian && !this.isCyborg && !this.isDimensionX;
-        const extras = supportsProjectileUpgrade ? this.projectileUpgradeCount : 0;
-
         switch (this.activeGun) {
             case 'Antigun':
                 projs.push(createProj(rotation, false));
                 projs.push(createProj(rotation + Math.PI, false));
-                for (let i = 1; i <= extras; i++) {
-                    const direction = i % 2 === 1 ? rotation : rotation + Math.PI;
-                    projs.push(createProj(direction + extraAngle(Math.ceil(i / 2)), false));
-                }
                 break;
             case 'Double':
                 projs.push(createProj(rotation - 0.25, false));
                 projs.push(createProj(rotation + 0.25, false));
-                for (let i = 1; i <= extras; i++) {
-                    const side = i % 2 === 1 ? -1 : 1;
-                    const ring = Math.ceil(i / 2);
-                    projs.push(createProj(rotation + side * (0.25 + ring * 0.1), false));
-                }
                 break;
             case 'Laser':
                 if (this.isMartian) {
@@ -977,7 +992,6 @@ export class Player {
                     addBurstPair(rotation);
                 } else {
                     addBurstPair(rotation);
-                    for (let i = 1; i <= extras; i++) projs.push(createProj(rotation + extraAngle(i), false));
                 }
                 break;
         }

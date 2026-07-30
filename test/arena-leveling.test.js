@@ -47,14 +47,15 @@ test('NPCs immediately resolve every queued choice from selectable upgrades', ()
     assert.equal(npc.maxShieldCharges, 3);
 });
 
-test('Projectile upgrades append exactly one shot to each base gun and skip special output', () => {
+test('Projectile upgrades extend supported bursts without changing each round pattern', () => {
     const player = new Player(0, 0);
     for (const gun of ['Normal', 'Antigun', 'Double']) {
         player.activeGun = gun;
         for (let upgrades = 0; upgrades <= 10; upgrades++) {
             player.projectileUpgradeCount = upgrades;
             const base = gun === 'Normal' ? 1 : 2;
-            assert.equal(player.getGunProjectiles(0, 0, 0).length, base + upgrades, `${gun} at ${upgrades}`);
+            assert.equal(player.getGunProjectiles(0, 0, 0).length, base, `${gun} pattern at ${upgrades}`);
+            assert.equal(player.getBurstRoundCount(), 3 + upgrades, `${gun} burst at ${upgrades}`);
         }
     }
     player.projectileUpgradeCount = 10;
@@ -63,6 +64,29 @@ test('Projectile upgrades append exactly one shot to each base gun and skip spec
     player.activeGun = 'Normal';
     player.isCyborg = true;
     assert.equal(player.getGunProjectiles(0, 0, 0).length, 1);
+});
+
+test('level reset clears level bonuses while preserving non-level shield capacity', () => {
+    const player = new Player(0, 0);
+    player.configureShields(2, 6);
+    player.applyShieldUpgrade(); // Capsule-earned capacity.
+    player.pendingLevelUps = 3;
+    player.applyLevelUpgrade('projectile');
+    player.applyLevelUpgrade('speed');
+    player.applyLevelUpgrade('shield');
+    player.totalXP = 600;
+    player.level = 3;
+
+    player.resetLevelProgress();
+
+    assert.equal(player.totalXP, 0);
+    assert.equal(player.level, 0);
+    assert.equal(player.pendingLevelUps, 0);
+    assert.equal(player.projectileUpgradeCount, 0);
+    assert.equal(player.speedUpgradeCount, 0);
+    assert.equal(player.levelShieldUpgradeCount, 0);
+    assert.equal(player.maxShieldCharges, 3);
+    assert.equal(player.shieldCharges, 3);
 });
 
 const rewardGame = killer => ({
@@ -127,5 +151,47 @@ test('confirmed ship death awards 100 XP once and shield absorption awards none'
     game.players.push(shielded);
     Game.prototype.playerDeath.call(game, shielded, killer);
     assert.equal(killer.totalXP, 100);
+    assert.equal(shielded.isDead, false);
+});
+
+test('Hardcore resets victim level progress only after a confirmed unshielded death', () => {
+    globalThis.window = globalThis.window || {};
+    const makeGame = (players, hardcoreMode) => ({
+        players,
+        hardcoreMode,
+        audio: { playSpatial() {} },
+        getActiveCameras: () => [],
+        clearAimLocksForTarget() {},
+        createExplosion() {},
+        awardXP: Game.prototype.awardXP
+    });
+
+    const hardcoreVictim = new Player(0, 0);
+    hardcoreVictim.spawnImmunityTimer = 0;
+    hardcoreVictim.totalXP = 100;
+    hardcoreVictim.level = 1;
+    hardcoreVictim.pendingLevelUps = 1;
+    Game.prototype.playerDeath.call(makeGame([hardcoreVictim], true), hardcoreVictim);
+    assert.equal(hardcoreVictim.level, 0);
+    assert.equal(hardcoreVictim.totalXP, 0);
+
+    const standardVictim = new Player(0, 0);
+    standardVictim.spawnImmunityTimer = 0;
+    standardVictim.totalXP = 100;
+    standardVictim.level = 1;
+    standardVictim.pendingLevelUps = 1;
+    standardVictim.burstCount = 4;
+    Game.prototype.playerDeath.call(makeGame([standardVictim], false), standardVictim);
+    assert.equal(standardVictim.level, 1);
+    assert.equal(standardVictim.totalXP, 100);
+    assert.equal(standardVictim.pendingLevelUps, 1);
+    assert.equal(standardVictim.burstCount, 0);
+
+    const shielded = new Player(0, 0);
+    shielded.spawnImmunityTimer = 0;
+    shielded.level = 1;
+    shielded.configureShields(1, 6);
+    Game.prototype.playerDeath.call(makeGame([shielded], true), shielded);
+    assert.equal(shielded.level, 1);
     assert.equal(shielded.isDead, false);
 });
