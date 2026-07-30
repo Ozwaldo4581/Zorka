@@ -69,6 +69,15 @@ export class Player {
         this.killStreak = 0;
         this.highTide = 0;
 
+        // Arena-local progression. Score remains the independent evolution currency.
+        this.totalXP = 0;
+        this.level = 0;
+        this.pendingLevelUps = 0;
+        this.projectileUpgradeCount = 0;
+        this.speedUpgradeCount = 0;
+        this.maxProjectileUpgrades = 10;
+        this.maxSpeedUpgrades = 10;
+
         // NPC Personality / Behavior state
         this.npcBehaviorTimer = 0;
         this.npcBehaviorState = 'NORMAL'; // NORMAL, FLEE, NO_FIRE
@@ -83,6 +92,55 @@ export class Player {
 
     rollAccuracy() {
         this.accuracyLevel = 1 + Math.floor(Math.random() * 5);
+    }
+
+    getLevelThreshold(level) {
+        const safeLevel = Math.max(0, Math.floor(Number(level) || 0));
+        return 100 * safeLevel * (safeLevel + 1) / 2;
+    }
+
+    addXP(amount) {
+        if (!Number.isFinite(amount) || amount <= 0) return 0;
+        this.totalXP += amount;
+        let levelsGained = 0;
+        while (this.totalXP >= this.getLevelThreshold(this.level + 1)) {
+            this.level++;
+            this.pendingLevelUps++;
+            levelsGained++;
+        }
+        return levelsGained;
+    }
+
+    canSelectLevelUpgrade(choice) {
+        if (this.pendingLevelUps <= 0) return false;
+        if (choice === 'projectile') return this.projectileUpgradeCount < this.maxProjectileUpgrades;
+        if (choice === 'speed') return this.speedUpgradeCount < this.maxSpeedUpgrades;
+        return choice === 'shield';
+    }
+
+    applyLevelUpgrade(choice) {
+        if (!this.canSelectLevelUpgrade(choice)) return false;
+        if (choice === 'projectile') this.projectileUpgradeCount++;
+        else if (choice === 'speed') this.speedUpgradeCount++;
+        else if (choice === 'shield') this.applyShieldUpgrade();
+        this.pendingLevelUps--;
+        return true;
+    }
+
+    resolveNPCLevelUps(random = Math.random) {
+        if (!this.isNPC) return 0;
+        let applied = 0;
+        while (this.pendingLevelUps > 0) {
+            const choices = ['projectile', 'speed', 'shield'].filter(choice => this.canSelectLevelUpgrade(choice));
+            const index = Math.min(choices.length - 1, Math.floor(random() * choices.length));
+            if (!choices[index] || !this.applyLevelUpgrade(choices[index])) break;
+            applied++;
+        }
+        return applied;
+    }
+
+    getSpeedMultiplier() {
+        return Math.min(2, 1 + this.speedUpgradeCount * 0.1);
     }
 
     clearAimLock() {
@@ -271,7 +329,7 @@ export class Player {
                     this.isThrusting = true;
                 }
 
-                if (gp.buttons[0].pressed || gp.buttons[1].pressed) {
+                if (this.pendingLevelUps === 0 && (gp.buttons[0].pressed || gp.buttons[1].pressed)) {
                     this.activatePowerUp();
                 }
 
@@ -342,7 +400,7 @@ export class Player {
                     this.isThrusting = true;
                 }
 
-                if (gp.buttons[0].pressed || gp.buttons[1].pressed) {
+                if (this.pendingLevelUps === 0 && (gp.buttons[0].pressed || gp.buttons[1].pressed)) {
                     this.activatePowerUp();
                 }
 
@@ -357,6 +415,8 @@ export class Player {
         if (this.isEventHorizon) {
             maxSpeed += this.bonusSpeed;
         }
+        // Apply level speed after form-specific additions so the full top-speed cap scales.
+        maxSpeed *= this.getSpeedMultiplier();
         const currentSpeed = Math.hypot(this.vx, this.vy);
         if (currentSpeed > maxSpeed) {
             this.vx = (this.vx / currentSpeed) * maxSpeed;
@@ -875,14 +935,31 @@ export class Player {
             }
         };
 
+        const extraAngle = index => {
+            const distance = Math.ceil(index / 2) * 0.1;
+            return (index % 2 === 1 ? -1 : 1) * distance;
+        };
+
+        const supportsProjectileUpgrade = !this.isMartian && !this.isCyborg && !this.isDimensionX;
+        const extras = supportsProjectileUpgrade ? this.projectileUpgradeCount : 0;
+
         switch (this.activeGun) {
             case 'Antigun':
                 projs.push(createProj(rotation, false));
                 projs.push(createProj(rotation + Math.PI, false));
+                for (let i = 1; i <= extras; i++) {
+                    const direction = i % 2 === 1 ? rotation : rotation + Math.PI;
+                    projs.push(createProj(direction + extraAngle(Math.ceil(i / 2)), false));
+                }
                 break;
             case 'Double':
                 projs.push(createProj(rotation - 0.25, false));
                 projs.push(createProj(rotation + 0.25, false));
+                for (let i = 1; i <= extras; i++) {
+                    const side = i % 2 === 1 ? -1 : 1;
+                    const ring = Math.ceil(i / 2);
+                    projs.push(createProj(rotation + side * (0.25 + ring * 0.1), false));
+                }
                 break;
             case 'Laser':
                 if (this.isMartian) {
@@ -900,6 +977,7 @@ export class Player {
                     addBurstPair(rotation);
                 } else {
                     addBurstPair(rotation);
+                    for (let i = 1; i <= extras; i++) projs.push(createProj(rotation + extraAngle(i), false));
                 }
                 break;
         }

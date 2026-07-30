@@ -1,6 +1,7 @@
 export class HUD {
     constructor() {
         this.maxSpeed = 800; // Updated max speed reference for meter
+        this.levelControllerState = new WeakMap();
     }
 
     draw(ctx, players, asteroids, camera, isSplitScreen = false, swapUI = false) {
@@ -21,13 +22,101 @@ export class HUD {
             // P2: Between Center (960) and Minimap (1580) -> 1270
             this.drawPowerUpMeter(ctx, players[0], 650, 980, 3);
             this.drawPowerUpMeter(ctx, players[1], 1270, 980, 3);
+            this.drawLevelUpChoices(ctx, players[0], 650, 980);
+            this.drawLevelUpChoices(ctx, players[1], 1270, 980);
             this.drawSpeedMeter(ctx, players[0], 650, 980, 3);
             this.drawSpeedMeter(ctx, players[1], 1270, 980, 3);
         } else {
             // Solo/Online: One meter, centered, laid out in a single row of 5
             this.drawPowerUpMeter(ctx, players[0], 1920 / 2, 980, 5);
+            this.drawLevelUpChoices(ctx, players[0], 1920 / 2, 980);
             this.drawSpeedMeter(ctx, players[0], 1920 / 2, 980, 5);
         }
+    }
+
+    getLevelUpgradeBoxes(centerX, startY) {
+        const width = 100;
+        const height = 36;
+        const gap = 10;
+        const choices = ['projectile', 'speed', 'shield'];
+        const rowWidth = choices.length * width + (choices.length - 1) * gap;
+        return choices.map((choice, index) => ({
+            choice,
+            x: centerX - rowWidth / 2 + index * (width + gap),
+            y: startY - 82,
+            width,
+            height
+        }));
+    }
+
+    drawLevelUpChoices(ctx, player, centerX, startY) {
+        if (!player || player.isNPC || player.isDead || player.pendingLevelUps <= 0) return;
+        const state = this.levelControllerState.get(player);
+        const selectedChoice = state?.choices?.[state.index];
+
+        ctx.save();
+        ctx.font = 'bold 10px Orbitron';
+        ctx.textAlign = 'center';
+        for (const box of this.getLevelUpgradeBoxes(centerX, startY)) {
+            const selectable = player.canSelectLevelUpgrade(box.choice);
+            ctx.fillStyle = selectable ? 'rgba(0, 0, 0, 0.8)' : 'rgba(70, 70, 70, 0.8)';
+            ctx.strokeStyle = selectedChoice === box.choice ? '#fff' : (selectable ? player.color : '#777');
+            ctx.lineWidth = selectedChoice === box.choice ? 3 : 1;
+            ctx.fillRect(box.x, box.y, box.width, box.height);
+            ctx.strokeRect(box.x, box.y, box.width, box.height);
+            ctx.fillStyle = selectable ? '#fff' : '#999';
+            ctx.fillText(box.choice.toUpperCase(), box.x + box.width / 2, box.y + 23);
+        }
+
+        const nextThreshold = player.getLevelThreshold(player.level + 1);
+        ctx.font = '10px Orbitron';
+        ctx.fillStyle = player.color;
+        ctx.fillText(`LEVEL ${player.level}  XP ${player.totalXP}/${nextThreshold}`, centerX, startY - 94);
+        ctx.restore();
+    }
+
+    getLevelUpgradeAt(x, y, players, isSplitScreen = false) {
+        const player = players?.find(candidate => candidate.id === 1 && !candidate.isNPC && candidate.controlMode !== 'GAMEPAD');
+        if (!player || player.isDead || player.pendingLevelUps <= 0) return null;
+        const centerX = isSplitScreen ? 650 : 1920 / 2;
+        const box = this.getLevelUpgradeBoxes(centerX, 980).find(candidate =>
+            x >= candidate.x && x <= candidate.x + candidate.width
+            && y >= candidate.y && y <= candidate.y + candidate.height
+        );
+        // A capped box still consumes the click so it cannot leak through as gun fire.
+        return box ? { player, choice: box.choice } : null;
+    }
+
+    updateLevelUpgradeController(player, gamepad) {
+        let state = this.levelControllerState.get(player);
+        if (!state) state = { index: 0, choices: ['projectile', 'speed', 'shield'], left: false, right: false, confirm: false };
+
+        const left = Boolean(gamepad?.buttons?.[14]?.pressed);
+        const right = Boolean(gamepad?.buttons?.[15]?.pressed);
+        const confirm = Boolean(gamepad?.buttons?.[0]?.pressed);
+        const canChoose = gamepad && !player.isDead && player.pendingLevelUps > 0;
+
+        if (canChoose && !player.canSelectLevelUpgrade(state.choices[state.index])) {
+            state.index = state.choices.findIndex(choice => player.canSelectLevelUpgrade(choice));
+        }
+
+        if (canChoose && ((left && !state.left) || (right && !state.right))) {
+            const direction = right ? 1 : -1;
+            for (let attempts = 0; attempts < state.choices.length; attempts++) {
+                state.index = (state.index + direction + state.choices.length) % state.choices.length;
+                if (player.canSelectLevelUpgrade(state.choices[state.index])) break;
+            }
+        }
+
+        let choice = null;
+        if (canChoose && confirm && !state.confirm && player.canSelectLevelUpgrade(state.choices[state.index])) {
+            choice = state.choices[state.index];
+        }
+        state.left = left;
+        state.right = right;
+        state.confirm = confirm;
+        this.levelControllerState.set(player, state);
+        return choice;
     }
 
     drawScoreboard(ctx, players, swapUI = false) {
