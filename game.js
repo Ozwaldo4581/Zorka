@@ -82,6 +82,8 @@ export class Game {
         this.startBtnWasPressed = false;
         this.pauseMenuIndex = 0;
         this.pauseMenuCooldown = 0;
+        this.activeModal = null;
+        this.focusBeforeModal = null;
         
         // P1 Control Mode: 'KEYBOARD' or 'GAMEPAD' (defaults to GAMEPAD across all modes)
         this.p1ControlMode = 'GAMEPAD'; 
@@ -423,7 +425,9 @@ export class Game {
         document.getElementById('arcade-final-capsules').textContent = String(result.totalCapsulesGained);
         const overlay = document.getElementById('arcade-game-over');
         overlay.classList.remove('hidden');
-        document.getElementById('btn-arcade-replay').focus();
+        this.setInitialMenuFocus(overlay);
+        this.menuCooldown = 0.3;
+        this.lastActiveMenuId = overlay.id;
     }
 
     hideArcadeGameOver() {
@@ -591,6 +595,10 @@ export class Game {
                 return;
             }
             this.keys[e.code] = true;
+            if (e.code === 'Escape' && this.activeModal === 'quit') {
+                this.closeQuitConfirmation();
+                return;
+            }
             if (e.code === 'Escape' && this.isInGameplayState()) {
                 this.togglePauseMenu();
             }
@@ -1054,8 +1062,7 @@ export class Game {
         });
 
         document.getElementById('btn-pause-quit').addEventListener('click', () => {
-            this.closePauseMenu();
-            this.returnToMenu();
+            this.openQuitConfirmation(document.getElementById('btn-pause-quit'));
         });
 
         document.getElementById('btn-arcade-replay').addEventListener('click', () => {
@@ -1063,8 +1070,11 @@ export class Game {
         });
 
         document.getElementById('btn-arcade-menu').addEventListener('click', () => {
-            this.returnToMenu();
+            this.openQuitConfirmation(document.getElementById('btn-arcade-menu'));
         });
+
+        document.getElementById('btn-quit-yes').addEventListener('click', () => this.confirmQuit());
+        document.getElementById('btn-quit-no').addEventListener('click', () => this.closeQuitConfirmation());
 
         // Transformation Kills Logic
         const transValueEl = document.getElementById('trans-value');
@@ -1139,11 +1149,7 @@ export class Game {
         // Reset gamepad navigation state and highlight the first button
         this.pauseMenuIndex = 0;
         this.pauseMenuCooldown = 0.3; // Small delay so the Start press that opened this doesn't also select
-        const buttons = Array.from(document.getElementById('pause-menu').querySelectorAll('button:not([disabled])'));
-        buttons.forEach((btn, i) => {
-            if (i === 0) btn.classList.add('focused');
-            else btn.classList.remove('focused');
-        });
+        this.setInitialMenuFocus(document.getElementById('pause-menu'));
     }
 
     closePauseMenu() {
@@ -1151,6 +1157,74 @@ export class Game {
         document.getElementById('pause-menu').classList.add('hidden');
         // Clear focus
         document.getElementById('pause-menu').querySelectorAll('.focused').forEach(el => el.classList.remove('focused'));
+    }
+
+    getInteractiveElements(container) {
+        if (!container) return [];
+        return Array.from(container.querySelectorAll('button:not([disabled]), .lobby-item')).filter(element => (
+            element.offsetParent !== null && !element.closest('.hidden')
+        ));
+    }
+
+    setInitialMenuFocus(container, preferredElement = null) {
+        document.querySelectorAll('.focused').forEach(element => element.classList.remove('focused'));
+        const elements = this.getInteractiveElements(container);
+        const target = preferredElement && elements.includes(preferredElement) ? preferredElement : elements[0];
+        target?.classList.add('focused');
+        this.menuIndex = Math.max(0, elements.indexOf(target));
+        return target;
+    }
+
+    findSpatialMenuTarget(current, elements, direction) {
+        if (!current) return elements[0] || null;
+        const tolerance = 6;
+        const currentRect = current.getBoundingClientRect();
+        const origin = { x: currentRect.left + currentRect.width / 2, y: currentRect.top + currentRect.height / 2 };
+        const vertical = direction === 'up' || direction === 'down';
+        const sign = direction === 'up' || direction === 'left' ? -1 : 1;
+
+        return elements
+            .filter(element => element !== current)
+            .map(element => {
+                const rect = element.getBoundingClientRect();
+                const point = { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 };
+                const primary = sign * (vertical ? point.y - origin.y : point.x - origin.x);
+                const perpendicular = Math.abs(vertical ? point.x - origin.x : point.y - origin.y);
+                return { element, primary, score: perpendicular * 4 + primary };
+            })
+            .filter(candidate => candidate.primary > tolerance)
+            .sort((a, b) => a.score - b.score || a.primary - b.primary)[0]?.element || current;
+    }
+
+    openQuitConfirmation(returnFocusElement) {
+        if (this.activeModal) return;
+        this.activeModal = 'quit';
+        this.focusBeforeModal = returnFocusElement || document.querySelector('.focused');
+        const modal = document.getElementById('quit-confirmation');
+        modal.classList.remove('hidden');
+        this.setInitialMenuFocus(modal, document.getElementById('btn-quit-no'));
+        this.menuCooldown = 0.3;
+        this.lastActiveMenuId = modal.id;
+        this.resetLockInputs();
+    }
+
+    closeQuitConfirmation() {
+        if (this.activeModal !== 'quit') return;
+        document.getElementById('quit-confirmation').classList.add('hidden');
+        document.getElementById('quit-confirmation').querySelectorAll('.focused').forEach(el => el.classList.remove('focused'));
+        this.activeModal = null;
+        const restoreTarget = this.focusBeforeModal;
+        this.focusBeforeModal = null;
+        if (restoreTarget?.offsetParent !== null) restoreTarget.classList.add('focused');
+        this.menuCooldown = 0.3;
+        this.pauseMenuCooldown = 0.3;
+        this.lastActiveMenuId = null;
+    }
+
+    confirmQuit() {
+        if (this.activeModal !== 'quit') return;
+        this.closeQuitConfirmation();
+        this.returnToMenu();
     }
 
     // Gamepad D-pad/stick navigation for the floating in-game pause menu (Escape/Start menu)
@@ -1167,7 +1241,7 @@ export class Game {
         const menuEl = document.getElementById('pause-menu');
         if (!menuEl || menuEl.classList.contains('hidden')) return;
 
-        const buttons = Array.from(menuEl.querySelectorAll('button:not([disabled])'));
+        const buttons = this.getInteractiveElements(menuEl);
         if (buttons.length === 0) return;
 
         const iy = gp.axes[1];
@@ -1177,14 +1251,11 @@ export class Game {
         const left = gp.buttons[14].pressed || ix < -0.5;
         const right = gp.buttons[15].pressed || ix > 0.5;
 
-        let changed = false;
-        if (up || left) {
-            this.pauseMenuIndex = (this.pauseMenuIndex - 1 + buttons.length) % buttons.length;
-            changed = true;
-        } else if (down || right) {
-            this.pauseMenuIndex = (this.pauseMenuIndex + 1) % buttons.length;
-            changed = true;
-        }
+        const direction = up ? 'up' : down ? 'down' : left ? 'left' : right ? 'right' : null;
+        const current = menuEl.querySelector('.focused') || buttons[this.pauseMenuIndex] || buttons[0];
+        const target = direction ? this.findSpatialMenuTarget(current, buttons, direction) : current;
+        const changed = target !== current;
+        this.pauseMenuIndex = Math.max(0, buttons.indexOf(target));
 
         if (changed) {
             this.pauseMenuCooldown = 0.2;
@@ -1362,6 +1433,9 @@ export class Game {
 
     returnToMenu() {
         this.resetLockInputs();
+        this.activeModal = null;
+        this.focusBeforeModal = null;
+        document.getElementById('quit-confirmation').classList.add('hidden');
         if (this.network) {
             this.network.leave();
         }
@@ -1372,6 +1446,7 @@ export class Game {
         this.nextArcadeReplacementLevel = 9;
         this.arcadeGameOver = false;
         this.arcadeResult = null;
+        this.optionsOpenedFromPause = false;
         this.gameState = 'MENU';
         document.getElementById('menu-overlay').classList.remove('hidden');
         document.getElementById('main-menu').classList.remove('hidden');
@@ -1635,11 +1710,17 @@ export class Game {
 
         if (this.gameState === 'SPLASH') {
             this.updateSplash(dt);
+        } else if (this.activeModal === 'quit') {
+            this.updateMenuNavigation(dt);
+        } else if (this.arcadeGameOver) {
+            this.updateMenuNavigation(dt);
         } else if (this.gameState !== 'MENU' && !this.arcadeGameOver) {
             // Only update game if local player is not eliminated, or show results
             this.update(dt);
             if (this.isPauseMenuOpen) {
                 this.updatePauseMenuNavigation(dt);
+            } else if (this.optionsOpenedFromPause) {
+                this.updateMenuNavigation(dt);
             }
         } else {
             this.updateMenuNavigation(dt);
@@ -1679,7 +1760,7 @@ export class Game {
 
     // Gamepad Start button (button index 9) acts like Escape: toggles the floating pause menu
     updateStartButton() {
-        if (!this.isInGameplayState()) {
+        if (this.activeModal || !this.isInGameplayState()) {
             this.startBtnWasPressed = false;
             return;
         }
@@ -1734,7 +1815,6 @@ export class Game {
     }
 
     updateMenuNavigation(dt) {
-        if (this.gameState !== 'MENU') return; // Gate menu navigation
         if (this.titleInputLockTimer > 0) return; 
 
         // Update gamepad connection statuses in visible menus
@@ -1754,9 +1834,14 @@ export class Game {
             return;
         }
 
-        // Determine the current active menu container, checking for popups first
+        // Determine the topmost active menu container. Modal and Game Over
+        // layers live outside the normal menu overlay but share this contract.
         let activeMenu = null;
-        const potentialContainers = ['main-options-popup', 'botless-popup', 'options-popup', 'solo-menu', 'online-menu', 'main-menu'];
+        const potentialContainers = this.activeModal === 'quit'
+            ? ['quit-confirmation']
+            : this.arcadeGameOver
+                ? ['arcade-game-over']
+                : ['main-options-popup', 'botless-popup', 'options-popup', 'solo-menu', 'online-menu', 'main-menu'];
         for (const id of potentialContainers) {
             const el = document.getElementById(id);
             if (el && !el.classList.contains('hidden')) {
@@ -1784,12 +1869,12 @@ export class Game {
 
         // Find all interactive elements in the visible menu
         // We include .lobby-item for the online lobby list
-        const buttons = Array.from(activeMenu.querySelectorAll('button:not([disabled]), .lobby-item')).filter(el => {
-            // Ensure the element itself or its parents are not hidden
-            return el.offsetParent !== null;
-        });
+        const buttons = this.getInteractiveElements(activeMenu);
 
         if (buttons.length === 0) return;
+
+        const focusedIndex = buttons.indexOf(activeMenu.querySelector('.focused'));
+        if (focusedIndex >= 0) this.menuIndex = focusedIndex;
 
         // Boundary check for menuIndex
         if (this.menuIndex >= buttons.length) this.menuIndex = 0;
@@ -1802,14 +1887,11 @@ export class Game {
         const left = gp.buttons[14].pressed || ix < -0.5;
         const right = gp.buttons[15].pressed || ix > 0.5;
 
-        let changed = false;
-        if (up || left) {
-            this.menuIndex = (this.menuIndex - 1 + buttons.length) % buttons.length;
-            changed = true;
-        } else if (down || right) {
-            this.menuIndex = (this.menuIndex + 1) % buttons.length;
-            changed = true;
-        }
+        const direction = up ? 'up' : down ? 'down' : left ? 'left' : right ? 'right' : null;
+        const current = activeMenu.querySelector('.focused') || buttons[this.menuIndex] || buttons[0];
+        const target = direction ? this.findSpatialMenuTarget(current, buttons, direction) : current;
+        const changed = target !== current;
+        this.menuIndex = Math.max(0, buttons.indexOf(target));
 
         if (changed || !activeMenu.querySelector('.focused')) {
             this.menuCooldown = 0.2;
