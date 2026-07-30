@@ -375,6 +375,39 @@ export class Player {
         this.shieldRechargeTimer = 0;
     }
 
+    applyShieldUpgrade() {
+        const currentMaximum = Number.isFinite(this.maxShieldCharges)
+            ? Math.max(0, this.maxShieldCharges)
+            : 0;
+        const currentCharges = Number.isFinite(this.shieldCharges)
+            ? Math.max(0, this.shieldCharges)
+            : 0;
+
+        this.maxShieldCharges = currentMaximum + 1;
+        this.shieldCharges = Math.min(this.maxShieldCharges, currentCharges + 1);
+        this.hasForcefield = this.shieldCharges > 0;
+        // An immediate charge starts a fresh interval before automatic recharge.
+        this.shieldRechargeTimer = 0;
+    }
+
+    restoreShieldCharges(shieldCharges) {
+        const safeMaximum = Number.isFinite(this.maxShieldCharges)
+            ? Math.max(0, this.maxShieldCharges)
+            : 0;
+        const safeCharges = Number.isFinite(shieldCharges) ? Math.max(0, shieldCharges) : 0;
+
+        this.maxShieldCharges = safeMaximum;
+        this.shieldCharges = Math.min(safeMaximum, safeCharges);
+        this.hasForcefield = this.shieldCharges > 0;
+        this.shieldRechargeTimer = 0;
+    }
+
+    grantShieldCharge() {
+        if (this.shieldCharges >= this.maxShieldCharges) return false;
+        this.restoreShieldCharges(this.shieldCharges + 1);
+        return this.shieldCharges > 0;
+    }
+
     consumeShield() {
         if (this.shieldCharges <= 0) return false;
         this.shieldCharges = Math.max(0, this.shieldCharges - 1);
@@ -682,14 +715,8 @@ export class Player {
                     this.powerUpError = 'GHOST MAXED';
                 }
                 break;
-            case 5: // Forcefield
-                if (this.shieldCharges < this.maxShieldCharges) {
-                    this.shieldCharges = Math.min(this.maxShieldCharges, this.shieldCharges + 1);
-                    this.hasForcefield = this.shieldCharges > 0;
-                } else {
-                    success = false;
-                    this.powerUpError = 'SHIELDS MAXED';
-                }
+            case 5: // Shield
+                this.applyShieldUpgrade();
                 break;
         }
 
@@ -1030,7 +1057,7 @@ export class Player {
         ctx.save();
         camera.apply(ctx, this.x, this.y);
         
-        // Forcefield
+        // Shield
             if (this.hasForcefield) {
                 const shieldAlpha = 0.8;
 
@@ -1069,7 +1096,7 @@ export class Player {
                 ctx.textBaseline = 'middle';
 
                 const offset = shieldRadius + 10;
-                ctx.fillText(this.shieldCharges, offset, offset);
+                ctx.fillText(`${this.shieldCharges}/${this.maxShieldCharges}`, offset, offset);
 
                 ctx.restore();
             }

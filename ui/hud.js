@@ -101,7 +101,7 @@ export class HUD {
             { name: 'Missile', type: 'ADD-ON' },
             { name: slot3Name, type: player.isMartian ? 'UPGRADE' : 'GUN' },
             { name: 'Ghost', type: 'ADD-ON' },
-            { name: 'Forcefield', type: 'ADD-ON' }
+            { name: 'Shield', type: 'MAX +1' }
         ];
 
         const slotWidth = 90;

@@ -64,10 +64,10 @@ test('small asteroid projectile collision still removes the projectile and hits 
     assert.equal(asteroid.isDestroyed, true);
 });
 
-test('recharge option mapping is explicit and defaults to six seconds', () => {
-    assert.deepEqual(SHIELD_RECHARGE_DELAYS, { 0: 0, 1: 2, 2: 4, 3: 6, 4: 8, 5: 10 });
-    assert.equal(getShieldRechargeDelay(3), 6);
-    assert.equal(getShieldRechargeDelay(99), 6);
+test('recharge option mapping is explicit and defaults to the middle rate', () => {
+    assert.deepEqual(SHIELD_RECHARGE_DELAYS, { 0: null, 1: 10, 2: 7, 3: 4, 4: 1.5, 5: 0.5 });
+    assert.equal(getShieldRechargeDelay(3), 4);
+    assert.equal(getShieldRechargeDelay(99), 4);
 });
 
 test('Arena shield configuration becomes current and maximum Player state', () => {
@@ -75,7 +75,7 @@ test('Arena shield configuration becomes current and maximum Player state', () =
     Game.prototype.configurePlayerShields.call({ startingShieldCharges: 3, shieldRechargeRate: 3 }, player);
     assert.equal(player.shieldCharges, 3);
     assert.equal(player.maxShieldCharges, 3);
-    assert.equal(player.shieldRechargeDelay, 6);
+    assert.equal(player.shieldRechargeDelay, 4);
 });
 
 test('missing shields restore one per interval and never exceed maximum', () => {
@@ -134,4 +134,48 @@ test('players own independent recharge timers and lifecycle configuration resets
     assert.equal(first.shieldRechargeTimer, 0);
     assert.equal(first.shieldCharges, 3);
     assert.equal(second.shieldRechargeTimer, 2);
+});
+
+test('Shield upgrades increase match-local capacity and grant one current charge', () => {
+    for (const [current, maximum, expectedCurrent, expectedMaximum] of [
+        [2, 2, 3, 3],
+        [1, 2, 2, 3],
+        [0, 0, 1, 1]
+    ]) {
+        const player = new Player(0, 0);
+        player.configureShields(maximum, 6);
+        player.restoreShieldCharges(current);
+        player.shieldRechargeTimer = 5;
+        player.applyShieldUpgrade();
+        assert.equal(player.shieldCharges, expectedCurrent);
+        assert.equal(player.maxShieldCharges, expectedMaximum);
+        assert.equal(player.hasForcefield, true);
+        assert.equal(player.shieldRechargeTimer, 0);
+    }
+});
+
+test('slot five always applies Shield and consumes the capsule stack', () => {
+    const player = new Player(0, 0);
+    player.configureShields(2, 6);
+    player.powerUpCapsules = 5;
+    player.powerUpError = 'OLD ERROR';
+    player.activatePowerUp();
+    assert.equal(player.shieldCharges, 3);
+    assert.equal(player.maxShieldCharges, 3);
+    assert.equal(player.powerUpCapsules, 0);
+    assert.equal(player.powerUpError, null);
+});
+
+test('respawn restores starting charges without erasing upgraded capacity', () => {
+    const player = new Player(0, 0);
+    player.configureShields(2, 6);
+    player.applyShieldUpgrade();
+    player.restoreShieldCharges(0);
+
+    player.restoreShieldCharges(2);
+
+    assert.equal(player.shieldCharges, 2);
+    assert.equal(player.maxShieldCharges, 3);
+    player.updateShieldRecharge(6);
+    assert.equal(player.shieldCharges, 3);
 });
