@@ -99,6 +99,11 @@ export class Game {
         this.shieldRechargeRate = 3;
         this.botAggressionLevel = 0; // 0 = Random, 1-5 = Fixed
         this.hardcoreMode = true;
+        this.arcadeWaveSize = 0;
+        this.arcadeSustainEight = false;
+        this.arcadeGameOver = false;
+        this.arcadeResult = null;
+        this.nextArcadeNpcId = 2;
         this.selectedCursorStyle = 0; // Default crosshair
         this.optionsOpenedFromPause = false;
 
@@ -290,6 +295,108 @@ export class Game {
             p1.controlMode = this.p1ControlMode;
             this.players = [p1];
         }
+    }
+
+    isHardcoreActive() {
+        return this.gameState === 'ARCADE' || this.hardcoreMode;
+    }
+
+    findSafePlayerSpawn() {
+        let bestSpawn = { x: WORLD_WIDTH / 2, y: WORLD_HEIGHT / 2 };
+        let bestDistance = -1;
+        for (let row = 0; row < 9; row++) {
+            for (let col = 0; col < 9; col++) {
+                const candidate = {
+                    x: col * DESIGN_WIDTH + DESIGN_WIDTH / 2,
+                    y: row * DESIGN_HEIGHT + DESIGN_HEIGHT / 2
+                };
+                const blockers = [...this.players.filter(player => !player.isDead && !player.isEliminated), ...this.asteroids, ...this.hazards];
+                const minDistance = blockers.reduce((closest, blocker) =>
+                    Math.min(closest, Math.hypot(blocker.x - candidate.x, blocker.y - candidate.y)), Infinity);
+                if (minDistance > bestDistance) {
+                    bestDistance = minDistance;
+                    bestSpawn = candidate;
+                }
+            }
+        }
+        return bestSpawn;
+    }
+
+    spawnArcadeNPC() {
+        const spawn = this.findSafePlayerSpawn();
+        const id = this.nextArcadeNpcId++;
+        const colors = ['#ff00ff', '#ffff00', '#ff0000', '#00ff00', '#0000ff', '#ff8800', '#8800ff', '#ffffff'];
+        const player = new Player(spawn.x, spawn.y, id, colors[(id - 2) % colors.length]);
+        this.configurePlayerShields(player);
+        player.isNPC = true;
+        player.name = `ARCADE BOT ${id - 1}`;
+        if (this.botAggressionLevel > 0) {
+            player.aggressionLevel = this.botAggressionLevel;
+            player.rollAccuracy();
+        } else {
+            player.rollAggression();
+        }
+        this.players.push(player);
+        return player;
+    }
+
+    spawnArcadeWave(count) {
+        for (let index = 0; index < count; index++) this.spawnArcadeNPC();
+    }
+
+    startArcadeMode() {
+        this.closePauseMenu();
+        this.hideArcadeGameOver();
+        document.getElementById('menu-overlay').classList.add('hidden');
+        document.getElementById('main-options-popup').classList.add('hidden');
+        this.gameState = 'ARCADE';
+        this.arcadeWaveSize = 1;
+        this.arcadeSustainEight = false;
+        this.arcadeGameOver = false;
+        this.arcadeResult = null;
+        this.nextArcadeNpcId = 2;
+        this.players = [];
+        this.projectiles = [];
+        this.vfx = [];
+        const spawn = { x: WORLD_WIDTH / 2, y: WORLD_HEIGHT / 2 };
+        const player = new Player(spawn.x, spawn.y, 1, '#00ffff');
+        this.configurePlayerShields(player);
+        player.name = 'PLAYER 1';
+        player.controlMode = this.p1ControlMode;
+        this.players.push(player);
+        this.spawnInitialAsteroids();
+        this.spawnArcadeWave(1);
+        this.camera.follow(player);
+        this.audio.stopBGM();
+        this.resetMouseLockInput();
+    }
+
+    reconcileArcadeNPCs() {
+        if (this.gameState !== 'ARCADE' || this.arcadeGameOver) return;
+        const livingCount = this.players.filter(player => player.isNPC && !player.isDead && !player.isEliminated).length;
+        if (this.arcadeSustainEight) {
+            this.spawnArcadeWave(Math.max(0, 8 - livingCount));
+        } else if (livingCount === 0) {
+            this.arcadeWaveSize = Math.min(8, this.arcadeWaveSize + 1);
+            this.arcadeSustainEight = this.arcadeWaveSize === 8;
+            this.spawnArcadeWave(this.arcadeWaveSize);
+        }
+    }
+
+    showArcadeGameOver(result) {
+        this.arcadeResult = result;
+        this.arcadeGameOver = true;
+        this.closePauseMenu();
+        document.getElementById('arcade-final-level').textContent = String(result.finalLevel);
+        document.getElementById('arcade-final-xp').textContent = String(result.totalXP);
+        document.getElementById('arcade-final-capsules').textContent = String(result.totalCapsulesGained);
+        const overlay = document.getElementById('arcade-game-over');
+        overlay.classList.remove('hidden');
+        document.getElementById('btn-arcade-replay').focus();
+    }
+
+    hideArcadeGameOver() {
+        document.getElementById('arcade-game-over').classList.add('hidden');
     }
 
     spawnRemotePlayer(x, y, networkId, color = '#00ffff') {
@@ -507,6 +614,10 @@ export class Game {
         });
 
         // Menu buttons
+        document.getElementById('btn-arcade').addEventListener('click', () => {
+            this.startArcadeMode();
+        });
+
         document.getElementById('btn-solo-open').addEventListener('click', () => {
             this.pendingMode = 'SOLO';
             document.getElementById('main-menu').classList.add('hidden');
@@ -898,6 +1009,14 @@ export class Game {
             this.returnToMenu();
         });
 
+        document.getElementById('btn-arcade-replay').addEventListener('click', () => {
+            this.startArcadeMode();
+        });
+
+        document.getElementById('btn-arcade-menu').addEventListener('click', () => {
+            this.returnToMenu();
+        });
+
         // Transformation Kills Logic
         const transValueEl = document.getElementById('trans-value');
         const transIncBtn = document.getElementById('trans-inc');
@@ -940,7 +1059,7 @@ export class Game {
     }
 
     isInGameplayState() {
-        return this.gameState !== 'MENU' && this.gameState !== 'SPLASH';
+        return this.gameState !== 'MENU' && this.gameState !== 'SPLASH' && !this.arcadeGameOver;
     }
 
     resetMouseLockInput() {
@@ -1198,6 +1317,11 @@ export class Game {
             this.network.leave();
         }
         this.closePauseMenu();
+        this.hideArcadeGameOver();
+        this.arcadeWaveSize = 0;
+        this.arcadeSustainEight = false;
+        this.arcadeGameOver = false;
+        this.arcadeResult = null;
         this.gameState = 'MENU';
         document.getElementById('menu-overlay').classList.remove('hidden');
         document.getElementById('main-menu').classList.remove('hidden');
@@ -1461,7 +1585,7 @@ export class Game {
 
         if (this.gameState === 'SPLASH') {
             this.updateSplash(dt);
-        } else if (this.gameState !== 'MENU') {
+        } else if (this.gameState !== 'MENU' && !this.arcadeGameOver) {
             // Only update game if local player is not eliminated, or show results
             this.update(dt);
             if (this.isPauseMenuOpen) {
@@ -1913,6 +2037,8 @@ export class Game {
         // Thruster Sounds Removed
 
         this.checkCollisions();
+
+        this.reconcileArcadeNPCs();
         
         if (this.players[0]) {
             this.camera.follow(this.players[0]);
@@ -2082,7 +2208,14 @@ export class Game {
             if (killer.killStreak > (killer.highTide || 0)) killer.highTide = killer.killStreak;
         }
 
-        if (this.hardcoreMode) player.resetLevelProgress();
+        const isArcadeHuman = this.gameState === 'ARCADE' && !player.isNPC;
+        const arcadeResult = isArcadeHuman ? {
+            finalLevel: player.level,
+            totalXP: player.totalXP,
+            totalCapsulesGained: player.totalCapsulesGained
+        } : null;
+
+        if (Game.prototype.isHardcoreActive.call(this)) player.resetLevelProgress();
         
         // Reset ALL power-up progress on death
         player.powerUpCapsules = 0;
@@ -2104,6 +2237,15 @@ export class Game {
         
         if (window.ProgressLogger) {
             window.ProgressLogger.logProgress('player_death');
+        }
+
+        if (this.gameState === 'ARCADE') {
+            player.respawnTimer = 0;
+            if (player.isNPC) {
+                player.isEliminated = true;
+            } else {
+                this.showArcadeGameOver(arcadeResult);
+            }
         }
 
     }

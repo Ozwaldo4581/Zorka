@@ -71,6 +71,7 @@ export class Player {
 
         // Arena-local progression. Score remains the independent evolution currency.
         this.totalXP = 0;
+        this.totalCapsulesGained = 0;
         this.level = 0;
         this.pendingLevelUps = 0;
         this.projectileUpgradeCount = 0;
@@ -766,6 +767,7 @@ export class Player {
 
     addCapsule() {
         if (this.isEventHorizon) return; // Event Horizon Horror does not gain power-ups
+        this.totalCapsulesGained++;
         this.powerUpCapsules++;
         if (this.powerUpCapsules > this.maxPowerUpSlots) {
             this.powerUpCapsules = 1;

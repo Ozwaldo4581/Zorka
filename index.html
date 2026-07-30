@@ -161,6 +161,32 @@
         align-items: center;
         justify-content: center;
       }
+      #arcade-game-over {
+        position: absolute;
+        inset: 0;
+        z-index: 50;
+        background: rgba(0, 0, 0, 0.82);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+      }
+      #arcade-game-over .game-over-panel {
+        width: min(520px, calc(100% - 2rem));
+        padding: 42px;
+        border: 2px solid #ff00ff;
+        background: rgba(5, 5, 5, 0.96);
+        box-shadow: 0 0 40px rgba(255, 0, 255, 0.35);
+        text-align: center;
+      }
+      #arcade-game-over dl {
+        display: grid;
+        grid-template-columns: 1fr auto;
+        gap: 18px 32px;
+        margin: 30px 0;
+        text-align: left;
+      }
+      #arcade-game-over dd { margin: 0; color: #00ffff; }
+      #arcade-game-over.hidden { display: none; }
       .options-panel {
         box-sizing: border-box;
         width: min(684px, calc(100% - 2rem));
@@ -379,6 +405,7 @@
         <h2 style="color: #00ffff; font-size: 1.2rem; margin-top: -1.5rem; margin-bottom: 2rem; letter-spacing: 0.5rem;">BATTLE FOR THE SOLAR TIDES</h2>
         
         <div class="main-menu-actions">
+          <button class="menu-button" id="btn-arcade">ARCADE MODE</button>
           <button class="menu-button" id="btn-solo-open">SOLO ARENA</button>
 
           <button class="menu-button" id="btn-pvp">
@@ -622,6 +649,21 @@
       </div>
 
       <div id="status-text" style="margin-top: 10px; color: #ff8800;"></div>
+    </div>
+
+    <div id="arcade-game-over" class="hidden" role="dialog" aria-modal="true" aria-labelledby="arcade-game-over-title">
+      <div class="game-over-panel">
+        <h1 id="arcade-game-over-title">GAME OVER</h1>
+        <dl>
+          <dt>FINAL LEVEL</dt><dd id="arcade-final-level">0</dd>
+          <dt>EXPERIENCE GAINED</dt><dd id="arcade-final-xp">0</dd>
+          <dt>CAPSULES GAINED</dt><dd id="arcade-final-capsules">0</dd>
+        </dl>
+        <div style="display: flex; flex-direction: column; align-items: center; gap: 15px;">
+          <button class="menu-button" id="btn-arcade-replay">PLAY AGAIN</button>
+          <button class="menu-button" id="btn-arcade-menu">RETURN TO MENU</button>
+        </div>
+      </div>
     </div>
 
     <!-- Floating in-game pause menu: overlays gameplay without pausing the simulation -->
