@@ -36,6 +36,10 @@ Mouse — aim/rotate.
 
 Left mouse button — fire.
 
+Controller face buttons: A — Consume Capsules; X — Projectile; Y — Speed; B — Power-up.
+
+Target locks are player-owned. Each missile snapshots its firing player’s lock at launch, so another player’s lock cannot redirect it.
+
 
 
 Keep these familiar asset locations stable unless an asset migration is anexplicit task: assets/player\_ship.webp, assets/asteroid.webp,assets/projectile.webp, assets/space\_background.webp, and the core audiofiles under assets/audio/ (laser\_fire.mp3, explosion.mp3, andspace\_ambient.mp3).
@@ -290,7 +294,7 @@ SpaceDebris / Satellite (entities/hazards.js)
 
 
 
-Hazard behavior, hit state, capsule reward identity, satellite cadence
+Hazard behavior, hit state, XP reward identity, satellite cadence
 
 
 
@@ -378,7 +382,7 @@ Asteroids are lethal terrain and cover. Their tier splitting must remain consist
 
 
 
-Space Debris and Satellites award power-up capsules only through a confirmed authoritative destruction result.
+Space Debris and Satellites award XP at their existing configured rates through confirmed authoritative destruction results; they do not award capsules.
 
 
 
@@ -390,7 +394,7 @@ Power-up economy changes must preserve the deliberate choice to save capsules or
 
 
 
-The essential Sandbox loop is: fly with inertia, destroy/split asteroids oruse them as cover, defeat enemy ships and capsule-bearing hazards, then choosebetween immediate upgrades and saving capsules for stronger rewards. Thebaseline death rule is immediate asteroid-collision death followed by a quickrespawn; death clears accumulated capsules and temporary power-ups.
+The essential Sandbox loop is: fly with inertia, destroy/split asteroids or use them as cover, defeat enemy ships to earn capsules, and destroy hazards for XP, then choose between immediate upgrades and saving capsules for stronger rewards. Thebaseline death rule is immediate asteroid-collision death followed by a quickrespawn; death clears accumulated capsules and temporary power-ups.
 
 
 
@@ -642,7 +646,7 @@ Fight enemy ships and navigate lethal asteroid fields.
 
 
 
-Destroy enemy ships, Space Debris, and Satellites for capsules.
+Destroy enemy ships for capsules; destroy Space Debris and Satellites for XP at their configured rates.
 
 
 

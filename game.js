@@ -1373,6 +1373,11 @@ export class Game {
         
         const projs = player.fire(isBurstShot);
         if (projs && projs.length > 0) {
+            for (const projectile of projs) {
+                if (projectile.isMissile && !this.isValidAimLockTarget(player, projectile.missileTarget)) {
+                    projectile.missileTarget = null;
+                }
+            }
             this.projectiles.push(...projs);
             
             // Spatial audio
@@ -1898,10 +1903,6 @@ export class Game {
                         this.beginPlayerOneAimLock(player, inputCamera);
                     }
                     const assignedGamepad = this.getAssignedGamepad(player, gamepads);
-                    const levelChoice = !this.isPauseMenuOpen
-                        ? this.hud.updateLevelUpgradeController(player, assignedGamepad)
-                        : null;
-                    if (levelChoice) player.applyLevelUpgrade(levelChoice);
                     if (player.controlMode === 'GAMEPAD') this.updateControllerAimLock(player, assignedGamepad);
                     else if (player.controllerAimLockLatched || !player.controllerAimLockArmed) player.resetControllerAimLock();
                     const isAimTargetValid = target => this.isValidAimLockTarget(player, target);
@@ -2022,7 +2023,7 @@ export class Game {
                 this.removeProjectile(p);
                 continue;
             }
-            p.update(dt, this.asteroids, this.players, this.hazards);
+            p.update(dt, this.asteroids, this.players, this.hazards, this.projectiles);
             
             // Lasers persist only while on screen (visible in any active camera)
             if (p.isLaser) {
@@ -2142,10 +2143,6 @@ export class Game {
                 }
             } else if (target.isDebris || target.isSatellite) {
                 this.awardXP(killer, target.isSatellite ? 15 : 5);
-                // Award capsule for space debris and broken satellite
-                if (killer && killer.addCapsule) {
-                    killer.addCapsule();
-                }
 
                 const currentIndex = this.hazards.indexOf(target);
                 if (currentIndex !== -1) {
