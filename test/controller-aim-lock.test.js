@@ -1,8 +1,118 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { Game, WORLD_WIDTH } from '../game.js';
+import { Game, MOUSE_AIM_LOCK_PADDING, WORLD_HEIGHT, WORLD_WIDTH } from '../game.js';
 import { Player } from '../entities/player.js';
+
+const mouseInput = overrides => ({
+    x: 1920,
+    y: 540,
+    m2Held: false,
+    m2Released: false,
+    clicked: false,
+    ...overrides
+});
+
+const gamepadInput = ({ leftX = 0, leftY = -1, rightX = 1, rightY = 0 } = {}) => ({
+    axes: [leftX, leftY, rightX, rightY],
+    buttons: Array.from({ length: 16 }, () => ({ pressed: false, value: 0 }))
+});
+
+const updateKeyboard = (player, { targetIsValid = () => true, mouse = {}, keys = { KeyW: true } } = {}) => {
+    player.controlMode = 'KEYBOARD';
+    player.update(0.1, keys, mouseInput(mouse), null, [], [], [], false, 20, [], targetIsValid);
+};
+
+const updateController = (player, pad, targetIsValid = () => true) => {
+    player.controlMode = 'GAMEPAD';
+    player.update(0.1, {}, mouseInput(), null, [], [], [pad], false, 20, [], targetIsValid);
+};
+
+test('keyboard movement is absolute unlocked and relative only with a valid lock', () => {
+    const player = new Player(100, 100);
+
+    updateKeyboard(player);
+    assert.ok(Math.abs(player.vx) < 1e-10);
+    assert.ok(player.vy < 0);
+
+    player.vx = 0;
+    player.vy = 0;
+    player.x = 100;
+    player.y = 100;
+    player.beginAimLock({ x: 200, y: 100, radius: 10 });
+    updateKeyboard(player, { mouse: { m2Held: true } });
+    assert.ok(player.vx > 0);
+    assert.ok(Math.abs(player.vy) < 1e-10);
+
+    player.vx = 0;
+    player.vy = 0;
+    player.x = 100;
+    player.y = 100;
+    updateKeyboard(player, { mouse: { m2Released: true } });
+    assert.equal(player.aimLockActive, false);
+    assert.ok(Math.abs(player.vx) < 1e-10);
+    assert.ok(player.vy < 0);
+});
+
+test('invalid and failed mouse locks remain absolute', () => {
+    const invalidated = new Player(100, 100);
+    invalidated.beginAimLock({ x: 200, y: 100, radius: 10 });
+    updateKeyboard(invalidated, { mouse: { m2Held: true }, targetIsValid: () => false });
+    assert.equal(invalidated.aimLockActive, false);
+    assert.ok(Math.abs(invalidated.vx) < 1e-10);
+    assert.ok(invalidated.vy < 0);
+
+    const failed = new Player(100, 100);
+    updateKeyboard(failed, { mouse: { m2Held: true } });
+    assert.equal(failed.aimLockActive, false);
+    assert.ok(Math.abs(failed.vx) < 1e-10);
+    assert.ok(failed.vy < 0);
+});
+
+test('controller movement shares the valid-lock transition', () => {
+    const player = new Player(100, 100);
+    const pad = gamepadInput();
+
+    updateController(player, pad);
+    assert.ok(Math.abs(player.vx) < 1e-10);
+    assert.ok(player.vy < 0);
+
+    player.vx = 0;
+    player.vy = 0;
+    player.x = 100;
+    player.y = 100;
+    player.beginAimLock({ x: 200, y: 100, radius: 10 });
+    updateController(player, pad);
+    assert.ok(player.vx > 0);
+    assert.ok(Math.abs(player.vy) < 1e-10);
+
+    player.vx = 0;
+    player.vy = 0;
+    player.x = 100;
+    player.y = 100;
+    player.clearAimLock();
+    updateController(player, pad);
+    assert.ok(Math.abs(player.vx) < 1e-10);
+    assert.ok(player.vy < 0);
+});
+
+test('movement selection is independent per player and does not affect NPC steering', () => {
+    const unlocked = new Player(100, 100);
+    const locked = new Player(100, 100);
+    locked.beginAimLock({ x: 200, y: 100, radius: 10 });
+    updateKeyboard(unlocked);
+    updateKeyboard(locked, { mouse: { m2Held: true } });
+    assert.ok(unlocked.vy < 0);
+    assert.ok(locked.vx > 0);
+
+    const npc = new Player(100, 100, 3);
+    npc.isNPC = true;
+    npc.beginAimLock({ x: 200, y: 100, radius: 10 });
+    npc.updateNPC = (_dt, _others, _asteroids, setForce) => setForce({ x: 123, y: 456 });
+    npc.update(0.1, { KeyW: true }, mouseInput({ m2Held: true }), null, [], [], [], false, 20, [], () => true);
+    assert.ok(npc.vx > 0);
+    assert.ok(npc.vy > 0);
+});
 
 test('LT hysteresis consumes one attempt until release', () => {
     const player = new Player(0, 0);
@@ -20,6 +130,29 @@ test('LT hysteresis consumes one attempt until release', () => {
     assert.equal(player.updateControllerAimLockTrigger(0.25, 0.65, 0.25), false);
     assert.equal(player.aimLockActive, false);
     assert.equal(player.updateControllerAimLockTrigger(0.65, 0.65, 0.25), true);
+});
+
+test('failed LT acquisition and held LT after invalidation stay absolute without reacquiring', () => {
+    const player = new Player(100, 100);
+    const pad = gamepadInput();
+
+    assert.equal(player.updateControllerAimLockTrigger(0.7, 0.65, 0.25), true);
+    updateController(player, pad);
+    assert.equal(player.aimLockActive, false);
+    assert.ok(Math.abs(player.vx) < 1e-10);
+    assert.ok(player.vy < 0);
+    assert.equal(player.updateControllerAimLockTrigger(1, 0.65, 0.25), false);
+
+    player.vx = 0;
+    player.vy = 0;
+    player.x = 100;
+    player.y = 100;
+    player.beginAimLock({ x: 200, y: 100, radius: 10 });
+    updateController(player, pad, () => false);
+    assert.equal(player.aimLockActive, false);
+    assert.ok(Math.abs(player.vx) < 1e-10);
+    assert.ok(player.vy < 0);
+    assert.equal(player.updateControllerAimLockTrigger(1, 0.65, 0.25), false);
 });
 
 test('controller aim uses normalized right stick and facing fallback', () => {
@@ -46,6 +179,99 @@ test('ray corridor is wrap-aware and chooses first hit with stable tie behavior'
     };
 
     assert.equal(Game.prototype.findControllerAimLockTarget.call(fakeGame, player, { x: 1, y: 0 }), offAxisNear);
+});
+
+const findMouseTarget = (candidates, x = 0, y = 0) => Game.prototype.findAimLockTargetAt.call({
+    getAimLockCandidates: () => candidates.map((entity, stableIndex) => ({
+        entity,
+        tiePriority: stableIndex,
+        stableIndex
+    }))
+}, {}, x, y);
+
+test('mouse acquisition accepts exact and padded hits but rejects outside misses without changing radii', () => {
+    const target = { x: 100, y: 100, radius: 10 };
+    const originalRadius = target.radius;
+
+    assert.equal(findMouseTarget([target], 105, 100), target);
+    assert.equal(findMouseTarget([target], 100 + target.radius + MOUSE_AIM_LOCK_PADDING - 1, 100), target);
+    assert.equal(findMouseTarget([target], 100 + target.radius + MOUSE_AIM_LOCK_PADDING + 1, 100), null);
+    assert.equal(target.radius, originalRadius);
+});
+
+test('mouse acquisition prioritizes exact hits, then the closest padded edge', () => {
+    const exact = { x: 8, y: 0, radius: 10 };
+    const buffered = { x: 2, y: 0, radius: 1 };
+    assert.equal(findMouseTarget([buffered, exact]), exact);
+
+    const fartherEdge = { x: 20, y: 0, radius: 5 };
+    const closerEdge = { x: 18, y: 0, radius: 10 };
+    assert.equal(findMouseTarget([fartherEdge, closerEdge]), closerEdge);
+});
+
+test('mouse acquisition padding remains wrap-aware across both world seams', () => {
+    const target = { x: WORLD_WIDTH - 5, y: WORLD_HEIGHT - 5, radius: 8 };
+    assert.equal(findMouseTarget([target], 4, 4), target);
+});
+
+test('cursor visibility derives only from a valid keyboard Player 1 lock', () => {
+    const p1 = new Player(0, 0, 1);
+    p1.controlMode = 'KEYBOARD';
+    const p2 = new Player(100, 0, 2);
+    p2.controlMode = 'GAMEPAD';
+    const fakeGame = {
+        players: [p1, p2],
+        projectiles: [],
+        hazards: [],
+        asteroids: [],
+        isValidAimLockTarget: Game.prototype.isValidAimLockTarget,
+        getMouseControlledPlayer: Game.prototype.getMouseControlledPlayer
+    };
+
+    assert.equal(Game.prototype.shouldHideMouseCursor.call(fakeGame), false);
+    p2.beginAimLock(p1);
+    assert.equal(Game.prototype.shouldHideMouseCursor.call(fakeGame), false);
+
+    p1.beginAimLock(p2);
+    assert.equal(Game.prototype.shouldHideMouseCursor.call(fakeGame), true);
+    p1.clearAimLock();
+    assert.equal(Game.prototype.shouldHideMouseCursor.call(fakeGame), false);
+
+    p1.beginAimLock(p2);
+    fakeGame.players = [p1];
+    assert.equal(Game.prototype.shouldHideMouseCursor.call(fakeGame), false);
+});
+
+test('controller activity does not hide the cursor while Player 1 owns mouse controls', () => {
+    const p1 = new Player(0, 0, 1);
+    p1.controlMode = 'KEYBOARD';
+    const fakeGame = {
+        players: [p1],
+        isInGameplayState: () => true,
+        getMouseControlledPlayer: Game.prototype.getMouseControlledPlayer
+    };
+
+    assert.doesNotThrow(() => Game.prototype.updateGamepadVisibilityDetection.call(fakeGame));
+});
+
+test('drawCrosshair hides and restores the DOM cursor from the derived lock state', () => {
+    const style = {
+        display: '',
+        setProperty() {}
+    };
+    const fakeGame = {
+        cursorVisible: true,
+        domCursor: { style },
+        players: [],
+        selectedCursorStyle: 0,
+        shouldHideMouseCursor: () => true
+    };
+
+    Game.prototype.drawCrosshair.call(fakeGame);
+    assert.equal(style.display, 'none');
+    fakeGame.shouldHideMouseCursor = () => false;
+    Game.prototype.drawCrosshair.call(fakeGame);
+    assert.equal(style.display, 'block');
 });
 
 test('controller assignment preserves P1/P2 pad selection', () => {
