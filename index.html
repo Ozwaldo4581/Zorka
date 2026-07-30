@@ -368,10 +368,10 @@
             </div>
           </div>
           <div class="options-group">
-            <h2>HARDCORE</h2>
+            <h2>CONTROLS</h2>
             <div class="options-button-row">
-              <button class="count-btn hardcore-btn" data-hardcore="false" aria-pressed="false">OFF</button>
-              <button class="count-btn hardcore-btn selected" data-hardcore="true" aria-pressed="true">ON</button>
+              <button class="count-btn" id="main-keyboard-btn" aria-pressed="false">M&amp;KB</button>
+              <button class="count-btn selected" id="main-gamepad-btn" aria-pressed="true">GAMEPAD</button>
             </div>
           </div>
           <div class="options-group">
@@ -535,6 +535,13 @@
               </div>
             </div>
 
+            <div style="margin-bottom: 2rem; width: 100%;">
+              <div style="font-size: 1.1rem; color: #fff; margin-bottom: 1rem;">HARDCORE</div>
+              <div style="display: flex; gap: 10px; justify-content: center;">
+                <button class="count-btn hardcore-btn" data-hardcore="false" aria-pressed="false">OFF</button>
+                <button class="count-btn hardcore-btn selected" data-hardcore="true" aria-pressed="true">ON</button>
+              </div>
+            </div>
 
             <button class="menu-button" id="btn-options-back" style="border-color: #ff00ff; color: #ff00ff; width: 300px; margin-top: 1rem;">BACK</button>
           </div>
