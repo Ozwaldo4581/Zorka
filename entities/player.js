@@ -1177,21 +1177,33 @@ export class Player {
                 ctx.stroke();
                 ctx.restore();
 
-            // Shield charges number
-            if (this.shieldCharges > 0) {
-                ctx.save();
+            // Shield and level numbers
+                if (this.shieldCharges > 0) {
+                    ctx.save();
 
-                // Keep the number fully opaque.
-                ctx.fillStyle = '#ffffff';
-                ctx.font = 'bold 16px Orbitron';
-                ctx.textAlign = 'center';
-                ctx.textBaseline = 'middle';
+                    ctx.fillStyle = '#ffffff';
+                    ctx.font = 'bold 16px Orbitron';
+                    ctx.textAlign = 'center';
+                    ctx.textBaseline = 'middle';
 
-                const offset = shieldRadius + 10;
-                ctx.fillText(`${this.shieldCharges}/${this.maxShieldCharges}`, offset, offset);
+                    const offset = shieldRadius + 10;
 
-                ctx.restore();
-            }
+                    // Shield charges: bottom-right
+                    ctx.fillText(
+                        `${this.shieldCharges}/${this.maxShieldCharges}`,
+                        offset,
+                        offset
+                    );
+
+                    // Player level: bottom-left
+                    ctx.fillText(
+                        `${this.level}`,
+                        -offset,
+                        offset
+                    );
+
+                    ctx.restore();
+                }
         }
 
         // Spawn Immunity Flashing
