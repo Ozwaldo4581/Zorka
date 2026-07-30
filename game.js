@@ -24,6 +24,18 @@ export const MOUSE_AIM_LOCK_PADDING = 18;
 export const CONTROLLER_AIM_LOCK_PADDING = 24;
 const CONTROLLER_AIM_DEADZONE = 0.15;
 const RAY_DISTANCE_TIE_EPSILON = 0.001;
+export const SHIELD_RECHARGE_DELAYS = Object.freeze({
+    5: 10,
+    4: 8,
+    3: 6,
+    2: 4,
+    1: 2,
+    0: 0
+});
+
+export function getShieldRechargeDelay(optionValue) {
+    return SHIELD_RECHARGE_DELAYS[optionValue] ?? SHIELD_RECHARGE_DELAYS[3];
+}
 
 export class Game {
     constructor(containerId) {
@@ -84,6 +96,7 @@ export class Game {
         this.debrisDensityLevel = 3; 
         this.satelliteDensityLevel = 3;
         this.startingShieldCharges = 3;
+        this.shieldRechargeRate = 3;
         this.botAggressionLevel = 0; // 0 = Random, 1-5 = Fixed
         this.selectedCursorStyle = 0; // Default crosshair
         this.optionsOpenedFromPause = false;
@@ -104,6 +117,13 @@ export class Game {
                 opacity: 0.2 + Math.random() * 0.5
             });
         }
+    }
+
+    configurePlayerShields(player) {
+        player.configureShields(
+            this.startingShieldCharges,
+            getShieldRechargeDelay(this.shieldRechargeRate)
+        );
     }
 
     async init() {
@@ -149,9 +169,6 @@ export class Game {
         this.resetMouseLockInput();
         // Keep space_ambient playing
         this.players = [];
-
-        // Determine starting shield charges
-        const startShields = this.startingShieldCharges || 0;
 
         const isSolo = mode === 'SOLO';
         const isPvP = mode === 'PVP';
@@ -199,10 +216,7 @@ export class Game {
             // Player 1
             const spawn1 = sectors.pop();
             const p1 = new Player(spawn1.x, spawn1.y, 1, colors[0]);
-            if (startShields > 0) {
-                p1.hasForcefield = true;
-                p1.shieldCharges = startShields;
-            }
+            this.configurePlayerShields(p1);
             // Name input removed from HTML, just use P1
             p1.name = "PLAYER 1";
             p1.controlMode = this.p1ControlMode;
@@ -213,10 +227,7 @@ export class Game {
                 for (let i = 1; i < shipCount; i++) {
                     const spawn = sectors.pop() || { x: Math.random() * WORLD_WIDTH, y: Math.random() * WORLD_HEIGHT };
                     const p = new Player(spawn.x, spawn.y, i + 1, colors[i % colors.length]);
-                    if (startShields > 0) {
-                        p.hasForcefield = true;
-                        p.shieldCharges = startShields;
-                    }
+                    this.configurePlayerShields(p);
                     p.isNPC = true;
                     p.name = botNames[i % botNames.length] || `BOT ${p.id}`;
                     
@@ -233,10 +244,7 @@ export class Game {
                 for (let i = 0; i < 7; i++) {
                     const spawn = sectors.pop() || { x: Math.random() * WORLD_WIDTH, y: Math.random() * WORLD_HEIGHT };
                     const p = new Player(spawn.x, spawn.y, i + 2, colors[(i + 1) % colors.length]);
-                    if (startShields > 0) {
-                        p.hasForcefield = true;
-                        p.shieldCharges = startShields;
-                    }
+                    this.configurePlayerShields(p);
                     p.isNPC = true;
                     p.isDummy = true; // New property to prevent movement/attack
                     p.name = `DUMMY ${i + 1}`;
@@ -249,12 +257,8 @@ export class Game {
             const s2 = sectors.pop();
             const p1 = new Player(s1.x, s1.y, 1, colors[0]);
             const p2 = new Player(s2.x, s2.y, 2, colors[1]);
-            if (startShields > 0) {
-                p1.hasForcefield = true;
-                p1.shieldCharges = startShields;
-                p2.hasForcefield = true;
-                p2.shieldCharges = startShields;
-            }
+            this.configurePlayerShields(p1);
+            this.configurePlayerShields(p2);
             p1.name = "PLAYER 1";
             p2.name = "PLAYER 2";
             p1.controlMode = this.p1ControlMode;
@@ -265,10 +269,7 @@ export class Game {
             for (let i = 2; i < shipCount; i++) {
                 const spawn = sectors.pop() || { x: Math.random() * WORLD_WIDTH, y: Math.random() * WORLD_HEIGHT };
                 const p = new Player(spawn.x, spawn.y, i + 1, colors[i % colors.length]);
-                if (startShields > 0) {
-                    p.hasForcefield = true;
-                    p.shieldCharges = startShields;
-                }
+                this.configurePlayerShields(p);
                 p.isNPC = true;
                 p.name = botNames[i % botNames.length] || `BOT ${p.id}`;
                 
@@ -283,10 +284,7 @@ export class Game {
         } else if (isOnline) {
             const spawn = sectors[0]; // Just use one for online, others will be remote
             const p1 = new Player(spawn.x, spawn.y, 1, colors[0]);
-            if (startShields > 0) {
-                p1.hasForcefield = true;
-                p1.shieldCharges = startShields;
-            }
+            this.configurePlayerShields(p1);
             p1.name = "PILOT";
             p1.controlMode = this.p1ControlMode;
             this.players = [p1];
@@ -297,11 +295,8 @@ export class Game {
         const p = new Player(x, y, 3, color);
         p.networkId = networkId;
         
-        // Apply starting shield charges
-        if (this.startingShieldCharges > 0) {
-            p.hasForcefield = true;
-            p.shieldCharges = this.startingShieldCharges;
-        }
+        // Apply the Arena shield capacity and reset recharge progress.
+        this.configurePlayerShields(p);
 
         this.players.push(p);
         return p;
@@ -648,6 +643,11 @@ export class Game {
                 if (val === this.startingShieldCharges) btn.classList.add('selected');
                 else btn.classList.remove('selected');
             });
+            document.querySelectorAll('.recharge-btn').forEach(btn => {
+                const val = parseInt(btn.getAttribute('data-recharge'));
+                if (val === this.shieldRechargeRate) btn.classList.add('selected');
+                else btn.classList.remove('selected');
+            });
             document.querySelectorAll('.cursor-option-btn').forEach(btn => {
                 const val = parseInt(btn.getAttribute('data-cursor'));
                 if (val === this.selectedCursorStyle) btn.classList.add('selected');
@@ -706,6 +706,14 @@ export class Game {
             btn.addEventListener('click', () => {
                 this.startingShieldCharges = parseInt(btn.getAttribute('data-shield'));
                 document.querySelectorAll('.shield-btn').forEach(b => b.classList.remove('selected'));
+                btn.classList.add('selected');
+            });
+        });
+
+        document.querySelectorAll('.recharge-btn').forEach(btn => {
+            btn.addEventListener('click', () => {
+                this.shieldRechargeRate = parseInt(btn.getAttribute('data-recharge'));
+                document.querySelectorAll('.recharge-btn').forEach(b => b.classList.remove('selected'));
                 btn.classList.add('selected');
             });
         });
@@ -1874,11 +1882,8 @@ export class Game {
         player.vy = 0;
         player.spawnImmunityTimer = 1.0; 
 
-        // Apply starting shield charges
-        if (this.startingShieldCharges > 0) {
-            player.hasForcefield = true;
-            player.shieldCharges = this.startingShieldCharges;
-        }
+        // Apply the Arena shield capacity and reset recharge progress.
+        this.configurePlayerShields(player);
 
         // Pick a spawn point far from other players
         let bestSpawn = { x: WORLD_WIDTH / 2, y: WORLD_HEIGHT / 2 };
@@ -2009,12 +2014,7 @@ export class Game {
 
         // If player has forcefield, absorb hit instead of death
         const cameras = this.getActiveCameras();
-        if (player.hasForcefield) {
-            player.shieldCharges = (player.shieldCharges || 1) - 1;
-            if (player.shieldCharges <= 0) {
-                player.hasForcefield = false;
-                player.shieldCharges = 0;
-            }
+        if (player.consumeShield()) {
             this.audio.playSpatial('shield_hit', player.x, player.y, cameras, WORLD_WIDTH, WORLD_HEIGHT); 
             return;
         }
@@ -2030,6 +2030,8 @@ export class Game {
         player.ghosts = []; 
         player.hasMissile = false;
         player.hasForcefield = false;
+        player.shieldCharges = 0;
+        player.shieldRechargeTimer = 0;
         player.history = []; // Clear history so ghosts don't snap back to old positions on respawn
         player.martianParallelGuns = 1;
 
@@ -2177,7 +2179,12 @@ export class Game {
             for (let a of this.asteroids) {
                 if (!a || a.isDestroyed) continue;
                 if (checkCollision(player, a)) {
-                    this.playerDeath(player);
+                    if (a.size === 'small') {
+                        // Preserve the physical impact outcome while exempting only Player damage.
+                        this.hitTarget(a);
+                    } else {
+                        this.playerDeath(player);
+                    }
                     break;
                 }
             }
