@@ -48,8 +48,6 @@ export class Game {
         this.splashPhase = 'FADE_IN';
         this.splashTimer = 0;
         this.splashAlpha = 0;
-        this.pressStartVisible = true;
-        this.pressStartTimer = 0;
         this.titleInputLockTimer = 0;
 
         // Hide menu overlay initially
@@ -153,8 +151,7 @@ export class Game {
             satellite: await this.loadImage('assets/broken_satellite.webp'),
             projectile: await this.loadImage('assets/projectile.webp'),
             background: await this.loadImage('assets/space_background.webp'),
-            explosion: await this.loadImage('assets/explosion_vfx.webp'),
-            splash: await this.loadImage('assets/8ecdc9b2-3cce-414a-bc1c-3787877ae412.png')
+            explosion: await this.loadImage('assets/explosion_vfx.webp')
         };
     }
 
@@ -2689,21 +2686,6 @@ export class Game {
             this.ctx.fillStyle = `rgba(255, 255, 255, ${this.splashAlpha})`;
             this.ctx.textAlign = 'center';
             this.ctx.fillText('Antique Land Games', DESIGN_WIDTH / 2, DESIGN_HEIGHT / 2);
-        } else if (this.splashPhase === 'TITLE') {
-            if (this.assets.splash) {
-                // Fit splash image to screen
-                this.ctx.drawImage(this.assets.splash, 0, 0, DESIGN_WIDTH, DESIGN_HEIGHT);
-            }
-
-            if (this.pressStartVisible) {
-                this.ctx.font = 'bold 36px Orbitron';
-                this.ctx.fillStyle = '#fff';
-                this.ctx.textAlign = 'center';
-                this.ctx.shadowBlur = 10;
-                this.ctx.shadowColor = '#00ffff';
-                this.ctx.fillText('PRESS START', DESIGN_WIDTH / 2, DESIGN_HEIGHT / 2);
-                this.ctx.shadowBlur = 0;
-            }
         }
     }
 
