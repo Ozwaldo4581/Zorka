@@ -23,8 +23,8 @@ test('XP uses cumulative triangular thresholds and queues every crossed level', 
 
 test('level choices validate caps, consume only successful choices, and share Shield capacity', () => {
     const player = new Player(0, 0);
-    player.pendingLevelUps = 22;
-    for (let i = 0; i < 10; i++) assert.equal(player.applyLevelUpgrade('projectile'), true);
+    player.pendingLevelUps = 17;
+    for (let i = 0; i < 5; i++) assert.equal(player.applyLevelUpgrade('projectile'), true);
     assert.equal(player.applyLevelUpgrade('projectile'), false);
     for (let i = 0; i < 10; i++) assert.equal(player.applyLevelUpgrade('speed'), true);
     assert.equal(player.getSpeedMultiplier(), 2);
@@ -36,10 +36,34 @@ test('level choices validate caps, consume only successful choices, and share Sh
     assert.equal(player.pendingLevelUps, 1);
 });
 
+test('Projectile state clamps legacy values and Speed scales thrust without changing the speed cap', () => {
+    const legacyPlayer = new Player(0, 0);
+    legacyPlayer.projectileUpgradeCount = 10;
+    legacyPlayer.pendingLevelUps = 1;
+    assert.equal(legacyPlayer.applyLevelUpgrade('projectile'), false);
+    assert.equal(legacyPlayer.projectileUpgradeCount, 5);
+    assert.equal(legacyPlayer.pendingLevelUps, 1);
+
+    const speeds = [0, 5, 10].map(speedUpgradeCount => {
+        const player = new Player(0, 0);
+        player.controlMode = 'KEYBOARD';
+        player.speedUpgradeCount = speedUpgradeCount;
+        player.update(0.1, { KeyW: true }, {}, null);
+        return Math.hypot(player.vx, player.vy);
+    });
+    assert.deepEqual(speeds, [80, 120, 160]);
+
+    const capped = new Player(0, 0);
+    capped.speedUpgradeCount = 10;
+    capped.vx = 900;
+    capped.update(0, {}, {}, null);
+    assert.equal(Math.hypot(capped.vx, capped.vy), 800);
+});
+
 test('NPCs immediately resolve every queued choice from selectable upgrades', () => {
     const npc = new Player(0, 0);
     npc.isNPC = true;
-    npc.projectileUpgradeCount = 10;
+    npc.projectileUpgradeCount = 5;
     npc.speedUpgradeCount = 10;
     npc.pendingLevelUps = 3;
     assert.equal(npc.resolveNPCLevelUps(() => 0), 3);
@@ -55,9 +79,9 @@ test('new NPCs initialize at a target level with consistent XP and resolved upgr
         assert.equal(npc.level, targetLevel);
         assert.equal(npc.totalXP, npc.getLevelThreshold(targetLevel));
         assert.equal(npc.pendingLevelUps, 0);
-        assert.equal(npc.projectileUpgradeCount, Math.min(10, targetLevel));
-        assert.equal(npc.speedUpgradeCount, Math.min(10, Math.max(0, targetLevel - 10)));
-        assert.equal(npc.levelShieldUpgradeCount, Math.max(0, targetLevel - 20));
+        assert.equal(npc.projectileUpgradeCount, Math.min(5, targetLevel));
+        assert.equal(npc.speedUpgradeCount, Math.min(10, Math.max(0, targetLevel - 5)));
+        assert.equal(npc.levelShieldUpgradeCount, Math.max(0, targetLevel - 15));
         assert.equal(npc.score, 0);
         assert.equal(npc.prestigeLevel, 0);
     }
@@ -83,14 +107,14 @@ test('Projectile upgrades extend supported bursts without changing each round pa
     const player = new Player(0, 0);
     for (const gun of ['Normal', 'Antigun', 'Double']) {
         player.activeGun = gun;
-        for (let upgrades = 0; upgrades <= 10; upgrades++) {
+        for (let upgrades = 0; upgrades <= 5; upgrades++) {
             player.projectileUpgradeCount = upgrades;
             const base = gun === 'Normal' ? 1 : 2;
             assert.equal(player.getGunProjectiles(0, 0, 0).length, base, `${gun} pattern at ${upgrades}`);
             assert.equal(player.getBurstRoundCount(), 3 + upgrades, `${gun} burst at ${upgrades}`);
         }
     }
-    player.projectileUpgradeCount = 10;
+    player.projectileUpgradeCount = 5;
     player.activeGun = 'Laser';
     assert.equal(player.getGunProjectiles(0, 0, 0).length, 1);
     player.activeGun = 'Normal';
