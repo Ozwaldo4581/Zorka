@@ -1,0 +1,131 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+
+import { Asteroid } from '../entities/asteroid.js';
+import { SpaceDebris, Satellite } from '../entities/hazards.js';
+import { Player } from '../entities/player.js';
+import { Game } from '../game.js';
+
+test('XP uses cumulative triangular thresholds and queues every crossed level', () => {
+    const player = new Player(0, 0);
+    assert.deepEqual([1, 2, 3, 4].map(level => player.getLevelThreshold(level)), [100, 300, 600, 1000]);
+    assert.equal(player.addXP(99), 0);
+    assert.equal(player.level, 0);
+    assert.equal(player.addXP(1), 1);
+    assert.equal(player.addXP(500), 2);
+    assert.equal(player.totalXP, 600);
+    assert.equal(player.level, 3);
+    assert.equal(player.pendingLevelUps, 3);
+    assert.equal(player.score, 0);
+    assert.equal(player.addXP(-1), 0);
+    assert.equal(player.addXP(Number.NaN), 0);
+});
+
+test('level choices validate caps, consume only successful choices, and share Shield capacity', () => {
+    const player = new Player(0, 0);
+    player.pendingLevelUps = 22;
+    for (let i = 0; i < 10; i++) assert.equal(player.applyLevelUpgrade('projectile'), true);
+    assert.equal(player.applyLevelUpgrade('projectile'), false);
+    for (let i = 0; i < 10; i++) assert.equal(player.applyLevelUpgrade('speed'), true);
+    assert.equal(player.getSpeedMultiplier(), 2);
+    assert.equal(player.applyLevelUpgrade('speed'), false);
+    assert.equal(player.pendingLevelUps, 2);
+    assert.equal(player.applyLevelUpgrade('shield'), true);
+    assert.equal(player.maxShieldCharges, 1);
+    assert.equal(player.shieldCharges, 1);
+    assert.equal(player.pendingLevelUps, 1);
+});
+
+test('NPCs immediately resolve every queued choice from selectable upgrades', () => {
+    const npc = new Player(0, 0);
+    npc.isNPC = true;
+    npc.projectileUpgradeCount = 10;
+    npc.speedUpgradeCount = 10;
+    npc.pendingLevelUps = 3;
+    assert.equal(npc.resolveNPCLevelUps(() => 0), 3);
+    assert.equal(npc.pendingLevelUps, 0);
+    assert.equal(npc.maxShieldCharges, 3);
+});
+
+test('Projectile upgrades append exactly one shot to each base gun and skip special output', () => {
+    const player = new Player(0, 0);
+    for (const gun of ['Normal', 'Antigun', 'Double']) {
+        player.activeGun = gun;
+        for (let upgrades = 0; upgrades <= 10; upgrades++) {
+            player.projectileUpgradeCount = upgrades;
+            const base = gun === 'Normal' ? 1 : 2;
+            assert.equal(player.getGunProjectiles(0, 0, 0).length, base + upgrades, `${gun} at ${upgrades}`);
+        }
+    }
+    player.projectileUpgradeCount = 10;
+    player.activeGun = 'Laser';
+    assert.equal(player.getGunProjectiles(0, 0, 0).length, 1);
+    player.activeGun = 'Normal';
+    player.isCyborg = true;
+    assert.equal(player.getGunProjectiles(0, 0, 0).length, 1);
+});
+
+const rewardGame = killer => ({
+    players: [killer],
+    asteroids: [],
+    hazards: [],
+    gameState: 'SOLO',
+    audio: { playSpatial() {} },
+    getActiveCameras: () => [],
+    createExplosion() {},
+    spawnAsteroid() {},
+    spawnSatellite() {},
+    spawnSpaceDebris() {},
+    awardXP: Game.prototype.awardXP
+});
+
+test('confirmed targets award authoritative XP once by target type', () => {
+    const originalSetTimeout = globalThis.setTimeout;
+    globalThis.setTimeout = () => 0;
+    try {
+        for (const [target, expected] of [
+            [new Asteroid(0, 0, 'large'), 1],
+            [new Asteroid(0, 0, 'medium'), 0],
+            [new Asteroid(0, 0, 'small'), 0],
+            [new SpaceDebris(0, 0), 5],
+            [new Satellite(0, 0), 15]
+        ]) {
+            const killer = new Player(100, 100);
+            const game = rewardGame(killer);
+            game.asteroids = target instanceof Asteroid ? [target] : [];
+            game.hazards = target instanceof Asteroid ? [] : [target];
+            target.maxHits = 1;
+            Game.prototype.hitTarget.call(game, target, killer);
+            Game.prototype.hitTarget.call(game, target, killer);
+            assert.equal(killer.totalXP, expected);
+        }
+    } finally {
+        globalThis.setTimeout = originalSetTimeout;
+    }
+});
+
+test('confirmed ship death awards 100 XP once and shield absorption awards none', () => {
+    globalThis.window = globalThis.window || {};
+    const killer = new Player(0, 0);
+    const victim = new Player(0, 0, 2);
+    victim.spawnImmunityTimer = 0;
+    const game = {
+        players: [killer, victim],
+        audio: { playSpatial() {} },
+        getActiveCameras: () => [],
+        clearAimLocksForTarget() {},
+        createExplosion() {},
+        awardXP: Game.prototype.awardXP
+    };
+    Game.prototype.playerDeath.call(game, victim, killer);
+    Game.prototype.playerDeath.call(game, victim, killer);
+    assert.equal(killer.totalXP, 100);
+
+    const shielded = new Player(0, 0, 3);
+    shielded.spawnImmunityTimer = 0;
+    shielded.configureShields(1, 6);
+    game.players.push(shielded);
+    Game.prototype.playerDeath.call(game, shielded, killer);
+    assert.equal(killer.totalXP, 100);
+    assert.equal(shielded.isDead, false);
+});

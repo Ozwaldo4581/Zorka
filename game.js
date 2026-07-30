@@ -474,7 +474,16 @@ export class Game {
                 this.advanceFromSplash();
                 return;
             }
-            if (e.button === 0) this.mouse.clicked = true;
+            if (e.button === 0) {
+                const rect = this.canvas.getBoundingClientRect();
+                this.mouse.x = (e.clientX - rect.left) / this.scale;
+                this.mouse.y = (e.clientY - rect.top) / this.scale;
+                const selection = this.isInGameplayState() && !this.isPauseMenuOpen
+                    ? this.hud.getLevelUpgradeAt(this.mouse.x, this.mouse.y, this.players, this.gameState === 'PVP')
+                    : null;
+                if (selection) selection.player.applyLevelUpgrade(selection.choice);
+                else this.mouse.clicked = true;
+            }
             if (e.button === 2 && !this.mouse.m2Held && e.target === this.canvas && this.isInGameplayState()
                 && !this.isPauseMenuOpen && this.players[0]?.controlMode === 'KEYBOARD') {
                 this.mouse.m2Held = true;
@@ -1730,6 +1739,10 @@ export class Game {
                         this.beginPlayerOneAimLock(player, inputCamera);
                     }
                     const assignedGamepad = this.getAssignedGamepad(player, gamepads);
+                    const levelChoice = !this.isPauseMenuOpen
+                        ? this.hud.updateLevelUpgradeController(player, assignedGamepad)
+                        : null;
+                    if (levelChoice) player.applyLevelUpgrade(levelChoice);
                     if (player.controlMode === 'GAMEPAD') this.updateControllerAimLock(player, assignedGamepad);
                     else if (player.controllerAimLockLatched || !player.controllerAimLockArmed) player.resetControllerAimLock();
                     const isAimTargetValid = target => this.isValidAimLockTarget(player, target);
@@ -1801,6 +1814,7 @@ export class Game {
                     }
                 } else if (player.isNPC) {
                     player.update(dt, {}, {}, this.camera, this.players, this.asteroids, [], false, this.transformationKills, this.hazards);
+                    player.resolveNPCLevelUps();
                     if (player.justPrestiged) prestigeTriggers.push(player);
                     
                     if (player.shouldTriggerBurstFire) {
@@ -1947,6 +1961,7 @@ export class Game {
             
             if (target instanceof Asteroid) {
                 if (target.size === 'large') {
+                    this.awardXP(killer, 1);
                     for (let i = 0; i < 3; i++) this.spawnAsteroid('medium', target.x, target.y);
                     
                     // Queue a respawn for a new large asteroid
@@ -1965,6 +1980,7 @@ export class Game {
                     this.asteroids.splice(currentIndex, 1);
                 }
             } else if (target.isDebris || target.isSatellite) {
+                this.awardXP(killer, target.isSatellite ? 15 : 5);
                 // Award capsule for space debris and broken satellite
                 if (killer && killer.addCapsule) {
                     killer.addCapsule();
@@ -2022,6 +2038,7 @@ export class Game {
     }
 
     playerDeath(player, killer) {
+        if (!player || player.isDead) return;
         // Spawn immunity check
         if (player.spawnImmunityTimer > 0) return;
 
@@ -2061,6 +2078,7 @@ export class Game {
 
         // Credit killer if it was another ship
         if (killer && killer !== player && typeof killer.addCapsule === 'function') {
+            this.awardXP(killer, 100);
             killer.addCapsule();
             killer.score = (killer.score || 0) + 1;
 
@@ -2070,6 +2088,13 @@ export class Game {
                 killer.highTide = killer.killStreak;
             }
         }
+    }
+
+    awardXP(killer, amount) {
+        if (!killer || !this.players.includes(killer) || typeof killer.addXP !== 'function') return 0;
+        const levelsGained = killer.addXP(amount);
+        if (killer.isNPC) killer.resolveNPCLevelUps();
+        return levelsGained;
     }
 
     checkCollisions() {
