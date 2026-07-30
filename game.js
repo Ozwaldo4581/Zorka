@@ -1882,8 +1882,8 @@ export class Game {
         player.vy = 0;
         player.spawnImmunityTimer = 1.0; 
 
-        // Apply the Arena shield capacity and reset recharge progress.
-        this.configurePlayerShields(player);
+        // Preserve match-local capacity while restoring the Arena's respawn benefit.
+        player.restoreShieldCharges(this.startingShieldCharges);
 
         // Pick a spawn point far from other players
         let bestSpawn = { x: WORLD_WIDTH / 2, y: WORLD_HEIGHT / 2 };
@@ -2003,8 +2003,9 @@ export class Game {
 
         for (const player of this.players) {
             if (!player || player === sourcePlayer || player.isDead || player.isEliminated) continue;
-            player.hasForcefield = true;
-            this.audio.playSpatial('shield_hit', player.x, player.y, cameras, WORLD_WIDTH, WORLD_HEIGHT);
+            if (player.grantShieldCharge()) {
+                this.audio.playSpatial('shield_hit', player.x, player.y, cameras, WORLD_WIDTH, WORLD_HEIGHT);
+            }
         }
     }
 
@@ -2012,7 +2013,7 @@ export class Game {
         // Spawn immunity check
         if (player.spawnImmunityTimer > 0) return;
 
-        // If player has forcefield, absorb hit instead of death
+        // Let Player consume its shield state before Game resolves a death.
         const cameras = this.getActiveCameras();
         if (player.consumeShield()) {
             this.audio.playSpatial('shield_hit', player.x, player.y, cameras, WORLD_WIDTH, WORLD_HEIGHT); 
@@ -2029,9 +2030,7 @@ export class Game {
         player.activeGun = 'Normal';
         player.ghosts = []; 
         player.hasMissile = false;
-        player.hasForcefield = false;
-        player.shieldCharges = 0;
-        player.shieldRechargeTimer = 0;
+        player.restoreShieldCharges(0);
         player.history = []; // Clear history so ghosts don't snap back to old positions on respawn
         player.martianParallelGuns = 1;
 
