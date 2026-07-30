@@ -26,12 +26,32 @@ export class HUD {
             this.drawLevelUpChoices(ctx, players[1], 1270, 980);
             this.drawSpeedMeter(ctx, players[0], 650, 980, 3);
             this.drawSpeedMeter(ctx, players[1], 1270, 980, 3);
+            this.drawLevelDisplay(ctx, players[0], 20, 850);
+            this.drawLevelDisplay(ctx, players[1], 980, 850);
         } else {
             // Solo/Online: One meter, centered, laid out in a single row of 5
             this.drawPowerUpMeter(ctx, players[0], 1920 / 2, 980, 5);
             this.drawLevelUpChoices(ctx, players[0], 1920 / 2, 980);
             this.drawSpeedMeter(ctx, players[0], 1920 / 2, 980, 5);
+            this.drawLevelDisplay(ctx, players[0], 20, 850);
         }
+    }
+
+    drawLevelDisplay(ctx, player, x, y) {
+        if (!player || player.isNPC || player.id > 2) return;
+        ctx.save();
+        ctx.font = 'bold 14px Orbitron';
+        ctx.textAlign = 'left';
+        ctx.fillStyle = 'rgba(0, 0, 0, 0.7)';
+        ctx.fillRect(x, y, 132, 34);
+        ctx.strokeStyle = player.color;
+        ctx.strokeRect(x, y, 132, 34);
+        ctx.fillStyle = player.color;
+        ctx.fillText('LEVEL', x + 10, y + 22);
+        ctx.textAlign = 'right';
+        ctx.fillStyle = '#fff';
+        ctx.fillText(String(player.level), x + 122, y + 22);
+        ctx.restore();
     }
 
     getLevelUpgradeBoxes(centerX, startY) {
