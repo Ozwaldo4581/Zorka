@@ -30,6 +30,9 @@ export class Player {
         this.ghosts = []; // List of Ghost entities
         this.hasForcefield = false;
         this.shieldCharges = 0;
+        this.maxShieldCharges = 0;
+        this.shieldRechargeDelay = 6;
+        this.shieldRechargeTimer = 0;
         this.hasMissile = false;
         this.missileCooldown = 0;
         this.missileReloadLevel = 0; // Increases each time Missile capsule is selected
@@ -190,6 +193,8 @@ export class Player {
             this.resetControllerAimLock(true);
             return;
         }
+
+        this.updateShieldRecharge(dt);
 
         // Update immunity
         if (this.spawnImmunityTimer > 0) {
@@ -360,6 +365,43 @@ export class Player {
 
         if (this.fireCooldown > 0) this.fireCooldown -= dt;
         if (this.missileCooldown > 0) this.missileCooldown -= dt;
+    }
+
+    configureShields(maxShieldCharges, rechargeDelay) {
+        this.maxShieldCharges = Math.max(0, maxShieldCharges || 0);
+        this.shieldRechargeDelay = Math.max(0, rechargeDelay || 0);
+        this.shieldCharges = this.maxShieldCharges;
+        this.hasForcefield = this.shieldCharges > 0;
+        this.shieldRechargeTimer = 0;
+    }
+
+    consumeShield() {
+        if (this.shieldCharges <= 0) return false;
+        this.shieldCharges = Math.max(0, this.shieldCharges - 1);
+        this.hasForcefield = this.shieldCharges > 0;
+        this.shieldRechargeTimer = 0;
+        return true;
+    }
+
+    updateShieldRecharge(dt) {
+        if (this.isDead || this.maxShieldCharges <= 0 || this.shieldCharges >= this.maxShieldCharges) {
+            this.shieldRechargeTimer = 0;
+            return;
+        }
+
+        if (this.shieldRechargeDelay === 0) {
+            this.shieldCharges = this.maxShieldCharges;
+            this.hasForcefield = true;
+            this.shieldRechargeTimer = 0;
+            return;
+        }
+
+        this.shieldRechargeTimer += dt;
+        if (this.shieldRechargeTimer >= this.shieldRechargeDelay) {
+            this.shieldCharges = Math.min(this.maxShieldCharges, this.shieldCharges + 1);
+            this.hasForcefield = true;
+            this.shieldRechargeTimer = 0;
+        }
     }
 
     updateGhosts(dt) {
@@ -641,8 +683,13 @@ export class Player {
                 }
                 break;
             case 5: // Forcefield
-                this.hasForcefield = true;
-                this.shieldCharges = (this.shieldCharges || 0) + 1;
+                if (this.shieldCharges < this.maxShieldCharges) {
+                    this.shieldCharges = Math.min(this.maxShieldCharges, this.shieldCharges + 1);
+                    this.hasForcefield = this.shieldCharges > 0;
+                } else {
+                    success = false;
+                    this.powerUpError = 'SHIELDS MAXED';
+                }
                 break;
         }
 
