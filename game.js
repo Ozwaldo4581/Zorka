@@ -101,6 +101,7 @@ export class Game {
         this.hardcoreMode = true;
         this.arcadeWaveSize = 0;
         this.arcadeSustainEight = false;
+        this.nextArcadeReplacementLevel = 9;
         this.arcadeGameOver = false;
         this.arcadeResult = null;
         this.nextArcadeNpcId = 2;
@@ -172,6 +173,9 @@ export class Game {
 
     spawnPlayers(mode, customShipCount, onlineRoomConfig) {
         this.gameState = mode;
+        this.arcadeWaveSize = 0;
+        this.arcadeSustainEight = false;
+        this.nextArcadeReplacementLevel = 9;
         this.resetMouseLockInput();
         // Keep space_ambient playing
         this.players = [];
@@ -301,6 +305,10 @@ export class Game {
         return this.gameState === 'ARCADE' || this.hardcoreMode;
     }
 
+    areTransformationsEnabled() {
+        return this.gameState !== 'ARCADE';
+    }
+
     findSafePlayerSpawn() {
         let bestSpawn = { x: WORLD_WIDTH / 2, y: WORLD_HEIGHT / 2 };
         let bestDistance = -1;
@@ -322,7 +330,7 @@ export class Game {
         return bestSpawn;
     }
 
-    spawnArcadeNPC() {
+    spawnArcadeNPC(targetLevel = 0) {
         const spawn = this.findSafePlayerSpawn();
         const id = this.nextArcadeNpcId++;
         const colors = ['#ff00ff', '#ffff00', '#ff0000', '#00ff00', '#0000ff', '#ff8800', '#8800ff', '#ffffff'];
@@ -336,12 +344,18 @@ export class Game {
         } else {
             player.rollAggression();
         }
+        player.initializeNPCLevel(targetLevel);
         this.players.push(player);
         return player;
     }
 
-    spawnArcadeWave(count) {
-        for (let index = 0; index < count; index++) this.spawnArcadeNPC();
+    spawnArcadeWave(count, targetLevel) {
+        const spawned = [];
+        for (let index = 0; index < count; index++) {
+            const player = this.spawnArcadeNPC(targetLevel);
+            if (player) spawned.push(player);
+        }
+        return spawned;
     }
 
     startArcadeMode() {
@@ -352,6 +366,7 @@ export class Game {
         this.gameState = 'ARCADE';
         this.arcadeWaveSize = 1;
         this.arcadeSustainEight = false;
+        this.nextArcadeReplacementLevel = 9;
         this.arcadeGameOver = false;
         this.arcadeResult = null;
         this.nextArcadeNpcId = 2;
@@ -365,7 +380,7 @@ export class Game {
         player.controlMode = this.p1ControlMode;
         this.players.push(player);
         this.spawnInitialAsteroids();
-        this.spawnArcadeWave(1);
+        this.spawnArcadeWave(1, 1);
         this.camera.follow(player);
         this.audio.stopBGM();
         this.resetMouseLockInput();
@@ -375,11 +390,15 @@ export class Game {
         if (this.gameState !== 'ARCADE' || this.arcadeGameOver) return;
         const livingCount = this.players.filter(player => player.isNPC && !player.isDead && !player.isEliminated).length;
         if (this.arcadeSustainEight) {
-            this.spawnArcadeWave(Math.max(0, 8 - livingCount));
+            const deficit = Math.max(0, 8 - livingCount);
+            for (let index = 0; index < deficit; index++) {
+                const replacement = this.spawnArcadeNPC(this.nextArcadeReplacementLevel);
+                if (replacement && this.players.includes(replacement)) this.nextArcadeReplacementLevel++;
+            }
         } else if (livingCount === 0) {
             this.arcadeWaveSize = Math.min(8, this.arcadeWaveSize + 1);
             this.arcadeSustainEight = this.arcadeWaveSize === 8;
-            this.spawnArcadeWave(this.arcadeWaveSize);
+            this.spawnArcadeWave(this.arcadeWaveSize, this.arcadeWaveSize);
         }
     }
 
@@ -1320,6 +1339,7 @@ export class Game {
         this.hideArcadeGameOver();
         this.arcadeWaveSize = 0;
         this.arcadeSustainEight = false;
+        this.nextArcadeReplacementLevel = 9;
         this.arcadeGameOver = false;
         this.arcadeResult = null;
         this.gameState = 'MENU';
@@ -1888,7 +1908,7 @@ export class Game {
                     if (player.controlMode === 'GAMEPAD') this.updateControllerAimLock(player, assignedGamepad);
                     else if (player.controllerAimLockLatched || !player.controllerAimLockArmed) player.resetControllerAimLock();
                     const isAimTargetValid = target => this.isValidAimLockTarget(player, target);
-                    player.update(dt, this.keys, this.mouse, inputCamera, this.players, this.asteroids, gamepads, this.gameState === 'PVP', this.transformationKills, this.hazards, isAimTargetValid);
+                    player.update(dt, this.keys, this.mouse, inputCamera, this.players, this.asteroids, gamepads, this.gameState === 'PVP', this.transformationKills, this.hazards, isAimTargetValid, this.areTransformationsEnabled());
                     if (player.id === 1) {
                         this.mouse.m2Pressed = false;
                         this.mouse.m2Released = false;
@@ -1955,7 +1975,7 @@ export class Game {
                         }
                     }
                 } else if (player.isNPC) {
-                    player.update(dt, {}, {}, this.camera, this.players, this.asteroids, [], false, this.transformationKills, this.hazards);
+                    player.update(dt, {}, {}, this.camera, this.players, this.asteroids, [], false, this.transformationKills, this.hazards, null, this.areTransformationsEnabled());
                     player.resolveNPCLevelUps();
                     if (player.justPrestiged) prestigeTriggers.push(player);
                     

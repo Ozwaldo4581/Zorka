@@ -47,6 +47,38 @@ test('NPCs immediately resolve every queued choice from selectable upgrades', ()
     assert.equal(npc.maxShieldCharges, 3);
 });
 
+test('new NPCs initialize at a target level with consistent XP and resolved upgrades', () => {
+    for (const targetLevel of [3, 8, 25, 500]) {
+        const npc = new Player(0, 0);
+        npc.isNPC = true;
+        assert.equal(npc.initializeNPCLevel(targetLevel, () => 0), true);
+        assert.equal(npc.level, targetLevel);
+        assert.equal(npc.totalXP, npc.getLevelThreshold(targetLevel));
+        assert.equal(npc.pendingLevelUps, 0);
+        assert.equal(npc.projectileUpgradeCount, Math.min(10, targetLevel));
+        assert.equal(npc.speedUpgradeCount, Math.min(10, Math.max(0, targetLevel - 10)));
+        assert.equal(npc.levelShieldUpgradeCount, Math.max(0, targetLevel - 20));
+        assert.equal(npc.score, 0);
+        assert.equal(npc.prestigeLevel, 0);
+    }
+});
+
+test('disabled transformations enforce Earthling without consuming score or granting prestige', () => {
+    const player = new Player(0, 0);
+    player.score = 100;
+    player.isEventHorizon = true;
+    player.justPrestiged = true;
+    player.update(0, {}, {}, null, [], [], [], false, 20, [], null, false);
+    assert.equal(player.score, 100);
+    assert.equal(player.prestigeLevel, 0);
+    assert.equal(player.justPrestiged, false);
+    assert.equal(player.isMartian, false);
+    assert.equal(player.isCyborg, false);
+    assert.equal(player.isDimensionX, false);
+    assert.equal(player.isEventHorizon, false);
+    assert.match(player.name, /^EARTHLING/);
+});
+
 test('Projectile upgrades extend supported bursts without changing each round pattern', () => {
     const player = new Player(0, 0);
     for (const gun of ['Normal', 'Antigun', 'Double']) {
@@ -110,6 +142,12 @@ test('Arcade forces Hardcore without changing the configured option', () => {
     assert.equal(Game.prototype.isHardcoreActive.call(game), false);
 });
 
+test('only Arcade disables transformations', () => {
+    for (const [gameState, expected] of [['ARCADE', false], ['SOLO', true], ['PVP', true]]) {
+        assert.equal(Game.prototype.areTransformationsEnabled.call({ gameState }), expected);
+    }
+});
+
 test('Arcade waves advance once and sustain exactly eight living NPCs', () => {
     const game = {
         gameState: 'ARCADE',
@@ -117,24 +155,32 @@ test('Arcade waves advance once and sustain exactly eight living NPCs', () => {
         arcadeWaveSize: 1,
         arcadeSustainEight: false,
         players: [{ isNPC: false, isDead: false }],
-        spawned: 0,
-        spawnArcadeWave(count) { this.spawned += count; }
+        spawned: [],
+        nextArcadeReplacementLevel: 9,
+        spawnArcadeWave(count, targetLevel) { this.spawned.push(...Array(count).fill(targetLevel)); },
+        spawnArcadeNPC(targetLevel) {
+            this.spawned.push(targetLevel);
+            const npc = { isNPC: true, isDead: false, isEliminated: false };
+            this.players.push(npc);
+            return npc;
+        }
     };
     Game.prototype.reconcileArcadeNPCs.call(game);
     assert.equal(game.arcadeWaveSize, 2);
-    assert.equal(game.spawned, 2);
+    assert.deepEqual(game.spawned, [2, 2]);
 
     game.arcadeWaveSize = 7;
-    game.spawned = 0;
+    game.spawned = [];
     Game.prototype.reconcileArcadeNPCs.call(game);
     assert.equal(game.arcadeWaveSize, 8);
     assert.equal(game.arcadeSustainEight, true);
-    assert.equal(game.spawned, 8);
+    assert.deepEqual(game.spawned, Array(8).fill(8));
 
     game.players.push(...Array.from({ length: 5 }, () => ({ isNPC: true, isDead: false, isEliminated: false })));
-    game.spawned = 0;
+    game.spawned = [];
     Game.prototype.reconcileArcadeNPCs.call(game);
-    assert.equal(game.spawned, 3);
+    assert.deepEqual(game.spawned, [9, 10, 11]);
+    assert.equal(game.nextArcadeReplacementLevel, 12);
 });
 
 const rewardGame = killer => ({
