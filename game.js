@@ -302,6 +302,21 @@ export class Game {
         return this.gameState === 'ARCADE' || this.hardcoreMode;
     }
 
+    refreshControlOptionButtons() {
+        const keyboardButton = document.getElementById('main-keyboard-btn');
+        const gamepadButton = document.getElementById('main-gamepad-btn');
+        const keyboardSelected = this.p1ControlMode === 'KEYBOARD';
+
+        if (keyboardButton) {
+            keyboardButton.classList.toggle('selected', keyboardSelected);
+            keyboardButton.setAttribute('aria-pressed', String(keyboardSelected));
+        }
+        if (gamepadButton) {
+            gamepadButton.classList.toggle('selected', !keyboardSelected);
+            gamepadButton.setAttribute('aria-pressed', String(!keyboardSelected));
+        }
+    }
+
     areTransformationsEnabled() {
         return this.gameState !== 'ARCADE';
     }
@@ -726,7 +741,7 @@ export class Game {
             popup.classList.remove('hidden');
             popup.querySelectorAll('.focused').forEach(el => el.classList.remove('focused'));
             refreshAudioOptionButtons();
-            refreshHardcoreOptionButtons();
+            this.refreshControlOptionButtons();
 
             document.querySelectorAll('.cursor-option-btn').forEach(btn => {
                 btn.classList.toggle(
@@ -772,6 +787,21 @@ export class Game {
             });
         });
 
+        const mainKeyboardButton = document.getElementById('main-keyboard-btn');
+        const mainGamepadButton = document.getElementById('main-gamepad-btn');
+
+        mainKeyboardButton?.addEventListener('click', (event) => {
+            this.p1ControlMode = 'KEYBOARD';
+            this.refreshControlOptionButtons();
+            event.stopPropagation();
+        });
+
+        mainGamepadButton?.addEventListener('click', (event) => {
+            this.p1ControlMode = 'GAMEPAD';
+            this.refreshControlOptionButtons();
+            event.stopPropagation();
+        });
+
         document.querySelectorAll('.hardcore-btn').forEach(btn => {
             btn.addEventListener('click', () => {
                 this.hardcoreMode = btn.dataset.hardcore === 'true';
@@ -813,6 +843,7 @@ export class Game {
                 if (val === this.shieldRechargeRate) btn.classList.add('selected');
                 else btn.classList.remove('selected');
             });
+            refreshHardcoreOptionButtons();
             document.querySelectorAll('.cursor-option-btn').forEach(btn => {
                 const val = parseInt(btn.getAttribute('data-cursor'));
                 if (val === this.selectedCursorStyle) btn.classList.add('selected');
@@ -938,6 +969,7 @@ export class Game {
             this.p1ControlMode = 'KEYBOARD';
             kbBtn.classList.add('selected');
             gpBtn.classList.remove('selected');
+            this.refreshControlOptionButtons();
             e.stopPropagation();
         });
 
@@ -946,6 +978,7 @@ export class Game {
             this.p1ControlMode = 'GAMEPAD';
             gpBtn.classList.add('selected');
             kbBtn.classList.remove('selected');
+            this.refreshControlOptionButtons();
             e.stopPropagation();
         });
 
@@ -1007,7 +1040,7 @@ export class Game {
             popup.querySelectorAll('.focused').forEach(el => el.classList.remove('focused'));
 
             refreshAudioOptionButtons();
-            refreshHardcoreOptionButtons();
+            this.refreshControlOptionButtons();
 
             document.querySelectorAll('.cursor-option-btn').forEach(btn => {
                 btn.classList.toggle(
@@ -1851,6 +1884,7 @@ export class Game {
                 kbBtn.classList.remove('selected');
             }
         }
+        this.refreshControlOptionButtons();
     }
 
     updateOnlineGamepadStatus() {
