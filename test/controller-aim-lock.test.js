@@ -28,7 +28,7 @@ const updateController = (player, pad, targetIsValid = () => true) => {
     player.update(0.1, {}, mouseInput(), null, [], [], [pad], false, 20, [], targetIsValid);
 };
 
-test('keyboard movement is absolute unlocked and relative only with a valid lock', () => {
+test('keyboard movement remains absolute with a valid lock', () => {
     const player = new Player(100, 100);
 
     updateKeyboard(player);
@@ -41,8 +41,8 @@ test('keyboard movement is absolute unlocked and relative only with a valid lock
     player.y = 100;
     player.beginAimLock({ x: 200, y: 100, radius: 10 });
     updateKeyboard(player, { mouse: { m2Held: true } });
-    assert.ok(player.vx > 0);
-    assert.ok(Math.abs(player.vy) < 1e-10);
+    assert.ok(Math.abs(player.vx) < 1e-10);
+    assert.ok(player.vy < 0);
 
     player.vx = 0;
     player.vy = 0;
@@ -69,7 +69,7 @@ test('invalid and failed mouse locks remain absolute', () => {
     assert.ok(failed.vy < 0);
 });
 
-test('controller movement shares the valid-lock transition', () => {
+test('controller movement remains absolute with a valid lock', () => {
     const player = new Player(100, 100);
     const pad = gamepadInput();
 
@@ -83,8 +83,8 @@ test('controller movement shares the valid-lock transition', () => {
     player.y = 100;
     player.beginAimLock({ x: 200, y: 100, radius: 10 });
     updateController(player, pad);
-    assert.ok(player.vx > 0);
-    assert.ok(Math.abs(player.vy) < 1e-10);
+    assert.ok(Math.abs(player.vx) < 1e-10);
+    assert.ok(player.vy < 0);
 
     player.vx = 0;
     player.vy = 0;
@@ -96,14 +96,15 @@ test('controller movement shares the valid-lock transition', () => {
     assert.ok(player.vy < 0);
 });
 
-test('movement selection is independent per player and does not affect NPC steering', () => {
+test('target locking does not change movement axes or NPC steering', () => {
     const unlocked = new Player(100, 100);
     const locked = new Player(100, 100);
     locked.beginAimLock({ x: 200, y: 100, radius: 10 });
     updateKeyboard(unlocked);
     updateKeyboard(locked, { mouse: { m2Held: true } });
     assert.ok(unlocked.vy < 0);
-    assert.ok(locked.vx > 0);
+    assert.ok(Math.abs(locked.vx) < 1e-10);
+    assert.ok(locked.vy < 0);
 
     const npc = new Player(100, 100, 3);
     npc.isNPC = true;

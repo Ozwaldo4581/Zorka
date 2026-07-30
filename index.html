@@ -195,6 +195,13 @@
         padding: 1rem;
         white-space: nowrap;
       }
+      .control-change-notice {
+        margin: 0.75rem 0 0;
+        color: #888;
+        font-family: 'Inter', sans-serif;
+        font-size: 0.75rem;
+        text-align: center;
+      }
       .arena-options-panel {
         width: min(1120px, calc(100% - 2rem));
         max-height: calc(100vh - 2rem);
@@ -247,6 +254,9 @@
         border-radius: 8px;
         box-shadow: 0 0 40px rgba(0, 255, 255, 0.3);
         text-align: center;
+      }
+      .options-panel.arena-options-panel {
+        width: min(1120px, calc(100% - 2rem));
       }
       .options-panel h2 {
         margin: 0 0 1rem;
@@ -424,6 +434,7 @@
               <button class="count-btn control-mode-button" id="main-keyboard-btn" aria-pressed="false">M&amp;KB</button>
               <button class="count-btn control-mode-button selected" id="main-gamepad-btn" aria-pressed="true">GAMEPAD</button>
             </div>
+            <p class="control-change-notice">Controls can not be changes in game</p>
           </div>
           <div class="options-group">
             <h2>CROSSHAIR STYLE</h2>

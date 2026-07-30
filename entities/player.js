@@ -6,6 +6,7 @@ const BASE_GUN_COOLDOWN = 0.75;
 const BURST_INTERVAL = 0.05;
 const BASE_PROJECTILE_SPEED = 1200;
 const MARTIAN_PARALLEL_OFFSET = 30;
+const MAX_PROJECTILE_UPGRADES = 5;
 
 export class Player {
     constructor(x, y, id = 1, color = '#00ffff') {
@@ -83,7 +84,7 @@ export class Player {
         this.projectileUpgradeCount = 0;
         this.speedUpgradeCount = 0;
         this.levelShieldUpgradeCount = 0;
-        this.maxProjectileUpgrades = 10;
+        this.maxProjectileUpgrades = MAX_PROJECTILE_UPGRADES;
         this.maxSpeedUpgrades = 10;
 
         // NPC Personality / Behavior state
@@ -127,6 +128,9 @@ export class Player {
     }
 
     applyLevelUpgrade(choice) {
+        if (choice === 'projectile') {
+            this.projectileUpgradeCount = Math.min(this.maxProjectileUpgrades, Math.max(0, this.projectileUpgradeCount));
+        }
         if (!this.canSelectLevelUpgrade(choice)) return false;
         if (choice === 'projectile') this.projectileUpgradeCount++;
         else if (choice === 'speed') this.speedUpgradeCount++;
@@ -162,6 +166,10 @@ export class Player {
 
     getSpeedMultiplier() {
         return Math.min(2, 1 + this.speedUpgradeCount * 0.1);
+    }
+
+    getEffectiveThrust() {
+        return this.thrust * this.getSpeedMultiplier();
     }
 
     getBurstRoundCount() {
@@ -277,15 +285,9 @@ export class Player {
         return this.applyLevelUpgrade('shield');
     }
 
-    getDirectionalThrust(inputX, inputY, useRelativeMovement) {
-        if (!useRelativeMovement) {
-            return { x: inputX * this.thrust, y: inputY * this.thrust };
-        }
-
-        return {
-            x: (inputX * Math.cos(this.rotation) - inputY * Math.sin(this.rotation)) * this.thrust,
-            y: (inputX * Math.sin(this.rotation) + inputY * Math.cos(this.rotation)) * this.thrust
-        };
+    getDirectionalThrust(inputX, inputY) {
+        const effectiveThrust = this.getEffectiveThrust();
+        return { x: inputX * effectiveThrust, y: inputY * effectiveThrust };
     }
 
     setEvolutionForm(form) {
@@ -405,7 +407,7 @@ export class Player {
                 }
 
                 if (Math.abs(lsX) > deadzone || Math.abs(lsY) > deadzone) {
-                    const force = this.getDirectionalThrust(lsX, lsY, Boolean(aimTarget));
+                    const force = this.getDirectionalThrust(lsX, lsY);
                     fx += force.x;
                     fy += force.y;
                     this.isThrusting = true;
@@ -442,7 +444,7 @@ export class Player {
                 const inputX = Number(Boolean(keys['KeyD'])) - Number(Boolean(keys['KeyA']));
                 const inputY = Number(Boolean(keys['KeyS'])) - Number(Boolean(keys['KeyW']));
                 if (inputX !== 0 || inputY !== 0) {
-                    const force = this.getDirectionalThrust(inputX, inputY, Boolean(aimTarget));
+                    const force = this.getDirectionalThrust(inputX, inputY);
                     fx += force.x;
                     fy += force.y;
                     this.isThrusting = true;
@@ -474,7 +476,7 @@ export class Player {
                 }
 
                 if (Math.abs(lsX) > deadzone || Math.abs(lsY) > deadzone) {
-                    const force = this.getDirectionalThrust(lsX, lsY, Boolean(aimTarget));
+                    const force = this.getDirectionalThrust(lsX, lsY);
                     fx += force.x;
                     fy += force.y;
                     this.isThrusting = true;
@@ -493,8 +495,6 @@ export class Player {
         if (this.isEventHorizon) {
             maxSpeed += this.bonusSpeed;
         }
-        // Apply level speed after form-specific additions so the full top-speed cap scales.
-        maxSpeed *= this.getSpeedMultiplier();
         const currentSpeed = Math.hypot(this.vx, this.vy);
         if (currentSpeed > maxSpeed) {
             this.vx = (this.vx / currentSpeed) * maxSpeed;
@@ -608,6 +608,7 @@ export class Player {
     }
 
     updateNPC(dt, others, asteroids, setForce, hazards = []) {
+        const effectiveThrust = this.getEffectiveThrust();
         if (this.isDummy) {
             setForce({ x: 0, y: 0 });
             return;
@@ -701,7 +702,7 @@ export class Player {
             const avoidDist = a.radius + detectionRange;
             if (dist < avoidDist && !hasAwarenessLapse) {
                 // Reduced force multiplier from 2.2 to 1.5
-                const forceMag = (1 - dist / avoidDist) * this.thrust * 1.5;
+                const forceMag = (1 - dist / avoidDist) * effectiveThrust * 1.5;
                 avoidFx -= (dx / dist) * forceMag;
                 avoidFy -= (dy / dist) * forceMag;
                 threatLevel = Math.max(threatLevel, 1 - dist / avoidDist);
@@ -721,7 +722,7 @@ export class Player {
                 const sinE = Math.sin(errorAngle);
                 
                 // Reduced force multiplier from 2.4 to 1.8
-                const forceMag = this.thrust * (hasAwarenessLapse ? 0.8 : 1.8);
+                const forceMag = effectiveThrust * (hasAwarenessLapse ? 0.8 : 1.8);
                 
                 const rawAvoidX = -(dx / dist) * forceMag;
                 const rawAvoidY = -(dy / dist) * forceMag;
@@ -764,17 +765,17 @@ export class Player {
             
             if (this.npcBehaviorState === 'FLEE') {
                 // Thrust away at full speed
-                fx = Math.sin(this.rotation) * this.thrust * chaseWeight;
-                fy = -Math.cos(this.rotation) * this.thrust * chaseWeight;
+                fx = Math.sin(this.rotation) * effectiveThrust * chaseWeight;
+                fy = -Math.cos(this.rotation) * effectiveThrust * chaseWeight;
                 if (chaseWeight > 0) this.isThrusting = true;
             } else {
                 if (dist > 300) {
-                    fx = Math.sin(this.rotation) * this.thrust * chaseWeight;
-                    fy = -Math.cos(this.rotation) * this.thrust * chaseWeight;
+                    fx = Math.sin(this.rotation) * effectiveThrust * chaseWeight;
+                    fy = -Math.cos(this.rotation) * effectiveThrust * chaseWeight;
                     if (chaseWeight > 0) this.isThrusting = true;
                 } else if (dist < 150) {
-                    fx = -Math.sin(this.rotation) * this.thrust * chaseWeight;
-                    fy = Math.cos(this.rotation) * this.thrust * chaseWeight;
+                    fx = -Math.sin(this.rotation) * effectiveThrust * chaseWeight;
+                    fy = Math.cos(this.rotation) * effectiveThrust * chaseWeight;
                     if (chaseWeight > 0) this.isThrusting = true;
                 }
             }
@@ -800,8 +801,8 @@ export class Player {
             // Non-aggressive travel speed set to 50%
             const travelWeight = 0.5;
             this.rotation += (this.npcWanderAngle - this.rotation) * dt * 2;
-            fx = Math.sin(this.rotation) * this.thrust * travelWeight * chaseWeight;
-            fy = -Math.cos(this.rotation) * this.thrust * travelWeight * chaseWeight;
+            fx = Math.sin(this.rotation) * effectiveThrust * travelWeight * chaseWeight;
+            fy = -Math.cos(this.rotation) * effectiveThrust * travelWeight * chaseWeight;
             if (chaseWeight > 0) this.isThrusting = true;
         }
 
