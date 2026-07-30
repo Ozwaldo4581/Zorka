@@ -144,6 +144,16 @@ export class Player {
         return applied;
     }
 
+    initializeNPCLevel(targetLevel, random = Math.random) {
+        if (!this.isNPC || this.level !== 0 || this.totalXP !== 0 || this.pendingLevelUps !== 0) return false;
+        const normalizedLevel = Math.max(0, Math.floor(Number(targetLevel) || 0));
+        if (normalizedLevel === 0) return true;
+
+        this.addXP(this.getLevelThreshold(normalizedLevel));
+        this.resolveNPCLevelUps(random);
+        return this.level === normalizedLevel && this.pendingLevelUps === 0;
+    }
+
     getSpeedMultiplier() {
         return Math.min(2, 1 + this.speedUpgradeCount * 0.1);
     }
@@ -253,6 +263,11 @@ export class Player {
         this.name = this.isNPC ? `${form} BOT ${this.id}` : `${form} ${this.id}`;
     }
 
+    resetEvolutionForm() {
+        this.setEvolutionForm('EARTHLING');
+        this.justPrestiged = false;
+    }
+
     updateEvolutionState(transformationKills = 20) {
         const killsPerStep = Math.max(1, transformationKills || 1);
         const prestigeThreshold = killsPerStep * 4;
@@ -277,7 +292,7 @@ export class Player {
         }
     }
 
-    update(dt, keys, mouse, camera, others = [], asteroids = [], gamepads = [], isSplitScreen = false, transformationKills = 20, hazards = [], isAimTargetValid = null) {
+    update(dt, keys, mouse, camera, others = [], asteroids = [], gamepads = [], isSplitScreen = false, transformationKills = 20, hazards = [], isAimTargetValid = null, allowTransformations = true) {
         if (this.isDead) {
             this.resetControllerAimLock(true);
             return;
@@ -290,8 +305,10 @@ export class Player {
             this.spawnImmunityTimer -= dt;
         }
 
-        // Evolution Check
-        this.updateEvolutionState(transformationKills);
+        // Evolution is a mode rule; disabled modes keep the independent score
+        // currency but never process form or prestige transitions.
+        if (allowTransformations) this.updateEvolutionState(transformationKills);
+        else this.resetEvolutionForm();
 
         // Handle Ghost Movement
         this.updateGhosts(dt);
