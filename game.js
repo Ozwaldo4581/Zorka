@@ -510,10 +510,22 @@ export class Game {
             
             this.updateGamepadStatus();
             
-            // No bot selected by default
+            // Default Solo Arena to 4 enemy bots.
             this.selectedBotCount = 4;
-            document.querySelectorAll('.bot-count-btn').forEach(b => b.classList.remove('selected'));
-            this.updateSoloMockLobby(4);
+
+            document.querySelectorAll('.bot-count-btn').forEach(btn => {
+                btn.classList.remove('selected');
+            });
+
+            const defaultBotButton = document.querySelector(
+                '.bot-count-btn[data-bot-count="4"]'
+            );
+
+            if (defaultBotButton) {
+            defaultBotButton.classList.add('selected');
+            }
+
+            this.updateSoloMockLobby(this.selectedBotCount);
         });
 
         document.getElementById('btn-pvp').addEventListener('click', () => {
