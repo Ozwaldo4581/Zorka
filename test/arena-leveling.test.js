@@ -89,6 +89,54 @@ test('level reset clears level bonuses while preserving non-level shield capacit
     assert.equal(player.shieldCharges, 3);
 });
 
+test('capsules gained remains cumulative when the active capsule slot wraps or is spent', () => {
+    const player = new Player(0, 0);
+    for (let index = 0; index < 6; index++) player.addCapsule();
+    assert.equal(player.powerUpCapsules, 1);
+    assert.equal(player.totalCapsulesGained, 6);
+    player.powerUpCapsules = 0;
+    assert.equal(player.totalCapsulesGained, 6);
+
+    player.isEventHorizon = true;
+    player.addCapsule();
+    assert.equal(player.totalCapsulesGained, 6);
+});
+
+test('Arcade forces Hardcore without changing the configured option', () => {
+    const game = { gameState: 'ARCADE', hardcoreMode: false };
+    assert.equal(Game.prototype.isHardcoreActive.call(game), true);
+    assert.equal(game.hardcoreMode, false);
+    game.gameState = 'SOLO';
+    assert.equal(Game.prototype.isHardcoreActive.call(game), false);
+});
+
+test('Arcade waves advance once and sustain exactly eight living NPCs', () => {
+    const game = {
+        gameState: 'ARCADE',
+        arcadeGameOver: false,
+        arcadeWaveSize: 1,
+        arcadeSustainEight: false,
+        players: [{ isNPC: false, isDead: false }],
+        spawned: 0,
+        spawnArcadeWave(count) { this.spawned += count; }
+    };
+    Game.prototype.reconcileArcadeNPCs.call(game);
+    assert.equal(game.arcadeWaveSize, 2);
+    assert.equal(game.spawned, 2);
+
+    game.arcadeWaveSize = 7;
+    game.spawned = 0;
+    Game.prototype.reconcileArcadeNPCs.call(game);
+    assert.equal(game.arcadeWaveSize, 8);
+    assert.equal(game.arcadeSustainEight, true);
+    assert.equal(game.spawned, 8);
+
+    game.players.push(...Array.from({ length: 5 }, () => ({ isNPC: true, isDead: false, isEliminated: false })));
+    game.spawned = 0;
+    Game.prototype.reconcileArcadeNPCs.call(game);
+    assert.equal(game.spawned, 3);
+});
+
 const rewardGame = killer => ({
     players: [killer],
     asteroids: [],
