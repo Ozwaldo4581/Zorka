@@ -168,7 +168,7 @@ export class HUD {
     drawPowerUpMeter(ctx, player, centerX, startY, maxCols = 5) {
         if (!player || player.isEventHorizon) return; // Hide power-up meter for Event Horizon
 
-        const slot3Name = player.isMartian ? 'Parallel' : 'Laser';
+        const slot3Name = 'Laser';
         const slots = [
             { name: player.slot1Type || 'Antigun', type: 'GUN' },
             { name: 'Missile', type: 'ADD-ON' },
