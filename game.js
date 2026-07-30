@@ -1406,11 +1406,6 @@ export class Game {
         
         const projs = player.fire(isBurstShot);
         if (projs && projs.length > 0) {
-            for (const projectile of projs) {
-                if (projectile.isMissile && !this.isValidAimLockTarget(player, projectile.missileTarget)) {
-                    projectile.missileTarget = null;
-                }
-            }
             this.projectiles.push(...projs);
             
             // Spatial audio
