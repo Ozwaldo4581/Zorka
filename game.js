@@ -53,6 +53,9 @@ export const MOUSE_AIM_LOCK_PADDING = 18;
 export const CONTROLLER_AIM_LOCK_PADDING = 24;
 // Covers one high-speed projectile frame plus common sprite glow/shield overflow.
 export const EXPERIMENTAL_RENDER_CULL_MARGIN = 120;
+export const EXPERIMENTAL_HALLWAY_ACTIVITY_DEPTH = 1200;
+const EXPERIMENTAL_SECTOR_MESSAGE_DURATION = 2.25;
+const EXPERIMENTAL_OBJECTIVE_MESSAGE_DURATION = 4.5;
 const CONTROLLER_AIM_DEADZONE = 0.15;
 const RAY_DISTANCE_TIE_EPSILON = 0.001;
 export const SHIELD_RECHARGE_DELAYS = Object.freeze({
@@ -1381,6 +1384,8 @@ export class Game {
         this.experimentalRoomAssignments = new Map();
         this.experimentalAreaIndexes = new Map();
         this.experimentalCameraState = null;
+        this.experimentalSectorMessage = null;
+        this.experimentalObjectiveMessage = null;
     }
 
     initializeExperimentalRooms() {
@@ -1462,8 +1467,17 @@ export class Game {
         const indexed = this.experimentalAreaIndexes?.has(roomId)
             ? Game.prototype.getExperimentalAreaEntities.call(this, roomId, 'players')
             : (this.players || []).filter(player => player.roomId === roomId);
-        return indexed
-            .some(player => !player.isNPC && !player.isDead && !player.isEliminated);
+        if (indexed.some(player => !player.isNPC && !player.isDead && !player.isEliminated)) return true;
+
+        const area = Game.prototype.getExperimentalRoom.call(this, roomId);
+        if (!area || area.roomNumber <= 0) return false;
+        return (this.players || []).some(player => {
+            if (player.isNPC || player.isDead || player.isEliminated) return false;
+            const hallway = Game.prototype.getExperimentalRoom.call(this, player.roomId);
+            if (!hallway || hallway.roomNumber !== 0 || !hallway.connectedAreaIds.includes(area.id)) return false;
+            return Game.prototype.getExperimentalHallwayDepthFromArea.call(this, player, hallway, area)
+                <= EXPERIMENTAL_HALLWAY_ACTIVITY_DEPTH;
+        });
     }
 
     addProjectile(projectile) {
@@ -1572,6 +1586,90 @@ export class Game {
         this.spawnPlayers(GAME_MODE.SOLO, 2);
         this.gameState = GAME_MODE.EXPERIMENTAL;
         this.setupExperimentalPopulations();
+        const startingRoom = this.experimentalRooms.find(area => area.roomNumber === 1) || this.experimentalRooms[0];
+        this.showExperimentalSectorMessage(startingRoom?.roomNumber || 1);
+        this.showExperimentalObjectiveMessage();
+    }
+
+
+    showExperimentalSectorMessage(roomNumber) {
+        const normalizedRoomNumber = Math.max(1, Math.floor(Number(roomNumber) || 1));
+        this.experimentalSectorMessage = {
+            text: `Sector ${normalizedRoomNumber}`,
+            remaining: EXPERIMENTAL_SECTOR_MESSAGE_DURATION
+        };
+    }
+
+    showExperimentalObjectiveMessage() {
+        this.experimentalObjectiveMessage = {
+            lines: ['The Princess is in Sector 9!', 'Save the Princess!', 'Save the Galaxy!'],
+            remaining: EXPERIMENTAL_OBJECTIVE_MESSAGE_DURATION
+        };
+    }
+
+    updateExperimentalMessages(dt) {
+        for (const key of ['experimentalSectorMessage', 'experimentalObjectiveMessage']) {
+            const message = this[key];
+            if (!message) continue;
+            message.remaining -= dt;
+            if (message.remaining <= 0) this[key] = null;
+        }
+    }
+
+    drawExperimentalMessages(ctx) {
+        if (this.gameState !== GAME_MODE.EXPERIMENTAL) return;
+        const playerColor = this.players.find(player => !player.isNPC)?.color || '#00ffff';
+        ctx.save();
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.shadowColor = '#000';
+        ctx.shadowBlur = 14;
+
+        if (this.experimentalObjectiveMessage) {
+            ctx.fillStyle = playerColor;
+            ctx.font = 'bold 72px "Courier New", monospace';
+            const lineHeight = 86;
+            const startY = DESIGN_HEIGHT / 2 - lineHeight;
+            this.experimentalObjectiveMessage.lines.forEach((line, index) => {
+                ctx.fillText(line, DESIGN_WIDTH / 2, startY + index * lineHeight);
+            });
+        }
+
+        if (this.experimentalSectorMessage) {
+            ctx.fillStyle = '#ffffff';
+            ctx.font = 'bold 42px "Courier New", monospace';
+            ctx.fillText(this.experimentalSectorMessage.text, DESIGN_WIDTH / 2, DESIGN_HEIGHT * 0.36);
+        }
+        ctx.restore();
+    }
+
+    getExperimentalHallwayDepthFromArea(player, hallway, area) {
+        if (!player || !hallway || !area) return Infinity;
+        const overlapLeft = Math.max(hallway.bounds.left, area.bounds.left);
+        const overlapRight = Math.min(hallway.bounds.right, area.bounds.right);
+        const overlapTop = Math.max(hallway.bounds.top, area.bounds.top);
+        const overlapBottom = Math.min(hallway.bounds.bottom, area.bounds.bottom);
+        if (hallway.bounds.top === area.bounds.bottom) return Math.max(0, player.y - hallway.bounds.top);
+        if (hallway.bounds.bottom === area.bounds.top) return Math.max(0, hallway.bounds.bottom - player.y);
+        if (hallway.bounds.left === area.bounds.right) return Math.max(0, player.x - hallway.bounds.left);
+        if (hallway.bounds.right === area.bounds.left) return Math.max(0, hallway.bounds.right - player.x);
+        return overlapLeft <= overlapRight && overlapTop <= overlapBottom ? 0 : Infinity;
+    }
+
+    getExperimentalActiveAreaIds() {
+        const currentArea = Game.prototype.getExperimentalRenderArea.call(this);
+        if (!currentArea) return new Set();
+        const active = new Set([currentArea.id]);
+        if (currentArea.roomNumber !== 0) return active;
+        const localPlayer = this.players.find(player => !player.isNPC && !player.isDead && !player.isEliminated);
+        if (!localPlayer) return active;
+        for (const connectedId of currentArea.connectedAreaIds || []) {
+            const connectedArea = Game.prototype.getExperimentalRoom.call(this, connectedId);
+            if (!connectedArea || connectedArea.roomNumber <= 0) continue;
+            const depth = Game.prototype.getExperimentalHallwayDepthFromArea.call(this, localPlayer, currentArea, connectedArea);
+            if (depth <= EXPERIMENTAL_HALLWAY_ACTIVITY_DEPTH) active.add(connectedArea.id);
+        }
+        return active;
     }
 
     startExperimentalMode() {
@@ -2339,6 +2437,7 @@ export class Game {
     }
 
     update(dt) {
+        if (this.gameState === GAME_MODE.EXPERIMENTAL) this.updateExperimentalMessages(dt);
         const gamepads = navigator.getGamepads ? navigator.getGamepads() : [];
         const prestigeTriggers = [];
         const worldRules = this.getWorldRules();
@@ -2639,6 +2738,9 @@ export class Game {
             }
         }
         const nextRoom = Game.prototype.getExperimentalRoom.call(this, player.roomId);
+        if (player.roomId !== previousRoomId && nextRoom?.roomNumber > 0) {
+            this.showExperimentalSectorMessage(nextRoom.roomNumber);
+        }
         if (player.roomId !== previousRoomId
             && currentRoom?.roomNumber > 0
             && nextRoom?.roomNumber === 0) {
@@ -3398,6 +3500,7 @@ export class Game {
             );
         }
 
+        this.drawExperimentalMessages(this.ctx);
         this.drawCrosshair();
     }
 
@@ -3573,8 +3676,10 @@ export class Game {
         if (this.gameState === GAME_MODE.EXPERIMENTAL) this.drawExperimentalWalls(ctx, camera);
 
         const currentArea = Game.prototype.getExperimentalRenderArea.call(this);
+        const activeAreaIds = Game.prototype.getExperimentalActiveAreaIds.call(this);
         const source = (kind, canonical) => currentArea
-            ? Game.prototype.getExperimentalAreaEntities.call(this, currentArea.id, kind) : canonical;
+            ? [...activeAreaIds].flatMap(areaId => Game.prototype.getExperimentalAreaEntities.call(this, areaId, kind))
+            : canonical;
         const visible = entities => Game.prototype.getRenderableEntities.call(this, entities, camera);
         visible(source('asteroids', this.asteroids)).forEach(a => a.draw(ctx, this.assets, camera));
         visible(source('hazards', this.hazards)).forEach(h => h.draw(ctx, this.assets, camera));
@@ -3604,7 +3709,7 @@ export class Game {
             bottom: camera.y + halfHeight
         };
         return entities.filter(entity => {
-            if (entity.roomId !== currentArea.id) return false;
+            if (!Game.prototype.getExperimentalActiveAreaIds.call(this).has(entity.roomId)) return false;
             if (!Number.isFinite(entity.x) || !Number.isFinite(entity.y)) return true;
             const bounds = Game.prototype.getExperimentalRenderBounds.call(this, entity);
             return bounds.right >= viewport.left && bounds.left <= viewport.right
