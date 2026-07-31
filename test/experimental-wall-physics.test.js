@@ -171,6 +171,43 @@ test('human membership commits beyond the doorway clearance without changing mot
     assert.equal(Game.prototype.resolveExperimentalPlayerRoomMembership.call(game, player), 'experimental-room-1');
 });
 
+test('confirmed human room changes clear tier 1-4 bonuses once while preserving shields and state', () => {
+    const game = createExperimentalContext();
+    const player = new Player(8640, WORLD_HEIGHT, 1);
+    Object.assign(player, {
+        roomId: 'experimental-room-1', activeGun: 'Laser', hasMissile: true,
+        missileReloadLevel: 3, missileCooldown: 2, martianParallelGuns: 2,
+        ghosts: [{ x: 1, y: 2 }], history: [{ x: 1, y: 2 }], powerUpCapsules: 4,
+        maxShieldCharges: 5, shieldCharges: 3, hasForcefield: true,
+        level: 4, totalXP: 1400, score: 7, currentHP: 4,
+        vx: 12, vy: 34, rotation: 1.25
+    });
+    let cleanupCalls = 0;
+    const clear = player.clearExperimentalRoomCapsuleBonuses.bind(player);
+    player.clearExperimentalRoomCapsuleBonuses = () => { cleanupCalls++; clear(); };
+    player.y = WORLD_HEIGHT + player.radius + game.experimentalDoors[0].transitionTolerance + 1;
+    Game.prototype.resolveExperimentalPlayerRoomMembership.call(game, player);
+    Game.prototype.resolveExperimentalPlayerRoomMembership.call(game, player);
+
+    assert.equal(cleanupCalls, 1);
+    assert.deepEqual({
+        roomId: player.roomId, activeGun: player.activeGun, hasMissile: player.hasMissile,
+        missileReloadLevel: player.missileReloadLevel, missileCooldown: player.missileCooldown,
+        martianParallelGuns: player.martianParallelGuns, ghosts: player.ghosts, history: player.history
+    }, {
+        roomId: 'experimental-room-2', activeGun: 'Normal', hasMissile: false,
+        missileReloadLevel: 0, missileCooldown: 0, martianParallelGuns: 1, ghosts: [], history: []
+    });
+    assert.deepEqual({
+        capsules: player.powerUpCapsules, maxShields: player.maxShieldCharges, shields: player.shieldCharges,
+        forcefield: player.hasForcefield, level: player.level, xp: player.totalXP, score: player.score,
+        hp: player.currentHP, vx: player.vx, vy: player.vy, rotation: player.rotation
+    }, {
+        capsules: 4, maxShields: 5, shields: 3, forcefield: true, level: 4, xp: 1400, score: 7,
+        hp: 4, vx: 12, vy: 34, rotation: 1.25
+    });
+});
+
 test('door projectile outcomes block every representation regardless of human ownership', () => {
     const owner = new Player(8640, 9600, 1);
     owner.roomId = 'experimental-room-1';

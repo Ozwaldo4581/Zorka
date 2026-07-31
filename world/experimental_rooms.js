@@ -12,6 +12,15 @@ const FULL_ARENA_POPULATION = Object.freeze({
     independentlyResolved: true
 });
 
+export function createExperimentalRoomProgression(roomNumber) {
+    const normalizedRoomNumber = Math.max(1, Math.floor(Number(roomNumber) || 1));
+    return Object.freeze({
+        roomNumber: normalizedRoomNumber,
+        npcCount: normalizedRoomNumber,
+        npcLevel: normalizedRoomNumber
+    });
+}
+
 export const EXPERIMENTAL_COLLISION_CATEGORY = Object.freeze({
     HUMAN_PLAYER: 'human-player',
     NPC_SHIP: 'npc-ship',
@@ -33,6 +42,7 @@ export function createExperimentalRooms(worldWidth, worldHeight) {
     const doorMinX = doorCenterX - DOOR_WIDTH / 2;
     const doorMaxX = doorCenterX + DOOR_WIDTH / 2;
     const room1 = Object.freeze({
+        ...createExperimentalRoomProgression(1),
         id: 'experimental-room-1',
         origin: Object.freeze({ x: 0, y: 0 }),
         width: worldWidth,
@@ -56,10 +66,10 @@ export function createExperimentalRooms(worldWidth, worldHeight) {
             bottom: worldHeight - SPAWN_INSET
         }),
         population: FULL_ARENA_POPULATION,
-        npcAggressionSource: 'ARENA_OPTIONS',
-        npcCount: 1
+        npcAggressionSource: 'ARENA_OPTIONS'
     });
     const room2 = Object.freeze({
+        ...createExperimentalRoomProgression(2),
         id: 'experimental-room-2',
         origin: Object.freeze({ x: 0, y: sharedBoundaryY }),
         width: room1.width,
@@ -88,8 +98,7 @@ export function createExperimentalRooms(worldWidth, worldHeight) {
             bottom: sharedBoundaryY + room1.height - SPAWN_INSET
         }),
         population: FULL_ARENA_POPULATION,
-        npcAggressionSource: 'ARENA_OPTIONS',
-        npcCount: 0
+        npcAggressionSource: 'ARENA_OPTIONS'
     });
     return [room1, room2];
 }

@@ -6,16 +6,17 @@ import { SpaceDebris, Satellite } from '../entities/hazards.js';
 import { Player } from '../entities/player.js';
 import { Game } from '../game.js';
 
-test('XP uses cumulative triangular thresholds and queues every crossed level', () => {
+test('XP uses cumulative quadratic per-level requirements and queues every crossed level', () => {
     const player = new Player(0, 0);
-    assert.deepEqual([1, 2, 3, 4].map(level => player.getLevelThreshold(level)), [100, 300, 600, 1000]);
+    assert.deepEqual([1, 2, 3, 4].map(level => player.getLevelThreshold(level)), [0, 100, 500, 1400]);
+    assert.deepEqual([1, 2, 3, 4, 10].map(level => player.getXPRequirement(level)), [100, 400, 900, 1600, 10000]);
     assert.equal(player.addXP(99), 0);
-    assert.equal(player.level, 0);
+    assert.equal(player.level, 1);
     assert.equal(player.addXP(1), 1);
-    assert.equal(player.addXP(500), 2);
+    assert.equal(player.addXP(500), 1);
     assert.equal(player.totalXP, 600);
     assert.equal(player.level, 3);
-    assert.equal(player.pendingLevelUps, 3);
+    assert.equal(player.pendingLevelUps, 2);
     assert.equal(player.score, 0);
     assert.equal(player.addXP(-1), 0);
     assert.equal(player.addXP(Number.NaN), 0);
@@ -79,9 +80,9 @@ test('new NPCs initialize at a target level with consistent XP and resolved upgr
         assert.equal(npc.level, targetLevel);
         assert.equal(npc.totalXP, npc.getLevelThreshold(targetLevel));
         assert.equal(npc.pendingLevelUps, 0);
-        assert.equal(npc.projectileUpgradeCount, Math.min(5, targetLevel));
-        assert.equal(npc.speedUpgradeCount, Math.min(10, Math.max(0, targetLevel - 5)));
-        assert.equal(npc.levelShieldUpgradeCount, Math.max(0, targetLevel - 15));
+        assert.equal(npc.projectileUpgradeCount, Math.min(5, targetLevel - 1));
+        assert.equal(npc.speedUpgradeCount, Math.min(10, Math.max(0, targetLevel - 6)));
+        assert.equal(npc.levelShieldUpgradeCount, Math.max(0, targetLevel - 16));
         assert.equal(npc.score, 0);
         assert.equal(npc.prestigeLevel, 0);
     }
@@ -188,7 +189,7 @@ test('level reset clears level bonuses while preserving non-level shield capacit
     player.resetLevelProgress();
 
     assert.equal(player.totalXP, 0);
-    assert.equal(player.level, 0);
+    assert.equal(player.level, 1);
     assert.equal(player.pendingLevelUps, 0);
     assert.equal(player.projectileUpgradeCount, 0);
     assert.equal(player.speedUpgradeCount, 0);
@@ -298,10 +299,11 @@ test('confirmed targets award authoritative XP once by target type', () => {
     }
 });
 
-test('confirmed ship death awards 100 XP once and shield absorption awards none', () => {
+test('confirmed NPC death awards level-scaled XP once and shield absorption awards none', () => {
     globalThis.window = globalThis.window || {};
     const killer = new Player(0, 0);
     const victim = new Player(0, 0, 2);
+    victim.isNPC = true;
     victim.spawnImmunityTimer = 0;
     const game = {
         players: [killer, victim],
@@ -324,6 +326,16 @@ test('confirmed ship death awards 100 XP once and shield absorption awards none'
     assert.equal(shielded.isDead, false);
 });
 
+test('NPC XP rewards use the defeated NPC level and reject humans or malformed levels', () => {
+    const game = {};
+    for (const [level, expected] of [[1, 100], [2, 200], [3, 300], [10, 1000]]) {
+        const npc = Object.assign(new Player(0, 0), { isNPC: true, level });
+        assert.equal(Game.prototype.getNPCXPReward.call(game, npc), expected);
+    }
+    assert.equal(Game.prototype.getNPCXPReward.call(game, Object.assign(new Player(0, 0), { level: 10 })), 0);
+    assert.equal(Game.prototype.getNPCXPReward.call(game, { isNPC: true, level: Number.NaN }), 0);
+});
+
 test('Hardcore resets victim level progress only after a confirmed unshielded death', () => {
     globalThis.window = globalThis.window || {};
     const makeGame = (players, hardcoreMode) => ({
@@ -343,7 +355,7 @@ test('Hardcore resets victim level progress only after a confirmed unshielded de
     hardcoreVictim.pendingLevelUps = 1;
     const hardcoreGame = makeGame([hardcoreVictim], true);
     for (let hit = 0; hit < 5; hit++) Game.prototype.playerDeath.call(hardcoreGame, hardcoreVictim);
-    assert.equal(hardcoreVictim.level, 0);
+    assert.equal(hardcoreVictim.level, 1);
     assert.equal(hardcoreVictim.totalXP, 0);
 
     const standardVictim = new Player(0, 0);

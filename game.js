@@ -1431,6 +1431,7 @@ export class Game {
     setupExperimentalPopulations() {
         const room = this.experimentalRooms[0];
         const placedPlayers = [];
+        this.players = this.players.filter(player => !player.isNPC);
         this.players.forEach(player => {
             const spawn = this.findExperimentalSpawn(player.radius, placedPlayers);
             player.x = spawn.x;
@@ -1438,6 +1439,26 @@ export class Game {
             player.roomId = room.id;
             placedPlayers.push(player);
         });
+        let nextNpcId = Math.max(1, ...this.players.map(player => player.id || 0)) + 1;
+        for (const npcRoom of this.experimentalRooms) {
+            for (let index = 0; index < npcRoom.npcCount; index++) {
+                const spawn = Game.prototype.findExperimentalSpawn.call(this, 25, placedPlayers, npcRoom.id);
+                const npc = new Player(spawn.x, spawn.y, nextNpcId++);
+                if (typeof this.configurePlayerShields === 'function') this.configurePlayerShields(npc);
+                npc.isNPC = true;
+                npc.name = `ROOM ${npcRoom.roomNumber} BOT ${index + 1}`;
+                npc.roomId = npcRoom.id;
+                if (this.botAggressionLevel > 0) {
+                    npc.aggressionLevel = this.botAggressionLevel;
+                    npc.rollAccuracy();
+                } else {
+                    npc.rollAggression();
+                }
+                npc.initializeNPCLevel(npcRoom.npcLevel);
+                this.players.push(npc);
+                placedPlayers.push(npc);
+            }
+        }
         this.asteroids = [];
         this.hazards = [];
         for (const populationRoom of this.experimentalRooms) {
@@ -1485,10 +1506,8 @@ export class Game {
     setupExperimentalMatch() {
         this.clearExperimentalState();
         this.initializeExperimentalRooms();
-        // Reuse the shared Solo player contract with the room's explicit 1v1
-        // composition; Experimental placement is applied immediately below.
-        const room = this.experimentalRooms[0];
-        this.spawnPlayers(GAME_MODE.SOLO, room.npcCount + 1);
+        // Reuse the shared Solo human contract; room-configured NPCs are added below.
+        this.spawnPlayers(GAME_MODE.SOLO, 2);
         this.gameState = GAME_MODE.EXPERIMENTAL;
         this.setupExperimentalPopulations();
     }
@@ -2512,8 +2531,14 @@ export class Game {
         if (!door || player.x < door.openingMin || player.x > door.openingMax) return player.roomId;
         const [room1Id, room2Id] = door.roomIds;
         const clearance = Math.max(0, player.radius || 0) + door.transitionTolerance;
-        if (player.roomId === room1Id && player.y > door.boundaryCoordinate + clearance) player.roomId = room2Id;
-        else if (player.roomId === room2Id && player.y < door.boundaryCoordinate - clearance) player.roomId = room1Id;
+        const previousRoomId = player.roomId;
+        if (previousRoomId === room1Id && player.y > door.boundaryCoordinate + clearance) player.roomId = room2Id;
+        else if (previousRoomId === room2Id && player.y < door.boundaryCoordinate - clearance) player.roomId = room1Id;
+        if (player.roomId !== previousRoomId
+            && Game.prototype.getExperimentalRoom.call(this, previousRoomId)
+            && Game.prototype.getExperimentalRoom.call(this, player.roomId)) {
+            player.clearExperimentalRoomCapsuleBonuses();
+        }
         return player.roomId;
     }
 
@@ -2826,7 +2851,7 @@ export class Game {
 
         // Award the confirmed kill before Hardcore clears the victim's progression.
         if (killer && killer !== player && typeof killer.addCapsule === 'function') {
-            this.awardXP(killer, 100);
+            if (player.isNPC) this.awardXP(killer, Game.prototype.getNPCXPReward.call(this, player));
             killer.addCapsule();
             killer.score = (killer.score || 0) + 1;
             killer.killStreak = (killer.killStreak || 0) + 1;
@@ -2880,6 +2905,11 @@ export class Game {
         const levelsGained = killer.addXP(amount);
         if (killer.isNPC) killer.resolveNPCLevelUps();
         return levelsGained;
+    }
+
+    getNPCXPReward(npc) {
+        if (!npc?.isNPC || !Number.isFinite(npc.level) || npc.level < 1) return 0;
+        return Math.floor(npc.level) * 100;
     }
 
     areExperimentalEntitiesCoLocated(first, second) {
