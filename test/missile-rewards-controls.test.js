@@ -115,13 +115,13 @@ test('controller face buttons dispatch distinct player intents on press edges', 
     player.powerUpCapsules = 1;
     player.pendingLevelUps = 3;
 
-    player.handleGamepadPowerUpIntents(pad(0));
+    player.handleGamepadPowerUpIntents(pad(2));
     assert.equal(player.powerUpCapsules, 0);
     assert.equal(player.pendingLevelUps, 3);
-    player.handleGamepadPowerUpIntents(pad(0));
+    player.handleGamepadPowerUpIntents(pad(2));
 
     player.handleGamepadPowerUpIntents(pad());
-    player.handleGamepadPowerUpIntents(pad(2));
+    player.handleGamepadPowerUpIntents(pad(0));
     assert.equal(player.projectileUpgradeCount, 1);
     player.handleGamepadPowerUpIntents(pad());
     player.handleGamepadPowerUpIntents(pad(3));

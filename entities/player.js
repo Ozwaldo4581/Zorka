@@ -125,6 +125,14 @@ export class Player {
         return 100 * completedLevel * safeLevel * (2 * safeLevel - 1) / 6;
     }
 
+    getXPProgressRatio() {
+        const levelStart = this.getLevelThreshold(this.level);
+        const levelEnd = this.getLevelThreshold(this.level + 1);
+        const required = levelEnd - levelStart;
+        if (required <= 0) return 0;
+        return Math.max(0, Math.min(1, (this.totalXP - levelStart) / required));
+    }
+
     addXP(amount) {
         if (!Number.isFinite(amount) || amount <= 0) return 0;
         this.totalXP += amount;
@@ -283,8 +291,8 @@ export class Player {
         const justPressed = pressed.map((value, index) => value && !this.faceButtonState[index]);
         this.faceButtonState = pressed;
 
-        if (justPressed[0]) this.consumeCapsules();
-        if (justPressed[2]) this.useProjectileLevelPowerUp();
+        if (justPressed[0]) this.useProjectileLevelPowerUp();
+        if (justPressed[2]) this.consumeCapsules();
         if (justPressed[3]) this.useSpeedLevelPowerUp();
         if (justPressed[1]) this.useGeneralLevelPowerUp();
     }

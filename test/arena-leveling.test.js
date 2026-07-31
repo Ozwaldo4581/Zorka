@@ -219,8 +219,8 @@ test('Arcade forces Hardcore without changing the configured option', () => {
     assert.equal(Game.prototype.isHardcoreActive.call(game), false);
 });
 
-test('only Arcade disables transformations', () => {
-    for (const [gameState, expected] of [['ARCADE', false], ['SOLO', true], ['PVP', true]]) {
+test('Arcade and Experimental disable transformations', () => {
+    for (const [gameState, expected] of [['ARCADE', false], ['EXPERIMENTAL', false], ['SOLO', true], ['PVP', true]]) {
         assert.equal(Game.prototype.areTransformationsEnabled.call({ gameState }), expected);
     }
 });
