@@ -134,6 +134,14 @@ export class Player {
         return Math.max(0, Math.min(1, (this.totalXP - levelStart) / required));
     }
 
+    getXPProgressRatio() {
+        const levelStart = this.getLevelThreshold(this.level);
+        const levelEnd = this.getLevelThreshold(this.level + 1);
+        const required = levelEnd - levelStart;
+        if (required <= 0) return 0;
+        return Math.max(0, Math.min(1, (this.totalXP - levelStart) / required));
+    }
+
     addXP(amount) {
         if (!Number.isFinite(amount) || amount <= 0) return 0;
         this.totalXP += amount;
