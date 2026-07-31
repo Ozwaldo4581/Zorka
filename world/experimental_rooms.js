@@ -4,24 +4,23 @@ export const EXPERIMENTAL_WALL_SEPARATION_EPSILON = 0.5;
 export const EXPERIMENTAL_WALL_MAX_CORRECTION_PASSES = 4;
 
 const SPAWN_INSET = 120;
-const DOOR_WIDTH = 960;
+export const EXPERIMENTAL_ENTRANCE_WIDTH = 960;
+// At zoom 0.6 the 1920-wide viewport spans 3200 world units. The extra 800
+// units ensure that rooms separated along either axis cannot share a viewport.
+export const EXPERIMENTAL_HALLWAY_LENGTH = 4000;
+// A 960-unit entrance plus 240 units of wall shoulder on either side gives
+// transformed human ships ample room to turn and slide without widening doors.
+export const EXPERIMENTAL_HALLWAY_WIDTH = 1440;
 const DOOR_TRANSITION_TOLERANCE = 16;
 const FULL_ARENA_POPULATION = Object.freeze({
     densitySource: 'ARENA_OPTIONS', scale: 'FULL_ARENA', independentlyResolved: true
 });
 
-export const EXPERIMENTAL_AREA_TYPE = Object.freeze({
-    ROOM: 'ROOM',
-    HALLWAY: 'HALLWAY'
-});
+export const EXPERIMENTAL_AREA_TYPE = Object.freeze({ ROOM: 'ROOM', HALLWAY: 'HALLWAY' });
 
-const ROOM_LAYOUT = Object.freeze([
-    [1, 0, 0], [2, 0, 1], [3, -1, 1], [4, -1, 0], [5, -1, -1],
-    [6, 0, -1], [7, 1, -1], [8, 1, 0], [9, 1, 1]
-]);
-
-const DOOR_CONNECTIONS = Object.freeze([
-    [1, 2], [2, 3], [3, 4], [4, 5], [5, 6], [6, 7], [7, 8], [8, 9]
+const ROUTE = Object.freeze([
+    [1, 2, 'DOWN'], [2, 3, 'LEFT'], [3, 4, 'UP'], [4, 5, 'UP'],
+    [5, 6, 'RIGHT'], [6, 7, 'RIGHT'], [7, 8, 'DOWN'], [8, 9, 'DOWN']
 ]);
 
 export function createExperimentalRoomProgression(roomNumber) {
@@ -30,39 +29,18 @@ export function createExperimentalRoomProgression(roomNumber) {
 }
 
 export function createExperimentalArea({
-    id,
-    areaType,
-    roomNumber,
-    bounds,
-    walls = [],
-    entrances = [],
-    connectedAreaIds = [],
-    population = null,
-    ...properties
+    id, areaType, roomNumber, bounds, walls = [], entrances = [], connectedAreaIds = [], population = null, ...properties
 }) {
     if (!id || !bounds) throw new Error('Experimental areas require a unique ID and bounds.');
-    if (!Object.values(EXPERIMENTAL_AREA_TYPE).includes(areaType)) {
-        throw new Error(`Unsupported Experimental area type: ${areaType}`);
-    }
-
+    if (!Object.values(EXPERIMENTAL_AREA_TYPE).includes(areaType)) throw new Error(`Unsupported Experimental area type: ${areaType}`);
     const normalizedRoomNumber = Math.floor(Number(roomNumber));
-    if (areaType === EXPERIMENTAL_AREA_TYPE.HALLWAY && normalizedRoomNumber !== 0) {
-        throw new Error('Experimental hallways must use room number 0.');
-    }
-    if (areaType === EXPERIMENTAL_AREA_TYPE.ROOM && normalizedRoomNumber <= 0) {
-        throw new Error('Experimental combat rooms require a positive room number.');
-    }
-
+    if (areaType === EXPERIMENTAL_AREA_TYPE.HALLWAY && normalizedRoomNumber !== 0) throw new Error('Experimental hallways must use room number 0.');
+    if (areaType === EXPERIMENTAL_AREA_TYPE.ROOM && normalizedRoomNumber <= 0) throw new Error('Experimental combat rooms require a positive room number.');
     return Object.freeze({
-        ...properties,
-        id,
-        areaType,
-        roomNumber: normalizedRoomNumber,
+        ...properties, id, areaType, roomNumber: normalizedRoomNumber,
         isPopulationEligible: areaType === EXPERIMENTAL_AREA_TYPE.ROOM,
-        bounds: Object.freeze({ ...bounds }),
-        walls: Object.freeze([...walls]),
-        entrances: Object.freeze([...entrances]),
-        connectedAreaIds: Object.freeze([...connectedAreaIds]),
+        bounds: Object.freeze({ ...bounds }), walls: Object.freeze([...walls]),
+        entrances: Object.freeze([...entrances]), connectedAreaIds: Object.freeze([...connectedAreaIds]),
         population: areaType === EXPERIMENTAL_AREA_TYPE.ROOM ? population : null
     });
 }
@@ -75,101 +53,151 @@ export const EXPERIMENTAL_COLLISION_CATEGORY = Object.freeze({
 });
 
 const point = (x, y) => Object.freeze({ x, y });
+const boundsAt = (left, top, width, height) => Object.freeze({ left, top, right: left + width, bottom: top + height });
 const wall = (id, x1, y1, x2, y2) => Object.freeze({ id, start: point(x1, y1), end: point(x2, y2) });
+
+function nextRoomOrigin(source, direction, worldWidth, worldHeight) {
+    if (direction === 'DOWN') return { left: source.left, top: source.top + worldHeight + EXPERIMENTAL_HALLWAY_LENGTH };
+    if (direction === 'UP') return { left: source.left, top: source.top - worldHeight - EXPERIMENTAL_HALLWAY_LENGTH };
+    if (direction === 'LEFT') return { left: source.left - worldWidth - EXPERIMENTAL_HALLWAY_LENGTH, top: source.top };
+    return { left: source.left + worldWidth + EXPERIMENTAL_HALLWAY_LENGTH, top: source.top };
+}
+
+function hallwayBounds(source, direction) {
+    const centerX = (source.left + source.right) / 2;
+    const centerY = (source.top + source.bottom) / 2;
+    if (direction === 'DOWN') return boundsAt(centerX - EXPERIMENTAL_HALLWAY_WIDTH / 2, source.bottom, EXPERIMENTAL_HALLWAY_WIDTH, EXPERIMENTAL_HALLWAY_LENGTH);
+    if (direction === 'UP') return boundsAt(centerX - EXPERIMENTAL_HALLWAY_WIDTH / 2, source.top - EXPERIMENTAL_HALLWAY_LENGTH, EXPERIMENTAL_HALLWAY_WIDTH, EXPERIMENTAL_HALLWAY_LENGTH);
+    if (direction === 'LEFT') return boundsAt(source.left - EXPERIMENTAL_HALLWAY_LENGTH, centerY - EXPERIMENTAL_HALLWAY_WIDTH / 2, EXPERIMENTAL_HALLWAY_LENGTH, EXPERIMENTAL_HALLWAY_WIDTH);
+    return boundsAt(source.right, centerY - EXPERIMENTAL_HALLWAY_WIDTH / 2, EXPERIMENTAL_HALLWAY_LENGTH, EXPERIMENTAL_HALLWAY_WIDTH);
+}
 
 function connectionGeometry(first, second) {
     if (first.bounds.bottom === second.bounds.top || second.bounds.bottom === first.bounds.top) {
-        const boundary = first.bounds.bottom === second.bounds.top ? first.bounds.bottom : second.bounds.bottom;
-        const overlapMin = Math.max(first.bounds.left, second.bounds.left);
-        const overlapMax = Math.min(first.bounds.right, second.bounds.right);
-        return { orientation: 'HORIZONTAL', boundaryCoordinate: boundary, openingCenter: (overlapMin + overlapMax) / 2 };
+        const boundaryCoordinate = first.bounds.bottom === second.bounds.top ? first.bounds.bottom : second.bounds.bottom;
+        return { orientation: 'HORIZONTAL', boundaryCoordinate, openingCenter: (Math.max(first.bounds.left, second.bounds.left) + Math.min(first.bounds.right, second.bounds.right)) / 2 };
     }
-    const boundary = first.bounds.right === second.bounds.left ? first.bounds.right : second.bounds.right;
-    const overlapMin = Math.max(first.bounds.top, second.bounds.top);
-    const overlapMax = Math.min(first.bounds.bottom, second.bounds.bottom);
-    return { orientation: 'VERTICAL', boundaryCoordinate: boundary, openingCenter: (overlapMin + overlapMax) / 2 };
+    if (first.bounds.right === second.bounds.left || second.bounds.right === first.bounds.left) {
+        const boundaryCoordinate = first.bounds.right === second.bounds.left ? first.bounds.right : second.bounds.right;
+        return { orientation: 'VERTICAL', boundaryCoordinate, openingCenter: (Math.max(first.bounds.top, second.bounds.top) + Math.min(first.bounds.bottom, second.bounds.bottom)) / 2 };
+    }
+    throw new Error(`Experimental areas ${first.id} and ${second.id} are not physically adjacent.`);
 }
 
-export function createExperimentalRooms(worldWidth, worldHeight) {
-    const roomShells = ROOM_LAYOUT.map(([roomNumber, gridX, gridY]) => {
-        const left = gridX * worldWidth;
-        const top = gridY * worldHeight;
-        return {
-            ...createExperimentalRoomProgression(roomNumber), id: `experimental-room-${roomNumber}`,
-            origin: point(left, top), width: worldWidth, height: worldHeight,
-            bounds: Object.freeze({ left, top, right: left + worldWidth, bottom: top + worldHeight })
-        };
-    });
-    const byNumber = new Map(roomShells.map(room => [room.roomNumber, room]));
-    const connections = DOOR_CONNECTIONS.map(([a, b]) => ({ a, b, ...connectionGeometry(byNumber.get(a), byNumber.get(b)) }));
-
-    return roomShells.map(room => {
-        const b = room.bounds;
-        const sides = [
-            ['top', b.left, b.top, b.right, b.top, 'HORIZONTAL', b.top],
-            ['right', b.right, b.top, b.right, b.bottom, 'VERTICAL', b.right],
-            ['bottom', b.right, b.bottom, b.left, b.bottom, 'HORIZONTAL', b.bottom],
-            ['left', b.left, b.bottom, b.left, b.top, 'VERTICAL', b.left]
-        ];
-        const walls = [];
-        for (const [side, x1, y1, x2, y2, orientation, boundary] of sides) {
-            const connection = connections.find(candidate => candidate.orientation === orientation
-                && candidate.boundaryCoordinate === boundary && (candidate.a === room.roomNumber || candidate.b === room.roomNumber));
-            if (!connection) {
-                walls.push(wall(`room-${room.roomNumber}-wall-${side}`, x1, y1, x2, y2));
-                continue;
-            }
-            // The first room in the path owns shared-wall geometry; both rooms query it through the door metadata.
-            if (connection.a !== room.roomNumber) continue;
-            const min = connection.openingCenter - DOOR_WIDTH / 2;
-            const max = connection.openingCenter + DOOR_WIDTH / 2;
-            if (orientation === 'HORIZONTAL') {
-                walls.push(wall(`room-${room.roomNumber}-wall-${side}-right`, Math.max(x1, x2), boundary, max, boundary));
-                walls.push(wall(`room-${room.roomNumber}-wall-${side}-left`, min, boundary, Math.min(x1, x2), boundary));
-            } else {
-                walls.push(wall(`room-${room.roomNumber}-wall-${side}-bottom`, boundary, Math.max(y1, y2), boundary, max));
-                walls.push(wall(`room-${room.roomNumber}-wall-${side}-top`, boundary, min, boundary, Math.min(y1, y2)));
-            }
+function buildWalls(shell, entranceShells) {
+    const b = shell.bounds;
+    const sides = [
+        ['top', b.left, b.top, b.right, b.top, 'HORIZONTAL', b.top],
+        ['right', b.right, b.top, b.right, b.bottom, 'VERTICAL', b.right],
+        ['bottom', b.right, b.bottom, b.left, b.bottom, 'HORIZONTAL', b.bottom],
+        ['left', b.left, b.bottom, b.left, b.top, 'VERTICAL', b.left]
+    ];
+    const walls = [];
+    for (const [side, x1, y1, x2, y2, orientation, boundary] of sides) {
+        const entrance = entranceShells.find(candidate => candidate.orientation === orientation && candidate.boundaryCoordinate === boundary);
+        if (!entrance) {
+            walls.push(wall(`${shell.id}-wall-${side}`, x1, y1, x2, y2));
+            continue;
         }
+        const min = entrance.openingCenter - EXPERIMENTAL_ENTRANCE_WIDTH / 2;
+        const max = entrance.openingCenter + EXPERIMENTAL_ENTRANCE_WIDTH / 2;
+        if (orientation === 'HORIZONTAL') {
+            walls.push(wall(`${shell.id}-wall-${side}-right`, Math.max(x1, x2), boundary, max, boundary));
+            walls.push(wall(`${shell.id}-wall-${side}-left`, min, boundary, Math.min(x1, x2), boundary));
+        } else {
+            walls.push(wall(`${shell.id}-wall-${side}-bottom`, boundary, Math.max(y1, y2), boundary, max));
+            walls.push(wall(`${shell.id}-wall-${side}-top`, boundary, min, boundary, Math.min(y1, y2)));
+        }
+    }
+    return walls;
+}
+
+export function createExperimentalAreas(worldWidth, worldHeight) {
+    const roomOrigins = new Map([[1, { left: 0, top: 0 }]]);
+    for (const [from, to, direction] of ROUTE) {
+        const source = roomOrigins.get(from);
+        roomOrigins.set(to, nextRoomOrigin(source, direction, worldWidth, worldHeight));
+    }
+    const shells = [];
+    for (let roomNumber = 1; roomNumber <= 9; roomNumber++) {
+        const origin = roomOrigins.get(roomNumber);
+        shells.push({
+            ...createExperimentalRoomProgression(roomNumber), id: `experimental-room-${roomNumber}`,
+            areaType: EXPERIMENTAL_AREA_TYPE.ROOM, origin: point(origin.left, origin.top),
+            width: worldWidth, height: worldHeight, bounds: boundsAt(origin.left, origin.top, worldWidth, worldHeight),
+            population: FULL_ARENA_POPULATION, npcAggressionSource: 'ARENA_OPTIONS'
+        });
+    }
+    const byId = new Map(shells.map(area => [area.id, area]));
+    for (const [from, to, direction] of ROUTE) {
+        const id = `experimental-hallway-${from}-${to}`;
+        shells.push({
+            id, areaType: EXPERIMENTAL_AREA_TYPE.HALLWAY, roomNumber: 0,
+            width: ['LEFT', 'RIGHT'].includes(direction) ? EXPERIMENTAL_HALLWAY_LENGTH : EXPERIMENTAL_HALLWAY_WIDTH,
+            height: ['UP', 'DOWN'].includes(direction) ? EXPERIMENTAL_HALLWAY_LENGTH : EXPERIMENTAL_HALLWAY_WIDTH,
+            bounds: hallwayBounds(byId.get(`experimental-room-${from}`).bounds, direction),
+            connectedAreaIds: [`experimental-room-${from}`, `experimental-room-${to}`]
+        });
+        byId.set(id, shells.at(-1));
+    }
+    const connections = ROUTE.flatMap(([from, to]) => {
+        const hallway = byId.get(`experimental-hallway-${from}-${to}`);
+        return [[byId.get(`experimental-room-${from}`), hallway], [hallway, byId.get(`experimental-room-${to}`)]];
+    }).map(([first, second]) => ({ first, second, ...connectionGeometry(first, second) }));
+
+    return shells.map(shell => {
+        const areaConnections = connections.filter(connection => connection.first.id === shell.id || connection.second.id === shell.id);
+        const connectedAreaIds = areaConnections.map(connection => connection.first.id === shell.id ? connection.second.id : connection.first.id);
+        const walls = buildWalls(shell, areaConnections);
+        const b = shell.bounds;
         return createExperimentalArea({
-            ...room,
-            areaType: EXPERIMENTAL_AREA_TYPE.ROOM,
-            walls,
+            ...shell, walls, connectedAreaIds,
+            entrances: areaConnections.map(connection => `experimental-entrance-${connection.first.id}-${connection.second.id}`),
             wallCollisionThickness: EXPERIMENTAL_WALL_COLLISION_THICKNESS,
             wallVisualCoreThickness: EXPERIMENTAL_WALL_VISUAL_CORE_THICKNESS,
             collisionEpsilon: EXPERIMENTAL_WALL_SEPARATION_EPSILON,
             maxCorrectionPasses: EXPERIMENTAL_WALL_MAX_CORRECTION_PASSES,
-            spawnRegion: Object.freeze({ left: b.left + SPAWN_INSET, top: b.top + SPAWN_INSET, right: b.right - SPAWN_INSET, bottom: b.bottom - SPAWN_INSET }),
-            population: FULL_ARENA_POPULATION, npcAggressionSource: 'ARENA_OPTIONS'
+            spawnRegion: shell.areaType === EXPERIMENTAL_AREA_TYPE.ROOM
+                ? Object.freeze({ left: b.left + SPAWN_INSET, top: b.top + SPAWN_INSET, right: b.right - SPAWN_INSET, bottom: b.bottom - SPAWN_INSET }) : null
         });
     });
 }
 
-export function createExperimentalDoors(rooms) {
-    const byNumber = new Map(rooms.map(room => [room.roomNumber, room]));
-    const blockedCategories = Object.freeze(Object.values(EXPERIMENTAL_COLLISION_CATEGORY)
-        .filter(category => category !== EXPERIMENTAL_COLLISION_CATEGORY.HUMAN_PLAYER));
-    return DOOR_CONNECTIONS.flatMap(([a, b]) => {
-        const first = byNumber.get(a);
-        const second = byNumber.get(b);
-        if (!first || !second) return [];
-        const geometry = connectionGeometry(first, second);
-        const openingMin = geometry.openingCenter - DOOR_WIDTH / 2;
-        const openingMax = geometry.openingCenter + DOOR_WIDTH / 2;
+export function createExperimentalRooms(worldWidth, worldHeight) {
+    return createExperimentalAreas(worldWidth, worldHeight).filter(area => area.areaType === EXPERIMENTAL_AREA_TYPE.ROOM);
+}
+
+export function createExperimentalHallways(worldWidth, worldHeight) {
+    return createExperimentalAreas(worldWidth, worldHeight).filter(area => area.areaType === EXPERIMENTAL_AREA_TYPE.HALLWAY);
+}
+
+export function createExperimentalDoors(areas) {
+    const byId = new Map(areas.map(area => [area.id, area]));
+    const blockedCategories = Object.freeze(Object.values(EXPERIMENTAL_COLLISION_CATEGORY).filter(category => category !== EXPERIMENTAL_COLLISION_CATEGORY.HUMAN_PLAYER));
+    const seen = new Set();
+    const doors = [];
+    for (const area of areas) for (const connectedId of area.connectedAreaIds || []) {
+        const pairKey = [area.id, connectedId].sort().join('|');
+        if (seen.has(pairKey)) continue;
+        seen.add(pairKey);
+        const connected = byId.get(connectedId);
+        if (!connected) continue;
+        const geometry = connectionGeometry(area, connected);
+        const openingMin = geometry.openingCenter - EXPERIMENTAL_ENTRANCE_WIDTH / 2;
+        const openingMax = geometry.openingCenter + EXPERIMENTAL_ENTRANCE_WIDTH / 2;
         const horizontal = geometry.orientation === 'HORIZONTAL';
-        const sharedWallIds = first.walls.filter(candidate => horizontal
-            ? candidate.start.y === geometry.boundaryCoordinate && candidate.end.y === geometry.boundaryCoordinate
-            : candidate.start.x === geometry.boundaryCoordinate && candidate.end.x === geometry.boundaryCoordinate).map(candidate => candidate.id);
-        return [Object.freeze({
-            id: `experimental-door-${a}-${b}`, roomIds: Object.freeze([first.id, second.id]),
-            ...geometry, openingMin, openingMax, openingWidth: DOOR_WIDTH,
-            transitionTolerance: DOOR_TRANSITION_TOLERANCE, sharedWallIds: Object.freeze(sharedWallIds),
+        const id = `experimental-entrance-${area.id}-${connected.id}`;
+        doors.push(Object.freeze({
+            id, roomIds: Object.freeze([area.id, connected.id]), ...geometry,
+            openingMin, openingMax, openingWidth: EXPERIMENTAL_ENTRANCE_WIDTH,
+            transitionTolerance: DOOR_TRANSITION_TOLERANCE, sharedWallIds: Object.freeze([]),
             blocker: Object.freeze({
-                id: `experimental-door-${a}-${b}-blocker`, isDoorBlocker: true, isTwoSided: true,
+                id: `${id}-blocker`, isDoorBlocker: true, isTwoSided: true,
                 start: horizontal ? point(openingMin, geometry.boundaryCoordinate) : point(geometry.boundaryCoordinate, openingMin),
                 end: horizontal ? point(openingMax, geometry.boundaryCoordinate) : point(geometry.boundaryCoordinate, openingMax)
             }),
             allowedCategories: Object.freeze([EXPERIMENTAL_COLLISION_CATEGORY.HUMAN_PLAYER]), blockedCategories
-        })];
-    });
+        }));
+    }
+    return doors;
 }

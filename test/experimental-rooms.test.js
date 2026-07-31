@@ -7,10 +7,15 @@ import { SpaceDebris, Satellite } from '../entities/hazards.js';
 import { isPointInRoom } from '../physics.js';
 import {
     createExperimentalArea,
+    createExperimentalAreas,
     createExperimentalDoors,
+    createExperimentalHallways,
     createExperimentalRoomProgression,
     createExperimentalRooms,
     EXPERIMENTAL_AREA_TYPE,
+    EXPERIMENTAL_ENTRANCE_WIDTH,
+    EXPERIMENTAL_HALLWAY_LENGTH,
+    EXPERIMENTAL_HALLWAY_WIDTH,
     EXPERIMENTAL_WALL_COLLISION_THICKNESS,
     EXPERIMENTAL_WALL_MAX_CORRECTION_PASSES,
     EXPERIMENTAL_WALL_SEPARATION_EPSILON,
@@ -83,40 +88,37 @@ test('Experimental room 1 preserves wall dimensions and a 120-unit safe-spawn in
     assert.equal(room.npcCount, 1);
 });
 
-test('Experimental room 2 is equal-sized, directly below room 1, and reuses its shared boundary', () => {
+test('Experimental room 2 is equal-sized and physically separated from room 1 by hallway 1-2', () => {
     const [room1, room2] = createExperimentalRooms(WORLD_WIDTH, WORLD_HEIGHT);
+    const [hallway] = createExperimentalHallways(WORLD_WIDTH, WORLD_HEIGHT);
 
     assert.equal(room2.id, 'experimental-room-2');
-    assert.deepEqual(room2.origin, { x: 0, y: 9720 });
+    assert.deepEqual(room2.origin, { x: 0, y: 13720 });
     assert.equal(room2.width, room1.width);
     assert.equal(room2.height, room1.height);
-    assert.equal(room2.bounds.top, room1.bounds.bottom);
-    assert.deepEqual(room2.bounds, { left: 0, top: 9720, right: 17280, bottom: 19440 });
-    assert.deepEqual(room2.spawnRegion, { left: 120, top: 9840, right: 17160, bottom: 19320 });
+    assert.deepEqual(hallway.bounds, { left: 7920, top: 9720, right: 9360, bottom: 13720 });
+    assert.equal(hallway.bounds.top, room1.bounds.bottom);
+    assert.equal(hallway.bounds.bottom, room2.bounds.top);
+    assert.deepEqual(room2.bounds, { left: 0, top: 13720, right: 17280, bottom: 23440 });
+    assert.deepEqual(room2.spawnRegion, { left: 120, top: 13840, right: 17160, bottom: 23320 });
     assert.equal(room2.npcCount, 2);
     assert.equal(room2.npcLevel, 2);
-    assert.deepEqual(room2.walls.map(wall => wall.id), [
-        'room-2-wall-right', 'room-2-wall-bottom',
-        'room-2-wall-left-bottom', 'room-2-wall-left-top'
-    ]);
-    assert.equal(room2.walls.some(wall => wall.start.y === room1.bounds.bottom && wall.end.y === room1.bounds.bottom), false);
-    assert.equal(room1.walls.filter(wall => wall.start.y === room1.bounds.bottom && wall.end.y === room1.bounds.bottom).length, 2);
+    assert.equal(hallway.roomNumber, 0);
+    assert.equal(hallway.population, null);
 });
 
-test('the centered doorway owns one invisible blocker and exact shared-wall opening metadata', () => {
-    const rooms = createExperimentalRooms(WORLD_WIDTH, WORLD_HEIGHT);
-    const [door] = createExperimentalDoors(rooms);
-    const sharedWalls = rooms[0].walls.filter(wall => wall.start.y === WORLD_HEIGHT && wall.end.y === WORLD_HEIGHT);
+test('room-to-hallway entrances own invisible blockers and aligned opening metadata', () => {
+    const areas = createExperimentalAreas(WORLD_WIDTH, WORLD_HEIGHT);
+    const [door] = createExperimentalDoors(areas);
 
-    assert.equal(door.id, 'experimental-door-1-2');
-    assert.deepEqual(door.roomIds, ['experimental-room-1', 'experimental-room-2']);
+    assert.equal(door.id, 'experimental-entrance-experimental-room-1-experimental-hallway-1-2');
+    assert.deepEqual(door.roomIds, ['experimental-room-1', 'experimental-hallway-1-2']);
     assert.equal(door.orientation, 'HORIZONTAL');
     assert.equal(door.boundaryCoordinate, 9720);
     assert.deepEqual(
         { min: door.openingMin, max: door.openingMax, center: door.openingCenter, width: door.openingWidth },
         { min: 8160, max: 9120, center: 8640, width: 960 }
     );
-    assert.deepEqual(sharedWalls.map(wall => [wall.start.x, wall.end.x]), [[17280, 9120], [8160, 0]]);
     assert.deepEqual([door.blocker.start, door.blocker.end], [{ x: 8160, y: 9720 }, { x: 9120, y: 9720 }]);
     assert.equal(door.allowedCategories.includes('human-player'), true);
     assert.equal(door.blockedCategories.includes('ordinary-projectile'), true);
@@ -125,8 +127,8 @@ test('the centered doorway owns one invisible blocker and exact shared-wall open
 test('nine-room layout uses exact continuous coordinates, progression, safe spawns, and chain-only adjacency', () => {
     const rooms = createExperimentalRooms(WORLD_WIDTH, WORLD_HEIGHT);
     const expectedOrigins = [
-        [0, 0], [0, 9720], [-17280, 9720], [-17280, 0], [-17280, -9720],
-        [0, -9720], [17280, -9720], [17280, 0], [17280, 9720]
+        [0, 0], [0, 13720], [-21280, 13720], [-21280, 0], [-21280, -13720],
+        [0, -13720], [21280, -13720], [21280, 0], [21280, 13720]
     ];
     assert.equal(rooms.length, 9);
     rooms.forEach((room, index) => {
@@ -140,30 +142,55 @@ test('nine-room layout uses exact continuous coordinates, progression, safe spaw
         assert.deepEqual([room.width, room.height, room.npcCount, room.npcLevel], [17280, 9720, number, number]);
     });
 
-    const doors = createExperimentalDoors(rooms);
-    assert.equal(doors.length, 8);
-    assert.deepEqual(doors.map(door => door.roomIds), Array.from({ length: 8 }, (_, index) => [
-        `experimental-room-${index + 1}`, `experimental-room-${index + 2}`
-    ]));
+    assert.equal(createExperimentalHallways(WORLD_WIDTH, WORLD_HEIGHT).length, 8);
 });
 
-test('all horizontal and vertical doors are centered, split their one authoritative wall, and stay invisible', () => {
-    const rooms = createExperimentalRooms(WORLD_WIDTH, WORLD_HEIGHT);
-    const doors = createExperimentalDoors(rooms);
-    const expected = [
-        ['HORIZONTAL', 9720, 8160, 9120], ['VERTICAL', 0, 14100, 15060],
-        ['HORIZONTAL', 9720, -9120, -8160], ['HORIZONTAL', 0, -9120, -8160],
-        ['VERTICAL', 0, -5340, -4380], ['VERTICAL', 17280, -5340, -4380],
-        ['HORIZONTAL', 0, 25440, 26400], ['HORIZONTAL', 9720, 25440, 26400]
-    ];
-    doors.forEach((door, index) => {
-        assert.deepEqual([door.orientation, door.boundaryCoordinate, door.openingMin, door.openingMax], expected[index]);
-        assert.equal(door.sharedWallIds.length, 2);
+test('eight long Room 0 hallways have sixteen aligned entrances and no area overlaps', () => {
+    const areas = createExperimentalAreas(WORLD_WIDTH, WORLD_HEIGHT);
+    const hallways = areas.filter(area => area.areaType === EXPERIMENTAL_AREA_TYPE.HALLWAY);
+    const doors = createExperimentalDoors(areas);
+    assert.equal(hallways.length, 8);
+    assert.equal(new Set(hallways.map(area => area.id)).size, 8);
+    for (const hallway of hallways) {
+        assert.equal(hallway.roomNumber, 0);
+        assert.equal(hallway.isPopulationEligible, false);
+        assert.ok([hallway.width, hallway.height].includes(EXPERIMENTAL_HALLWAY_LENGTH));
+        assert.ok([hallway.width, hallway.height].includes(EXPERIMENTAL_HALLWAY_WIDTH));
+        assert.equal(hallway.connectedAreaIds.length, 2);
+    }
+    assert.equal(doors.length, 16);
+    doors.forEach(door => {
+        assert.equal(door.openingWidth, EXPERIMENTAL_ENTRANCE_WIDTH);
         assert.equal(door.blocker.isDoorBlocker, true);
         assert.equal('render' in door.blocker, false);
         assert.deepEqual(door.allowedCategories, ['human-player']);
         assert.equal(door.blockedCategories.length, 11);
     });
+    for (let firstIndex = 0; firstIndex < areas.length; firstIndex++) {
+        for (let secondIndex = firstIndex + 1; secondIndex < areas.length; secondIndex++) {
+            const first = areas[firstIndex].bounds;
+            const second = areas[secondIndex].bounds;
+            const overlapWidth = Math.min(first.right, second.right) - Math.max(first.left, second.left);
+            const overlapHeight = Math.min(first.bottom, second.bottom) - Math.max(first.top, second.top);
+            assert.equal(overlapWidth > 0 && overlapHeight > 0, false, `${areas[firstIndex].id} overlaps ${areas[secondIndex].id}`);
+        }
+    }
+});
+
+test('each hallway gap exceeds the maximum camera span along its travel axis', () => {
+    const areas = createExperimentalAreas(WORLD_WIDTH, WORLD_HEIGHT);
+    const byId = new Map(areas.map(area => [area.id, area]));
+    const maximumVisibleWidth = 1920 / 0.6;
+    const maximumVisibleHeight = 1080 / 0.6;
+    for (const hallway of areas.filter(area => area.roomNumber === 0)) {
+        const [first, second] = hallway.connectedAreaIds.map(id => byId.get(id));
+        const horizontal = hallway.width === EXPERIMENTAL_HALLWAY_LENGTH;
+        const gap = horizontal
+            ? Math.max(first.bounds.left, second.bounds.left) - Math.min(first.bounds.right, second.bounds.right)
+            : Math.max(first.bounds.top, second.bounds.top) - Math.min(first.bounds.bottom, second.bounds.bottom);
+        assert.equal(gap, EXPERIMENTAL_HALLWAY_LENGTH);
+        assert.ok(gap > (horizontal ? maximumVisibleWidth : maximumVisibleHeight), hallway.id);
+    }
 });
 
 test('Experimental and standard setup share one density resolver for every option level', () => {
@@ -268,10 +295,11 @@ test('only the Experimental initialization seam adds room definitions', () => {
 
     assert.deepEqual(game.experimentalRooms, []);
     Game.prototype.initializeExperimentalRooms.call(game);
-    assert.deepEqual(game.experimentalRooms.map(room => room.id), Array.from({ length: 9 }, (_, index) => `experimental-room-${index + 1}`));
-    assert.deepEqual(game.experimentalDoors.map(door => door.id), Array.from({ length: 8 }, (_, index) => `experimental-door-${index + 1}-${index + 2}`));
+    assert.equal(game.experimentalRooms.length, 17);
+    assert.equal(game.experimentalDoors.length, 16);
     for (const room of game.experimentalRooms) {
-        assert.deepEqual(game.experimentalRoomPopulations.get(room.id)?.desired, { asteroids: 160, debris: 10, satellites: 9 });
+        if (room.isPopulationEligible) assert.deepEqual(game.experimentalRoomPopulations.get(room.id)?.desired, { asteroids: 160, debris: 10, satellites: 9 });
+        else assert.equal(game.experimentalRoomPopulations.has(room.id), false);
     }
     Game.prototype.clearExperimentalState.call(game);
     assert.deepEqual(game.experimentalRooms, []);
