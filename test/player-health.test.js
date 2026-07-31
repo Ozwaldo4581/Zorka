@@ -35,11 +35,11 @@ test('level gains grant only the newly earned current and maximum HP', () => {
     player.currentHP = 2;
     player.hpRechargeTimer = 12;
     assert.equal(player.addXP(500), 2);
-    assert.deepEqual([player.level, player.currentHP, player.maxHP], [3, 4, 7]);
+    assert.deepEqual([player.level, player.currentHP, player.maxHP], [2, 4, 7]);
     assert.equal(player.hpRechargeTimer, 12);
 
     player.resetLevelProgress();
-    assert.deepEqual([player.level, player.currentHP, player.maxHP, player.hpRechargeTimer], [1, 5, 5, 0]);
+    assert.deepEqual([player.level, player.currentHP, player.maxHP, player.hpRechargeTimer], [0, 5, 5, 0]);
 });
 
 test('Game resolves immunity, shields, HP, death, and respawn in order', () => {

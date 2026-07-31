@@ -90,7 +90,7 @@ export class Player {
         // Arena-local progression. Score remains the independent evolution currency.
         this.totalXP = 0;
         this.totalCapsulesGained = 0;
-        this.level = 1;
+        this.level = 0;
         this.pendingLevelUps = 0;
         this.projectileUpgradeCount = 0;
         this.speedUpgradeCount = 0;
@@ -120,9 +120,18 @@ export class Player {
     }
 
     getLevelThreshold(level) {
-        const safeLevel = Math.max(1, Math.floor(Number(level) || 1));
-        const completedLevel = safeLevel - 1;
-        return 100 * completedLevel * safeLevel * (2 * safeLevel - 1) / 6;
+        const safeLevel = Math.max(0, Math.floor(Number(level) || 0));
+        if (safeLevel === 0) return 0;
+        const completedPositiveLevel = safeLevel - 1;
+        return 100 + 100 * completedPositiveLevel * safeLevel * (2 * safeLevel - 1) / 6;
+    }
+
+    getXPProgressRatio() {
+        const levelStart = this.getLevelThreshold(this.level);
+        const levelEnd = this.getLevelThreshold(this.level + 1);
+        const required = levelEnd - levelStart;
+        if (required <= 0) return 0;
+        return Math.max(0, Math.min(1, (this.totalXP - levelStart) / required));
     }
 
     getXPProgressRatio() {
@@ -181,10 +190,8 @@ export class Player {
     }
 
     initializeNPCLevel(targetLevel, random = Math.random) {
-        if (!this.isNPC || this.level !== 1 || this.totalXP !== 0 || this.pendingLevelUps !== 0) return false;
+        if (!this.isNPC || this.level !== 0 || this.totalXP !== 0 || this.pendingLevelUps !== 0) return false;
         const normalizedLevel = Math.max(1, Math.floor(Number(targetLevel) || 1));
-        if (normalizedLevel === 1) return true;
-
         this.addXP(this.getLevelThreshold(normalizedLevel));
         this.resolveNPCLevelUps(random);
         return this.level === normalizedLevel && this.pendingLevelUps === 0;
@@ -210,7 +217,7 @@ export class Player {
 
     resetLevelProgress() {
         this.totalXP = 0;
-        this.level = 1;
+        this.level = 0;
         this.pendingLevelUps = 0;
         this.projectileUpgradeCount = 0;
         this.speedUpgradeCount = 0;
@@ -291,10 +298,14 @@ export class Player {
         const justPressed = pressed.map((value, index) => value && !this.faceButtonState[index]);
         this.faceButtonState = pressed;
 
-        if (justPressed[0]) this.useProjectileLevelPowerUp();
-        if (justPressed[2]) this.consumeCapsules();
-        if (justPressed[3]) this.useSpeedLevelPowerUp();
-        if (justPressed[1]) this.useGeneralLevelPowerUp();
+        if (this.pendingLevelUps > 0) {
+            if (justPressed[0]) this.useProjectileLevelPowerUp();
+            if (justPressed[3]) this.useSpeedLevelPowerUp();
+            if (justPressed[1]) this.useGeneralLevelPowerUp();
+        } else if (justPressed[0]) {
+            this.consumeCapsules();
+        }
+        if (justPressed[2]) this.useProjectileLevelPowerUp();
     }
 
     consumeCapsules() {

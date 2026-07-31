@@ -260,7 +260,7 @@ export class HUD {
         ctx.font = '14px Orbitron';
         ctx.fillStyle = player.color;
         ctx.textAlign = 'center';
-        const msg = player.powerUpError || (capsules > 0 ? 'X Consume Capsules  |  A Projectile  |  Y Speed  |  B Shield' : `${capsules} / 5 CAPSULES`);
+        const msg = player.powerUpError || (capsules > 0 ? 'A Consume Capsules  |  X Projectile  |  Y Speed  |  B Shield' : `${capsules} / 5 CAPSULES`);
         ctx.fillText(msg, centerX, startY - 15);
     }
 

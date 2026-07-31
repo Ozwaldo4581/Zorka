@@ -1,11 +1,14 @@
+export const DEFAULT_MUSIC_VOLUME_LEVEL = 2;
+export const DEFAULT_SFX_VOLUME_LEVEL = 2;
+
 export class AudioManager {
     constructor() {
         this.ctx = null;
         this.buffers = {};
         this.isUnlocked = false;
         this.pendingBGMName = null;
-        this.musicVolumeLevel = 2;
-        this.sfxVolumeLevel = 5;
+        this.musicVolumeLevel = DEFAULT_MUSIC_VOLUME_LEVEL;
+        this.sfxVolumeLevel = DEFAULT_SFX_VOLUME_LEVEL;
         
         this.assetPaths = {
             'laser_fire': 'assets/audio/laser_fire.mp3',

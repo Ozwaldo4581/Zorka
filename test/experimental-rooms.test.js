@@ -400,6 +400,7 @@ test('Experimental composition follows each room NPC count and level', () => {
     assert.equal(game.players.filter(player => !player.isNPC).length, 1);
     assert.equal(game.players.filter(player => player.isNPC).length, 45);
     assert.equal(game.players[0].controlMode, 'KEYBOARD');
+    assert.equal(game.players[0].level, 0);
     assert.deepEqual(game.players.filter(player => player.isNPC).map(player => [player.roomId, player.level]),
         game.experimentalRooms.flatMap(room => Array.from({ length: room.roomNumber }, () => [room.id, room.roomNumber])));
     assert.ok(game.players.slice(1).every(player => Math.hypot(game.players[0].x - player.x, game.players[0].y - player.y) > 120));

@@ -1,8 +1,10 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { Game, GAME_MODE, PLAYER_COLORS, chooseRandomPlayerColor } from '../game.js';
+import { AudioManager, DEFAULT_MUSIC_VOLUME_LEVEL, DEFAULT_SFX_VOLUME_LEVEL } from '../audio_manager.js';
+import { Game, GAME_MODE, PLAYER_COLORS, DEFAULT_P1_CONTROL_MODE, WORLD_WIDTH, WORLD_HEIGHT, chooseRandomPlayerColor } from '../game.js';
 import { Player } from '../entities/player.js';
 import { HUD } from '../ui/hud.js';
+import { createExperimentalRooms } from '../world/experimental_rooms.js';
 
 test('XP progress is derived from cumulative thresholds and final level', () => {
     const player = new Player(0, 0);
@@ -10,9 +12,9 @@ test('XP progress is derived from cumulative thresholds and final level', () => 
     player.addXP(50);
     assert.equal(player.getXPProgressRatio(), 0.5);
     player.addXP(50);
-    assert.equal(player.level, 2);
+    assert.equal(player.level, 1);
     assert.equal(player.getXPProgressRatio(), 0);
-    player.addXP(200);
+    player.addXP(50);
     assert.equal(player.getXPProgressRatio(), 0.5);
     player.totalXP = Number.MAX_SAFE_INTEGER;
     assert.equal(player.getXPProgressRatio(), 1);
@@ -93,4 +95,59 @@ test('Experimental transformation policy and NPC palette are mode isolated', () 
     transformed.setEvolutionForm('DIMENSION X');
     transformed.update(0, {}, {}, null, [], [], [], false, 20, [], null, false);
     assert.equal(transformed.isDimensionX, false);
+});
+
+test('default audio and input settings use SFX level 2 and keyboard/mouse', () => {
+    const audio = new AudioManager();
+    assert.equal(DEFAULT_SFX_VOLUME_LEVEL, 2);
+    assert.equal(audio.getSfxVolumeLevel(), 2);
+    assert.equal(audio.volumeLevelToGain(2), 0.4);
+    assert.equal(audio.getMusicVolumeLevel(), DEFAULT_MUSIC_VOLUME_LEVEL);
+    audio.setSfxVolumeLevel(4);
+    assert.equal(audio.getSfxVolumeLevel(), 4, 'an explicit preference remains selected');
+    assert.equal(DEFAULT_P1_CONTROL_MODE, 'KEYBOARD');
+});
+
+test('Experimental NPC respawns restore the numbered-room level, bounds, area, and color palette', () => {
+    const rooms = createExperimentalRooms(WORLD_WIDTH, WORLD_HEIGHT);
+    for (const roomNumber of [2, 3, 9]) {
+        const room = rooms.find(candidate => candidate.roomNumber === roomNumber);
+        const npc = new Player(room.spawnRegion.left, room.spawnRegion.top, roomNumber + 1, '#not-a-palette-color');
+        npc.isNPC = true;
+        npc.roomId = room.id;
+        npc.initializeNPCLevel(1);
+        npc.isDead = true;
+        const game = {
+            gameState: GAME_MODE.EXPERIMENTAL,
+            experimentalRooms: rooms,
+            players: [npc],
+            startingShieldCharges: 0,
+            findExperimentalSpawn: Game.prototype.findExperimentalSpawn
+        };
+        Game.prototype.respawnPlayer.call(game, npc);
+        assert.equal(npc.level, roomNumber);
+        assert.equal(npc.roomId, room.id);
+        assert.ok(npc.x >= room.spawnRegion.left && npc.x <= room.spawnRegion.right);
+        assert.ok(npc.y >= room.spawnRegion.top && npc.y <= room.spawnRegion.bottom);
+        assert.ok(PLAYER_COLORS.includes(npc.color));
+        assert.equal(game.players.filter(player => player.isNPC && !player.isDead).length, 1);
+    }
+});
+
+test('the shared reward schema creates one event pair in every active mode', () => {
+    for (const gameState of [GAME_MODE.SOLO, GAME_MODE.PVP, GAME_MODE.ARCADE, GAME_MODE.EXPERIMENTAL]) {
+        const killer = new Player(10, 20, 1, '#00ffff');
+        const npc = new Player(100, 200, 2, '#ff00ff');
+        npc.isNPC = true;
+        npc.initializeNPCLevel(2);
+        const game = { players: [killer, npc], vfx: [], gameState };
+        const reward = Game.prototype.getNPCXPReward.call(game, npc);
+        assert.equal(reward, 200);
+        assert.equal(Game.prototype.awardXP.call(game, killer, reward, npc), 2);
+        assert.equal(killer.totalXP, 200);
+        assert.equal(killer.level, 2);
+        assert.equal(killer.pendingLevelUps, 2);
+        assert.equal(killer.getXPProgressRatio(), 0);
+        assert.deepEqual(game.vfx.map(effect => effect.text), ['+200 XP', 'Lvl Up!']);
+    }
 });

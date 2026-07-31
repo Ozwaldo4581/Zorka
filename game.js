@@ -35,6 +35,7 @@ export const PLAYER_COLORS = Object.freeze([
     '#00ffff', '#ff00ff', '#ffff00', '#ff0000',
     '#00ff00', '#0000ff', '#ff8800', '#8800ff'
 ]);
+export const DEFAULT_P1_CONTROL_MODE = 'KEYBOARD';
 
 export function chooseRandomPlayerColor(random = Math.random) {
     return PLAYER_COLORS[Math.floor(random() * PLAYER_COLORS.length)];
@@ -130,8 +131,8 @@ export class Game {
         this.activeModal = null;
         this.focusBeforeModal = null;
         
-        // P1 Control Mode: 'KEYBOARD' or 'GAMEPAD' (defaults to GAMEPAD across all modes)
-        this.p1ControlMode = 'GAMEPAD'; 
+        // P1 defaults to keyboard and mouse until the player explicitly assigns a gamepad.
+        this.p1ControlMode = DEFAULT_P1_CONTROL_MODE;
         this.swapUI = false;
         this.transformationKills = 20;
         this.cursorVisible = true;
@@ -283,6 +284,7 @@ export class Game {
                     const p = new Player(spawn.x, spawn.y, i + 1, colors[i % colors.length]);
                     this.configurePlayerShields(p);
                     p.isNPC = true;
+                    p.initializeNPCLevel(1);
                     p.name = botNames[i % botNames.length] || `BOT ${p.id}`;
                     
                     if (this.botAggressionLevel > 0) {
@@ -300,6 +302,7 @@ export class Game {
                     const p = new Player(spawn.x, spawn.y, i + 2, colors[(i + 1) % colors.length]);
                     this.configurePlayerShields(p);
                     p.isNPC = true;
+                    p.initializeNPCLevel(1);
                     p.isDummy = true; // New property to prevent movement/attack
                     p.name = `DUMMY ${i + 1}`;
                     this.players.push(p);
@@ -325,6 +328,7 @@ export class Game {
                 const p = new Player(spawn.x, spawn.y, i + 1, colors[i % colors.length]);
                 this.configurePlayerShields(p);
                 p.isNPC = true;
+                p.initializeNPCLevel(1);
                 p.name = botNames[i % botNames.length] || `BOT ${p.id}`;
                 
                 if (this.botAggressionLevel > 0) {
@@ -2907,12 +2911,18 @@ export class Game {
         player.restoreShieldCharges(this.startingShieldCharges);
 
         if (this.gameState === GAME_MODE.EXPERIMENTAL) {
-            const roomId = Game.prototype.getExperimentalRoom.call(this, player.roomId)?.id || this.experimentalRooms[0].id;
+            const room = Game.prototype.getExperimentalRoom.call(this, player.roomId) || this.experimentalRooms[0];
+            const roomId = room.id;
             const spawn = this.findExperimentalSpawn(player.radius, this.players, roomId);
             player.x = spawn.x;
             player.y = spawn.y;
             player.roomId = roomId;
-            if (player.isNPC) player.rollAggression();
+            if (player.isNPC) {
+                player.resetLevelProgress();
+                player.initializeNPCLevel(room.npcLevel);
+                player.color = chooseRandomPlayerColor();
+                player.rollAggression();
+            }
             return;
         }
 
