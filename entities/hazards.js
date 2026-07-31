@@ -61,6 +61,9 @@ export class Satellite {
         updateNewtonian(this, dt, undefined, worldRules);
         this.rotation += this.rotSpeed * dt;
 
+        if (worldRules?.usesRooms && typeof game.hasHumanInExperimentalArea === 'function'
+            && !game.hasHumanInExperimentalArea(this.roomId)) return;
+
         this.fireCooldown -= dt;
         if (this.fireCooldown <= 0) {
             this.fireCooldown = this.fireRate;
@@ -83,11 +86,13 @@ export class Satellite {
         p.isLaser = true;
         p.lifeSpan = 10;
         p.canWrap = false;
-        game.projectiles.push(p);
+        if (typeof game.addProjectile === 'function') game.addProjectile(p);
+        else game.projectiles.push(p);
 
         // Spatial audio (reuse laser sound)
         const cameras = game.getActiveCameras();
-        game.audio.playSpatial('laser_fire', this.x, this.y, cameras, WORLD_WIDTH, WORLD_HEIGHT);
+        if (typeof game.playSpatialEvent === 'function') game.playSpatialEvent('laser_fire', this.x, this.y, this.roomId, cameras);
+        else game.audio.playSpatial?.('laser_fire', this.x, this.y, cameras, WORLD_WIDTH, WORLD_HEIGHT);
     }
 
     draw(ctx, assets, camera) {
