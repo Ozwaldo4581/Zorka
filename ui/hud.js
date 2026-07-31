@@ -21,6 +21,8 @@ export class HUD {
             // P2: Between Center (960) and Minimap (1580) -> 1270
             this.drawPowerUpMeter(ctx, players[0], 650, 980, 3);
             this.drawPowerUpMeter(ctx, players[1], 1270, 980, 3);
+            this.drawXPBar(ctx, players[0], 650, 980, 3);
+            this.drawXPBar(ctx, players[1], 1270, 980, 3);
             this.drawLevelUpChoices(ctx, players[0], 650, 980);
             this.drawLevelUpChoices(ctx, players[1], 1270, 980);
             this.drawSpeedMeter(ctx, players[0], 650, 980, 3);
@@ -30,6 +32,7 @@ export class HUD {
         } else {
             // Solo/Online: One meter, centered, laid out in a single row of 5
             this.drawPowerUpMeter(ctx, players[0], 1920 / 2, 980, 5);
+            this.drawXPBar(ctx, players[0], 1920 / 2, 980, 5);
             this.drawLevelUpChoices(ctx, players[0], 1920 / 2, 980);
             this.drawSpeedMeter(ctx, players[0], 1920 / 2, 980, 5);
             this.drawLevelDisplay(ctx, players[0], 20, 850);
@@ -80,7 +83,13 @@ export class HUD {
         ctx.save();
         ctx.font = 'bold 10px Orbitron';
         ctx.textAlign = 'center';
-        for (const box of this.getLevelUpgradeBoxes(centerX, startY)) {
+        const boxes = this.getLevelUpgradeBoxes(centerX, startY);
+        ctx.fillStyle = player.color;
+        ctx.fillText('Select a Power Up', centerX, boxes[0].y - 31);
+        const prompts = ['1 / A', '2 / Y', '3 / B'];
+        boxes.forEach((box, index) => {
+            ctx.fillStyle = '#fff';
+            ctx.fillText(prompts[index], box.x + box.width / 2, box.y - 8);
             const selectable = player.canSelectLevelUpgrade(box.choice);
             ctx.fillStyle = selectable ? 'rgba(0, 0, 0, 0.8)' : 'rgba(70, 70, 70, 0.8)';
             ctx.strokeStyle = selectable ? player.color : '#777';
@@ -89,13 +98,27 @@ export class HUD {
             ctx.strokeRect(box.x, box.y, box.width, box.height);
             ctx.fillStyle = selectable ? '#fff' : '#999';
             ctx.fillText(box.choice.toUpperCase(), box.x + box.width / 2, box.y + 23);
-        }
+        });
+        ctx.restore();
+    }
 
-        const currentLevelXP = player.totalXP - player.getLevelThreshold(player.level);
-        const nextThreshold = player.getXPRequirement();
-        ctx.font = '10px Orbitron';
+    drawXPBar(ctx, player, centerX, startY, maxCols = 5) {
+        if (!player || player.isDead || player.isNPC || player.id > 2 || player.isEventHorizon) return;
+        const slotWidth = 90;
+        const slotHeight = 35;
+        const gap = 8;
+        const rows = Math.ceil(5 / maxCols);
+        const gridHeight = rows * slotHeight + (rows - 1) * gap;
+        const width = maxCols * slotWidth + (maxCols - 1) * gap;
+        const height = 8;
+        const x = centerX - width / 2;
+        const y = startY + gridHeight + 8;
+        ctx.save();
+        ctx.shadowBlur = 0;
+        ctx.fillStyle = '#222';
+        ctx.fillRect(x, y, width, height);
         ctx.fillStyle = player.color;
-        ctx.fillText(`LEVEL ${player.level}  XP ${currentLevelXP}/${nextThreshold}`, centerX, startY - 94);
+        ctx.fillRect(x, y, width * player.getXPProgressRatio(), height);
         ctx.restore();
     }
 
@@ -237,7 +260,7 @@ export class HUD {
         ctx.font = '14px Orbitron';
         ctx.fillStyle = player.color;
         ctx.textAlign = 'center';
-        const msg = player.powerUpError || (capsules > 0 ? 'A Consume Capsules  |  X Projectile  |  Y Speed  |  B Power-Up' : `${capsules} / 5 CAPSULES`);
+        const msg = player.powerUpError || (capsules > 0 ? 'A Consume Capsules  |  X Projectile  |  Y Speed  |  B Shield' : `${capsules} / 5 CAPSULES`);
         ctx.fillText(msg, centerX, startY - 15);
     }
 

@@ -8,15 +8,16 @@ import { Game } from '../game.js';
 
 test('XP uses cumulative quadratic per-level requirements and queues every crossed level', () => {
     const player = new Player(0, 0);
-    assert.deepEqual([1, 2, 3, 4].map(level => player.getLevelThreshold(level)), [0, 100, 500, 1400]);
-    assert.deepEqual([1, 2, 3, 4, 10].map(level => player.getXPRequirement(level)), [100, 400, 900, 1600, 10000]);
+    assert.equal(player.level, 0);
+    assert.deepEqual([0, 1, 2, 3, 4].map(level => player.getLevelThreshold(level)), [0, 100, 200, 600, 1500]);
+    assert.deepEqual([0, 1, 2, 3, 4, 10].map(level => player.getXPRequirement(level)), [100, 100, 400, 900, 1600, 10000]);
     assert.equal(player.addXP(99), 0);
-    assert.equal(player.level, 1);
+    assert.equal(player.level, 0);
     assert.equal(player.addXP(1), 1);
-    assert.equal(player.addXP(500), 1);
+    assert.equal(player.addXP(500), 2);
     assert.equal(player.totalXP, 600);
     assert.equal(player.level, 3);
-    assert.equal(player.pendingLevelUps, 2);
+    assert.equal(player.pendingLevelUps, 3);
     assert.equal(player.score, 0);
     assert.equal(player.addXP(-1), 0);
     assert.equal(player.addXP(Number.NaN), 0);
@@ -80,12 +81,29 @@ test('new NPCs initialize at a target level with consistent XP and resolved upgr
         assert.equal(npc.level, targetLevel);
         assert.equal(npc.totalXP, npc.getLevelThreshold(targetLevel));
         assert.equal(npc.pendingLevelUps, 0);
-        assert.equal(npc.projectileUpgradeCount, Math.min(5, targetLevel - 1));
-        assert.equal(npc.speedUpgradeCount, Math.min(10, Math.max(0, targetLevel - 6)));
-        assert.equal(npc.levelShieldUpgradeCount, Math.max(0, targetLevel - 16));
+        assert.equal(npc.projectileUpgradeCount, Math.min(5, targetLevel));
+        assert.equal(npc.speedUpgradeCount, Math.min(10, Math.max(0, targetLevel - 5)));
+        assert.equal(npc.levelShieldUpgradeCount, Math.max(0, targetLevel - 15));
         assert.equal(npc.score, 0);
         assert.equal(npc.prestigeLevel, 0);
     }
+});
+
+test('standard match composition starts humans at level 0 and NPCs at level 1', () => {
+    const makeGame = () => ({
+        players: [], p1ControlMode: 'KEYBOARD', botAggressionLevel: 3,
+        configurePlayerShields() {}, resetMouseLockInput() {}
+    });
+    const solo = makeGame();
+    Game.prototype.spawnPlayers.call(solo, 'SOLO', 3);
+    assert.deepEqual(solo.players.map(player => [player.isNPC, player.level, player.controlMode]), [
+        [false, 0, 'KEYBOARD'], [true, 1, undefined], [true, 1, undefined]
+    ]);
+
+    const pvp = makeGame();
+    Game.prototype.spawnPlayers.call(pvp, 'PVP', 3);
+    assert.deepEqual(pvp.players.map(player => [player.isNPC, player.level]), [[false, 0], [false, 0], [true, 1]]);
+    assert.equal(pvp.players[1].controlMode, 'GAMEPAD');
 });
 
 test('disabled transformations enforce Earthling without consuming score or granting prestige', () => {
@@ -189,7 +207,7 @@ test('level reset clears level bonuses while preserving non-level shield capacit
     player.resetLevelProgress();
 
     assert.equal(player.totalXP, 0);
-    assert.equal(player.level, 1);
+    assert.equal(player.level, 0);
     assert.equal(player.pendingLevelUps, 0);
     assert.equal(player.projectileUpgradeCount, 0);
     assert.equal(player.speedUpgradeCount, 0);
@@ -219,8 +237,8 @@ test('Arcade forces Hardcore without changing the configured option', () => {
     assert.equal(Game.prototype.isHardcoreActive.call(game), false);
 });
 
-test('only Arcade disables transformations', () => {
-    for (const [gameState, expected] of [['ARCADE', false], ['SOLO', true], ['PVP', true]]) {
+test('Arcade and Experimental disable transformations', () => {
+    for (const [gameState, expected] of [['ARCADE', false], ['EXPERIMENTAL', false], ['SOLO', true], ['PVP', true]]) {
         assert.equal(Game.prototype.areTransformationsEnabled.call({ gameState }), expected);
     }
 });
@@ -304,6 +322,7 @@ test('confirmed NPC death awards level-scaled XP once and shield absorption awar
     const killer = new Player(0, 0);
     const victim = new Player(0, 0, 2);
     victim.isNPC = true;
+    victim.initializeNPCLevel(1);
     victim.spawnImmunityTimer = 0;
     const game = {
         players: [killer, victim],
@@ -355,7 +374,7 @@ test('Hardcore resets victim level progress only after a confirmed unshielded de
     hardcoreVictim.pendingLevelUps = 1;
     const hardcoreGame = makeGame([hardcoreVictim], true);
     for (let hit = 0; hit < 5; hit++) Game.prototype.playerDeath.call(hardcoreGame, hardcoreVictim);
-    assert.equal(hardcoreVictim.level, 1);
+    assert.equal(hardcoreVictim.level, 0);
     assert.equal(hardcoreVictim.totalXP, 0);
 
     const standardVictim = new Player(0, 0);

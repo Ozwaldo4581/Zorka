@@ -116,13 +116,8 @@ test('controller face buttons dispatch distinct player intents on press edges', 
     player.pendingLevelUps = 3;
 
     player.handleGamepadPowerUpIntents(pad(0));
-    assert.equal(player.powerUpCapsules, 0);
-    assert.equal(player.pendingLevelUps, 3);
-    player.handleGamepadPowerUpIntents(pad(0));
-
-    player.handleGamepadPowerUpIntents(pad());
-    player.handleGamepadPowerUpIntents(pad(2));
     assert.equal(player.projectileUpgradeCount, 1);
+    assert.equal(player.powerUpCapsules, 1, 'contextual A must not also consume capsules');
     player.handleGamepadPowerUpIntents(pad());
     player.handleGamepadPowerUpIntents(pad(3));
     assert.equal(player.speedUpgradeCount, 1);
@@ -130,4 +125,13 @@ test('controller face buttons dispatch distinct player intents on press edges', 
     player.handleGamepadPowerUpIntents(pad(1));
     assert.equal(player.levelShieldUpgradeCount, 1);
     assert.equal(player.pendingLevelUps, 0);
+
+    player.handleGamepadPowerUpIntents(pad());
+    player.handleGamepadPowerUpIntents(pad(0));
+    assert.equal(player.powerUpCapsules, 0, 'normal A resumes capsule activation');
+
+    player.pendingLevelUps = 1;
+    player.handleGamepadPowerUpIntents(pad());
+    player.handleGamepadPowerUpIntents(pad(2));
+    assert.equal(player.projectileUpgradeCount, 2, 'X remains Projectile');
 });
