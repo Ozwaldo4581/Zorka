@@ -192,4 +192,10 @@ export class AudioManager {
         
         source.start(0);
     }
+
+    playSpatialUnwrapped(name, x, y, cameras) {
+        // Camera transforms already encode room visibility; unlike wrapped-mode
+        // callers, no alternate world copies or global dimensions are supplied.
+        this.playSpatial(name, x, y, cameras);
+    }
 }

@@ -1,4 +1,4 @@
-import { updateNewtonian, checkCollision, nearestWrappedDisplacement } from '../physics.js';
+import { updateNewtonian, checkCollision, nearestWrappedDisplacement, closestPointOnSegment } from '../physics.js';
 import { Projectile } from './projectile.js';
 import { DESIGN_WIDTH, DESIGN_HEIGHT, WORLD_WIDTH } from '../game.js';
 
@@ -342,7 +342,7 @@ export class Player {
         }
     }
 
-    update(dt, keys, mouse, camera, others = [], asteroids = [], gamepads = [], isSplitScreen = false, transformationKills = 20, hazards = [], isAimTargetValid = null, allowTransformations = true) {
+    update(dt, keys, mouse, camera, others = [], asteroids = [], gamepads = [], isSplitScreen = false, transformationKills = 20, hazards = [], isAimTargetValid = null, allowTransformations = true, worldRules = null) {
         if (this.isDead) {
             this.resetControllerAimLock(true);
             return;
@@ -401,7 +401,7 @@ export class Player {
         }
 
         if (this.isNPC) {
-            this.updateNPC(dt, others, asteroids, (f) => { fx = f.x; fy = f.y; }, hazards);
+            this.updateNPC(dt, others, asteroids, (f) => { fx = f.x; fy = f.y; }, hazards, worldRules);
         } else if (this.id === 1) {
             // Player 1: Controller OR Keyboard
             if (gp) {
@@ -503,7 +503,7 @@ export class Player {
             // NO KEYBOARD FALLBACK FOR P2
         }
 
-        updateNewtonian(this, dt, { x: fx, y: fy });
+        updateNewtonian(this, dt, { x: fx, y: fy }, worldRules);
         
         // Speed cap
         let maxSpeed = 800;
@@ -660,7 +660,7 @@ export class Player {
         });
     }
 
-    updateNPC(dt, others, asteroids, setForce, hazards = []) {
+    updateNPC(dt, others, asteroids, setForce, hazards = [], worldRules = null) {
         const effectiveThrust = this.getEffectiveThrust();
         if (this.isDummy) {
             setForce({ x: 0, y: 0 });
@@ -785,6 +785,23 @@ export class Player {
                 threatLevel = Math.max(threatLevel, hasAwarenessLapse ? 0.5 : 1);
             }
         });
+
+        if (worldRules?.room) {
+            const predicted = { x: this.x + this.vx * lookAheadTime, y: this.y + this.vy * lookAheadTime };
+            for (const wall of worldRules.room.walls) {
+                const closest = closestPointOnSegment(predicted, wall.start, wall.end);
+                const dx = predicted.x - closest.x;
+                const dy = predicted.y - closest.y;
+                const distance = Math.hypot(dx, dy);
+                const avoidDistance = this.radius + worldRules.room.wallCollisionThickness / 2 + detectionRange;
+                if (distance > 0 && distance < avoidDistance) {
+                    const force = (1 - distance / avoidDistance) * effectiveThrust * 1.5;
+                    avoidFx += dx / distance * force;
+                    avoidFy += dy / distance * force;
+                    threatLevel = Math.max(threatLevel, 1 - distance / avoidDistance);
+                }
+            }
+        }
 
         const isEvading = threatLevel > 0;
         // The more urgent the avoidance, the less the NPC prioritizes chasing its target
