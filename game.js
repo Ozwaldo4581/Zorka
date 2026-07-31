@@ -1364,9 +1364,15 @@ export class Game {
         }
         for (const entity of [...(this.players || []), ...(this.asteroids || []), ...(this.hazards || []), ...(this.projectiles || [])]) {
             delete entity.roomId;
+            if (entity instanceof Player && entity.isNPC) {
+                entity.npcTarget = null;
+                entity.shouldFire = false;
+            }
         }
         this.experimentalRooms = [];
         this.experimentalDoors = [];
+        this.experimentalRoomPopulations = new Map();
+        this.experimentalSessionId = (this.experimentalSessionId || 0) + 1;
         this.experimentalRoomAssignments = new Map();
         this.experimentalCameraState = null;
     }
@@ -1374,6 +1380,19 @@ export class Game {
     initializeExperimentalRooms() {
         this.experimentalRooms = createExperimentalRooms(WORLD_WIDTH, WORLD_HEIGHT);
         this.experimentalDoors = createExperimentalDoors(this.experimentalRooms);
+        const desired = getArenaPopulationTargets(
+            this.asteroidDensityLevel,
+            this.debrisDensityLevel,
+            this.satelliteDensityLevel
+        );
+        this.experimentalRoomPopulations = new Map(this.experimentalRooms.map(room => [room.id, {
+            density: Object.freeze({
+                asteroidLevel: this.asteroidDensityLevel,
+                debrisLevel: this.debrisDensityLevel,
+                satelliteLevel: this.satelliteDensityLevel
+            }),
+            desired: Object.freeze({ ...desired })
+        }]));
     }
 
     getWorldRules() {
@@ -1421,14 +1440,46 @@ export class Game {
         });
         this.asteroids = [];
         this.hazards = [];
-        const targets = getArenaPopulationTargets(
-            this.asteroidDensityLevel,
-            this.debrisDensityLevel,
-            this.satelliteDensityLevel
-        );
-        for (let index = 0; index < targets.asteroids; index++) this.spawnAsteroid('large');
-        for (let index = 0; index < targets.debris; index++) this.spawnSpaceDebris();
-        for (let index = 0; index < targets.satellites; index++) this.spawnSatellite();
+        for (const populationRoom of this.experimentalRooms) {
+            const targets = this.experimentalRoomPopulations?.get(populationRoom.id)?.desired
+                || getArenaPopulationTargets(this.asteroidDensityLevel, this.debrisDensityLevel, this.satelliteDensityLevel);
+            for (let index = 0; index < targets.asteroids; index++) this.spawnAsteroid('large', undefined, undefined, populationRoom.id);
+            for (let index = 0; index < targets.debris; index++) this.spawnSpaceDebris(populationRoom.id);
+            for (let index = 0; index < targets.satellites; index++) this.spawnSatellite(populationRoom.id);
+        }
+    }
+
+    getExperimentalRoomPopulation(roomId) {
+        const desired = this.experimentalRoomPopulations?.get(roomId)?.desired || { asteroids: 0, debris: 0, satellites: 0 };
+        return {
+            desired,
+            live: {
+                asteroids: this.asteroids.filter(asteroid => !asteroid.isDestroyed && asteroid.roomId === roomId).length,
+                largeAsteroids: this.asteroids.filter(asteroid => !asteroid.isDestroyed && asteroid.size === 'large' && asteroid.roomId === roomId).length,
+                debris: this.hazards.filter(hazard => !hazard.isDestroyed && hazard.isDebris && hazard.roomId === roomId).length,
+                satellites: this.hazards.filter(hazard => !hazard.isDestroyed && hazard.isSatellite && hazard.roomId === roomId).length
+            }
+        };
+    }
+
+    shouldSpawnExperimentalReplacement(roomId, type) {
+        if (this.gameState !== GAME_MODE.EXPERIMENTAL) return true;
+        const population = Game.prototype.getExperimentalRoomPopulation.call(this, roomId);
+        if (type === 'asteroids') return population.live.largeAsteroids < population.desired.asteroids;
+        return population.live[type] < population.desired[type];
+    }
+
+    scheduleEnvironmentReplacement(delaySeconds, roomId, type, spawn) {
+        const experimentalSessionId = this.gameState === GAME_MODE.EXPERIMENTAL ? this.experimentalSessionId : null;
+        setTimeout(() => {
+            if (this.gameState === 'MENU') return;
+            if (experimentalSessionId !== null) {
+                if (this.gameState !== GAME_MODE.EXPERIMENTAL || this.experimentalSessionId !== experimentalSessionId) return;
+                if (!Game.prototype.getExperimentalRoom.call(this, roomId)) return;
+                if (!Game.prototype.shouldSpawnExperimentalReplacement.call(this, roomId, type)) return;
+            }
+            spawn();
+        }, delaySeconds * 1000);
     }
 
     setupExperimentalMatch() {
@@ -2321,8 +2372,6 @@ export class Game {
 
         if (worldRules.usesRooms) {
             this.players.filter(player => !player.isDead).forEach(player => this.resolveExperimentalSlide(player));
-            this.players.filter(player => !player.isDead && !player.isNPC)
-                .forEach(player => this.resolveExperimentalPlayerRoomMembership(player));
         }
 
         this.asteroids.forEach(a => {
@@ -2379,6 +2428,11 @@ export class Game {
 
         this.checkCollisions();
 
+        if (worldRules.usesRooms) {
+            this.players.filter(player => !player.isDead && !player.isNPC)
+                .forEach(player => this.resolveExperimentalPlayerRoomMembership(player));
+        }
+
         this.reconcileArcadeNPCs();
         
         if (this.players[0]) {
@@ -2413,11 +2467,43 @@ export class Game {
 
     getExperimentalCollisionWalls(entity) {
         const category = Game.prototype.getExperimentalCollisionCategory.call(this, entity);
-        const walls = this.experimentalRooms.flatMap(room => room.walls);
+        const room = Game.prototype.getExperimentalRoom.call(this, entity?.roomId) || this.experimentalRooms[0];
+        const door = this.experimentalDoors?.find(candidate => candidate.roomIds.includes(room?.id));
+        const roomIds = category === EXPERIMENTAL_COLLISION_CATEGORY.HUMAN_PLAYER
+            && Game.prototype.isExperimentalDoorAdjacent.call(this, entity, door)
+            ? door.roomIds
+            : [room?.id];
+        const walls = [];
+        const seenWallIds = new Set();
+        for (const roomId of roomIds) {
+            const selectedRoom = Game.prototype.getExperimentalRoom.call(this, roomId);
+            if (!selectedRoom) continue;
+            const selectedWalls = [...selectedRoom.walls];
+            if (roomId !== this.experimentalRooms[0]?.id && door) {
+                selectedWalls.push(...this.experimentalRooms[0].walls.filter(wall =>
+                    wall.start.y === door.boundaryCoordinate && wall.end.y === door.boundaryCoordinate));
+            }
+            for (const wall of selectedWalls) {
+                if (seenWallIds.has(wall.id)) continue;
+                seenWallIds.add(wall.id);
+                walls.push(wall);
+            }
+        }
         for (const door of this.experimentalDoors || []) {
             if (door.blockedCategories.includes(category)) walls.push(door.blocker);
         }
         return walls;
+    }
+
+    isExperimentalDoorAdjacent(entity, door = this.experimentalDoors?.[0], otherRadius = 0) {
+        if (!entity || !door) return false;
+        const radius = Math.max(0, entity.radius || 0);
+        const room = Game.prototype.getExperimentalRoom.call(this, entity.roomId) || this.experimentalRooms[0];
+        const thickness = room?.wallCollisionThickness || 0;
+        const margin = radius + Math.max(0, otherRadius) + thickness / 2 + door.transitionTolerance;
+        return entity.x >= door.openingMin - margin
+            && entity.x <= door.openingMax + margin
+            && Math.abs(entity.y - door.boundaryCoordinate) <= margin;
     }
 
     resolveExperimentalPlayerRoomMembership(player) {
@@ -2635,11 +2721,9 @@ export class Game {
                     
                     // Queue a respawn for a new large asteroid
                     const delay = 12 + Math.random() * 32; // 12 to 44 seconds
-                    setTimeout(() => {
-                        if (this.gameState !== 'MENU') {
-                            this.spawnAsteroid('large', undefined, undefined, target.roomId);
-                        }
-                    }, delay * 1000);
+                    Game.prototype.scheduleEnvironmentReplacement.call(this, delay, target.roomId, 'asteroids', () => {
+                        this.spawnAsteroid('large', undefined, undefined, target.roomId);
+                    });
                 } else if (target.size === 'medium') {
                     for (let i = 0; i < 3; i++) this.spawnAsteroid('small', target.x, target.y, target.roomId);
                 }
@@ -2657,18 +2741,16 @@ export class Game {
                 }
 
                 // If satellite, spawn another one
-                if (target.isSatellite) {
+                if (target.isSatellite && Game.prototype.shouldSpawnExperimentalReplacement.call(this, target.roomId, 'satellites')) {
                     this.spawnSatellite(target.roomId);
                 }
                 
                 // If debris, maybe respawn later like asteroids
                 if (target.isDebris) {
                     const delay = 30 + Math.random() * 60;
-                    setTimeout(() => {
-                        if (this.gameState !== 'MENU') {
-                            this.spawnSpaceDebris(target.roomId);
-                        }
-                    }, delay * 1000);
+                    Game.prototype.scheduleEnvironmentReplacement.call(this, delay, target.roomId, 'debris', () => {
+                        this.spawnSpaceDebris(target.roomId);
+                    });
                 }
                 return; // Prevent kills/high-tide tracking for debris/satellites
             }
@@ -2801,7 +2883,18 @@ export class Game {
     }
 
     areExperimentalEntitiesCoLocated(first, second) {
-        return this.gameState !== GAME_MODE.EXPERIMENTAL || first?.roomId === second?.roomId;
+        if (this.gameState !== GAME_MODE.EXPERIMENTAL || first?.roomId === second?.roomId) return true;
+        const door = this.experimentalDoors?.find(candidate =>
+            candidate.roomIds.includes(first?.roomId) && candidate.roomIds.includes(second?.roomId));
+        if (!door) return false;
+        const human = first instanceof Player && !first.isNPC
+            ? first
+            : second instanceof Player && !second.isNPC ? second : null;
+        const other = human === first ? second : first;
+        const isAdjacentEnvironment = other instanceof Asteroid || other instanceof SpaceDebris || other instanceof Satellite;
+        return Boolean(human && isAdjacentEnvironment
+            && Game.prototype.isExperimentalDoorAdjacent.call(this, human, door, other?.radius || 0)
+            && Game.prototype.isExperimentalDoorAdjacent.call(this, other, door, human.radius || 0));
     }
 
     checkCollisions() {
@@ -3100,7 +3193,8 @@ export class Game {
     isExperimentalBlastBlocked(source, target) {
         if (this.gameState !== GAME_MODE.EXPERIMENTAL) return false;
         const room = Game.prototype.getExperimentalRoom.call(this, source.roomId) || this.experimentalRooms[0];
-        const walls = this.experimentalRooms.flatMap(experimentalRoom => experimentalRoom.walls);
+        const walls = Game.prototype.getExperimentalCollisionWalls.call(this, source)
+            .filter(wall => !wall.isDoorBlocker);
         return Boolean(room && isLineBlockedByWalls(source, target, walls, room.wallCollisionThickness));
     }
 
@@ -3315,14 +3409,26 @@ export class Game {
     drawWorld(ctx, camera) {
         this.drawBackground(ctx, camera);
         if (this.gameState === GAME_MODE.EXPERIMENTAL) this.drawExperimentalWalls(ctx, camera);
-        
-        this.asteroids.forEach(a => a.draw(ctx, this.assets, camera));
-        this.hazards.forEach(h => h.draw(ctx, this.assets, camera));
-        this.projectiles.forEach(p => p.draw(ctx, this.assets, camera));
-        this.players.forEach(p => {
+
+        const visible = entities => Game.prototype.getRenderableEntities.call(this, entities, camera);
+        visible(this.asteroids).forEach(a => a.draw(ctx, this.assets, camera));
+        visible(this.hazards).forEach(h => h.draw(ctx, this.assets, camera));
+        visible(this.projectiles).forEach(p => p.draw(ctx, this.assets, camera));
+        visible(this.players).forEach(p => {
             if (!p.isDead && !p.isEliminated) p.draw(ctx, this.assets, camera);
         });
         this.vfx.forEach(v => v.draw(ctx, this.assets, camera));
+    }
+
+    getRenderableEntities(entities, camera) {
+        if (this.gameState !== GAME_MODE.EXPERIMENTAL) return entities;
+        const halfWidth = DESIGN_WIDTH / (2 * camera.zoom);
+        const halfHeight = DESIGN_HEIGHT / (2 * camera.zoom);
+        return entities.filter(entity => {
+            const radius = Math.max(0, entity.radius || 0);
+            return Math.abs(entity.x - camera.x) <= halfWidth + radius
+                && Math.abs(entity.y - camera.y) <= halfHeight + radius;
+        });
     }
 
     drawExperimentalWalls(ctx, camera) {

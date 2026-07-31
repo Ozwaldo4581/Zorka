@@ -749,6 +749,7 @@ export class Player {
         const hasAwarenessLapse = Math.random() < 0.2;
 
         asteroids.forEach(a => {
+            if (worldRules?.usesRooms && a.roomId !== this.roomId) return;
             const dx = a.x - this.x;
             const dy = a.y - this.y;
             const dist = Math.hypot(dx, dy);

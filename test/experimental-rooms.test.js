@@ -2,6 +2,8 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import { GAME_MODE, Game, WORLD_HEIGHT, WORLD_WIDTH, getArenaPopulationTargets } from '../game.js';
+import { Asteroid } from '../entities/asteroid.js';
+import { SpaceDebris, Satellite } from '../entities/hazards.js';
 import { isPointInRoom } from '../physics.js';
 import {
     createExperimentalDoors,
@@ -101,18 +103,38 @@ test('Experimental and standard setup share one density resolver for every optio
 test('Experimental population setup applies the shared targets through room-local spawn methods', () => {
     for (let level = 0; level <= 5; level++) {
         const calls = { asteroids: 0, debris: 0, satellites: 0 };
+        const roomCalls = new Map();
         const game = {
             experimentalRooms: createExperimentalRooms(WORLD_WIDTH, WORLD_HEIGHT),
             players: [],
             asteroidDensityLevel: level,
             debrisDensityLevel: level,
             satelliteDensityLevel: level,
-            spawnAsteroid() { calls.asteroids++; },
-            spawnSpaceDebris() { calls.debris++; },
-            spawnSatellite() { calls.satellites++; }
+            spawnAsteroid(size, x, y, roomId) {
+                calls.asteroids++;
+                roomCalls.set(roomId, { ...(roomCalls.get(roomId) || {}), asteroids: (roomCalls.get(roomId)?.asteroids || 0) + 1 });
+            },
+            spawnSpaceDebris(roomId) {
+                calls.debris++;
+                roomCalls.set(roomId, { ...(roomCalls.get(roomId) || {}), debris: (roomCalls.get(roomId)?.debris || 0) + 1 });
+            },
+            spawnSatellite(roomId) {
+                calls.satellites++;
+                roomCalls.set(roomId, { ...(roomCalls.get(roomId) || {}), satellites: (roomCalls.get(roomId)?.satellites || 0) + 1 });
+            }
         };
         Game.prototype.setupExperimentalPopulations.call(game);
-        assert.deepEqual(calls, getArenaPopulationTargets(level, level, level));
+        const targets = getArenaPopulationTargets(level, level, level);
+        assert.deepEqual(calls, {
+            asteroids: targets.asteroids * 2,
+            debris: targets.debris * 2,
+            satellites: targets.satellites * 2
+        });
+        for (const room of game.experimentalRooms) {
+            assert.deepEqual(roomCalls.get(room.id) || {}, Object.fromEntries(
+                Object.entries(targets).filter(([, count]) => count > 0)
+            ));
+        }
     }
 });
 
@@ -157,14 +179,91 @@ test('Experimental entity spawns retain room-local coordinates and membership', 
 });
 
 test('only the Experimental initialization seam adds room definitions', () => {
-    const game = { experimentalRooms: [] };
+    const game = {
+        experimentalRooms: [],
+        asteroidDensityLevel: 2,
+        debrisDensityLevel: 3,
+        satelliteDensityLevel: 4
+    };
 
     assert.deepEqual(game.experimentalRooms, []);
     Game.prototype.initializeExperimentalRooms.call(game);
     assert.deepEqual(game.experimentalRooms.map(room => room.id), ['experimental-room-1', 'experimental-room-2']);
     assert.deepEqual(game.experimentalDoors.map(door => door.id), ['experimental-door-1-2']);
+    for (const room of game.experimentalRooms) {
+        assert.deepEqual(game.experimentalRoomPopulations.get(room.id)?.desired, { asteroids: 160, debris: 10, satellites: 9 });
+    }
     Game.prototype.clearExperimentalState.call(game);
     assert.deepEqual(game.experimentalRooms, []);
+    assert.equal(game.experimentalRoomPopulations.size, 0);
+});
+
+test('Experimental live population counts are derived independently per room', () => {
+    const [room1, room2] = createExperimentalRooms(WORLD_WIDTH, WORLD_HEIGHT);
+    const game = {
+        experimentalRoomPopulations: new Map([
+            [room1.id, { desired: { asteroids: 80, debris: 3, satellites: 3 } }],
+            [room2.id, { desired: { asteroids: 80, debris: 3, satellites: 3 } }]
+        ]),
+        asteroids: [
+            Object.assign(new Asteroid(100, 100, 'large'), { roomId: room1.id }),
+            Object.assign(new Asteroid(100, 10000, 'large'), { roomId: room2.id })
+        ],
+        hazards: [
+            Object.assign(new SpaceDebris(100, 100), { roomId: room1.id }),
+            Object.assign(new Satellite(100, 10000), { roomId: room2.id })
+        ]
+    };
+    assert.deepEqual(Game.prototype.getExperimentalRoomPopulation.call(game, room1.id).live, {
+        asteroids: 1, largeAsteroids: 1, debris: 1, satellites: 0
+    });
+    assert.deepEqual(Game.prototype.getExperimentalRoomPopulation.call(game, room2.id).live, {
+        asteroids: 1, largeAsteroids: 1, debris: 0, satellites: 1
+    });
+});
+
+test('Experimental destruction preserves Room 2 across children and authoritative replacements', t => {
+    t.mock.method(globalThis, 'setTimeout', callback => { callback(); return 1; });
+    const rooms = createExperimentalRooms(WORLD_WIDTH, WORLD_HEIGHT);
+    const room2 = rooms[1];
+    const large = Object.assign(new Asteroid(500, 11000, 'large'), { roomId: room2.id });
+    const satellite = Object.assign(new Satellite(600, 11000), { roomId: room2.id });
+    const debris = Object.assign(new SpaceDebris(700, 11000), { roomId: room2.id });
+    const spawned = [];
+    const game = {
+        gameState: GAME_MODE.EXPERIMENTAL,
+        experimentalSessionId: 7,
+        experimentalRooms: rooms,
+        experimentalRoomPopulations: new Map(rooms.map(room => [room.id, {
+            desired: { asteroids: room.id === room2.id ? 1 : 0, debris: room.id === room2.id ? 1 : 0, satellites: room.id === room2.id ? 1 : 0 }
+        }])),
+        players: [],
+        asteroids: [large],
+        hazards: [satellite, debris],
+        audio: { playSpatial() {} },
+        getActiveCameras: () => [],
+        createExplosion() {},
+        awardXP() {},
+        spawnAsteroid(size, x, y, roomId) { spawned.push({ type: size, roomId }); },
+        spawnSatellite(roomId) { spawned.push({ type: 'satellite', roomId }); },
+        spawnSpaceDebris(roomId) { spawned.push({ type: 'debris', roomId }); }
+    };
+
+    large.hits = large.maxHits - 1;
+    Game.prototype.hitTarget.call(game, large, null);
+    satellite.hits = satellite.maxHits - 1;
+    Game.prototype.hitTarget.call(game, satellite, null);
+    debris.hits = debris.maxHits - 1;
+    Game.prototype.hitTarget.call(game, debris, null);
+
+    assert.deepEqual(spawned, [
+        { type: 'medium', roomId: room2.id },
+        { type: 'medium', roomId: room2.id },
+        { type: 'medium', roomId: room2.id },
+        { type: 'large', roomId: room2.id },
+        { type: 'satellite', roomId: room2.id },
+        { type: 'debris', roomId: room2.id }
+    ]);
 });
 
 test('Experimental composition is explicitly one local human and one room-local NPC', () => {

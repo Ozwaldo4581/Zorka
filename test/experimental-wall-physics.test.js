@@ -263,8 +263,73 @@ test('NPC targeting drops players across the doorway and cross-room collisions a
     assert.equal(npc.npcTarget, null);
     assert.notEqual(npc.shouldFire, true);
     assert.equal(Game.prototype.areExperimentalEntitiesCoLocated.call(game, npc, human), false);
+    human.roomId = npc.roomId;
+    npc.npcThinkTimer = 0;
+    npc.updateNPC(0.016, [human, npc], [], () => {}, [], worldRules);
+    assert.equal(npc.npcTarget, human);
     game.gameState = GAME_MODE.SOLO;
     assert.equal(Game.prototype.areExperimentalEntitiesCoLocated.call(game, npc, human), true);
+});
+
+test('room-local wall queries include only owned geometry plus necessary doorway adjacency', () => {
+    const game = createExperimentalContext();
+    const room1Human = Object.assign(new Player(1000, 1000, 1), { roomId: 'experimental-room-1' });
+    const crossingHuman = Object.assign(new Player(8640, WORLD_HEIGHT, 1), { roomId: 'experimental-room-1' });
+    const npc = Object.assign(new Player(1000, 1000, 3), { roomId: 'experimental-room-1', isNPC: true });
+    const room2Asteroid = Object.assign(new Asteroid(1000, 12000, 'large'), { roomId: 'experimental-room-2' });
+
+    assert.deepEqual(
+        Game.prototype.getExperimentalCollisionWalls.call(game, room1Human).map(wall => wall.id),
+        game.experimentalRooms[0].walls.map(wall => wall.id)
+    );
+    assert.deepEqual(
+        Game.prototype.getExperimentalCollisionWalls.call(game, npc).map(wall => wall.id),
+        [...game.experimentalRooms[0].walls.map(wall => wall.id), 'experimental-door-1-2-blocker']
+    );
+    const room2Walls = Game.prototype.getExperimentalCollisionWalls.call(game, room2Asteroid).map(wall => wall.id);
+    assert.ok(room2Walls.includes('room-2-wall-bottom'));
+    assert.ok(room2Walls.includes('room-1-wall-bottom-left'));
+    assert.ok(room2Walls.includes('experimental-door-1-2-blocker'));
+    assert.equal(room2Walls.includes('room-1-wall-top'), false);
+    const crossingWalls = Game.prototype.getExperimentalCollisionWalls.call(game, crossingHuman).map(wall => wall.id);
+    assert.equal(new Set(crossingWalls).size, crossingWalls.length);
+    assert.ok(crossingWalls.includes('room-1-wall-top') && crossingWalls.includes('room-2-wall-bottom'));
+    assert.equal(crossingWalls.includes('experimental-door-1-2-blocker'), false);
+});
+
+test('doorway adjacency permits genuine cross-room environment contact but not distant or projectile contact', () => {
+    const game = createExperimentalContext();
+    const human = Object.assign(new Player(8640, WORLD_HEIGHT - 5, 1), { roomId: 'experimental-room-1' });
+    const nearbyHazard = Object.assign(new SpaceDebris(8640, WORLD_HEIGHT + 5), { roomId: 'experimental-room-2' });
+    const distantHazard = Object.assign(new SpaceDebris(8640, WORLD_HEIGHT + 1000), { roomId: 'experimental-room-2' });
+    const projectile = Object.assign(new Projectile(8640, WORLD_HEIGHT + 5, 0, 0), { roomId: 'experimental-room-2' });
+    assert.equal(Game.prototype.areExperimentalEntitiesCoLocated.call(game, human, nearbyHazard), true);
+    assert.equal(Game.prototype.areExperimentalEntitiesCoLocated.call(game, human, distantHazard), false);
+    assert.equal(Game.prototype.areExperimentalEntitiesCoLocated.call(game, human, projectile), false);
+    human.x = nearbyHazard.x;
+    human.y = nearbyHazard.y;
+    game.players = [human];
+    game.hazards = [nearbyHazard];
+    let contacted = false;
+    game.playerDeath = () => { contacted = true; };
+    Game.prototype.checkCollisions.call(game);
+    assert.equal(contacted, true);
+});
+
+test('Experimental rendering uses direct viewport visibility, includes both doorway sides, and draws no duplicates', () => {
+    const game = createExperimentalContext();
+    const camera = new Camera();
+    camera.useDirectWorld();
+    camera.x = 8640;
+    camera.y = WORLD_HEIGHT;
+    const room1Visible = { x: 8640, y: WORLD_HEIGHT - 200, radius: 20, roomId: 'experimental-room-1' };
+    const room2Visible = { x: 8640, y: WORLD_HEIGHT + 200, radius: 20, roomId: 'experimental-room-2' };
+    const room2Distant = { x: 8640, y: 16000, radius: 20, roomId: 'experimental-room-2' };
+    const visible = Game.prototype.getRenderableEntities.call(game, [room1Visible, room2Visible, room2Distant], camera);
+    assert.deepEqual(visible, [room1Visible, room2Visible]);
+    assert.equal(new Set(visible).size, visible.length);
+    game.gameState = GAME_MODE.SOLO;
+    assert.deepEqual(Game.prototype.getRenderableEntities.call(game, [room1Visible, room2Distant], camera), [room1Visible, room2Distant]);
 });
 
 test('Experimental cleanup restores the prior wrapped camera strategy and zoom', () => {
@@ -316,9 +381,11 @@ test('Experimental projectile wall outcomes remove ordinary shots and detonate m
 test('world rules expose rooms only for the explicit Experimental state', () => {
     const room = createExperimentalRooms(WORLD_WIDTH, WORLD_HEIGHT)[0];
     const experimental = Game.prototype.getWorldRules.call({ gameState: GAME_MODE.EXPERIMENTAL, experimentalRooms: [room] });
-    const solo = Game.prototype.getWorldRules.call({ gameState: GAME_MODE.SOLO, experimentalRooms: [room] });
     assert.deepEqual([experimental.wrap, experimental.camera, experimental.spawn], [false, 'ROOM', 'ROOM']);
-    assert.deepEqual([solo.wrap, solo.usesRooms, solo.camera, solo.spawn, solo.room], [true, false, 'WRAP', 'GLOBAL', null]);
+    for (const gameState of [GAME_MODE.SOLO, GAME_MODE.PVP, GAME_MODE.ARCADE]) {
+        const standard = Game.prototype.getWorldRules.call({ gameState, experimentalRooms: [room] });
+        assert.deepEqual([standard.wrap, standard.usesRooms, standard.camera, standard.spawn, standard.room], [true, false, 'WRAP', 'GLOBAL', null]);
+    }
 });
 
 test('Experimental entity coordination slides ships, bounces large bodies, and destroys small asteroids environmentally', () => {

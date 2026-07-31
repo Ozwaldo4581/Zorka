@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 
 import { GAME_MODE, Game, WORLD_HEIGHT, WORLD_WIDTH } from '../game.js';
+import { Player } from '../entities/player.js';
 import { wrap } from '../physics.js';
 
 test('Experimental has an explicit mode identifier and separate screen controls', async () => {
@@ -20,6 +21,8 @@ test('Experimental temporary state is cleared without assigning rooms to base en
     const game = {
         experimentalRooms: [{ id: 'temporary-room' }],
         experimentalDoors: [{ id: 'temporary-door' }],
+        experimentalRoomPopulations: new Map([['temporary-room', { desired: {} }]]),
+        experimentalSessionId: 4,
         experimentalRoomAssignments: new Map([[basePlayer, 'temporary-room']]),
         experimentalCameraState: { roomId: 'temporary-room' }
     };
@@ -28,6 +31,8 @@ test('Experimental temporary state is cleared without assigning rooms to base en
 
     assert.deepEqual(game.experimentalRooms, []);
     assert.deepEqual(game.experimentalDoors, []);
+    assert.equal(game.experimentalRoomPopulations.size, 0);
+    assert.equal(game.experimentalSessionId, 5);
     assert.equal(game.experimentalRoomAssignments.size, 0);
     assert.equal(game.experimentalCameraState, null);
     assert.equal('roomId' in basePlayer, false);
@@ -72,4 +77,64 @@ test('base world dimensions and wrapping remain unchanged by the mode shell', ()
     const entity = { x: WORLD_WIDTH + 10, y: -10 };
     wrap(entity);
     assert.deepEqual(entity, { x: 10, y: WORLD_HEIGHT - 10 });
+});
+
+test('Experimental cleanup invalidates pending room-local replacements', t => {
+    let pendingReplacement;
+    t.mock.method(globalThis, 'setTimeout', callback => { pendingReplacement = callback; return 1; });
+    let spawned = false;
+    const game = {
+        gameState: GAME_MODE.EXPERIMENTAL,
+        experimentalSessionId: 9,
+        experimentalRooms: [{ id: 'experimental-room-2' }],
+        experimentalRoomPopulations: new Map([['experimental-room-2', {
+            desired: { asteroids: 1, debris: 0, satellites: 0 }
+        }]]),
+        asteroids: [],
+        hazards: [],
+        players: [],
+        projectiles: []
+    };
+    Game.prototype.scheduleEnvironmentReplacement.call(
+        game, 1, 'experimental-room-2', 'asteroids', () => { spawned = true; }
+    );
+    Game.prototype.clearExperimentalState.call(game);
+    game.gameState = GAME_MODE.SOLO;
+    pendingReplacement();
+    assert.equal(spawned, false);
+    assert.equal(game.experimentalSessionId, 10);
+});
+
+test('Experimental room and door state re-entry initializes one clean layout', () => {
+    const game = {
+        asteroidDensityLevel: 1,
+        debrisDensityLevel: 1,
+        satelliteDensityLevel: 1,
+        players: [], asteroids: [], hazards: [], projectiles: []
+    };
+    Game.prototype.initializeExperimentalRooms.call(game);
+    assert.deepEqual(game.experimentalRooms.map(room => room.id), ['experimental-room-1', 'experimental-room-2']);
+    assert.deepEqual(game.experimentalDoors.map(door => door.id), ['experimental-door-1-2']);
+    Game.prototype.clearExperimentalState.call(game);
+    Game.prototype.initializeExperimentalRooms.call(game);
+    assert.equal(game.experimentalRooms.length, 2);
+    assert.equal(game.experimentalDoors.length, 1);
+    assert.equal(game.experimentalRoomPopulations.size, 2);
+});
+
+test('Experimental cleanup clears room-local NPC intent', () => {
+    const target = new Player(100, 100, 1);
+    const npc = new Player(200, 200, 3);
+    npc.isNPC = true;
+    npc.roomId = 'experimental-room-1';
+    npc.npcTarget = target;
+    npc.shouldFire = true;
+    const game = {
+        players: [target, npc], asteroids: [], hazards: [], projectiles: [],
+        experimentalRooms: [], experimentalDoors: [], experimentalRoomPopulations: new Map()
+    };
+    Game.prototype.clearExperimentalState.call(game);
+    assert.equal(npc.npcTarget, null);
+    assert.equal(npc.shouldFire, false);
+    assert.equal('roomId' in npc, false);
 });

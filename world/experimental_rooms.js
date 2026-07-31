@@ -6,6 +6,11 @@ export const EXPERIMENTAL_WALL_MAX_CORRECTION_PASSES = 4;
 const SPAWN_INSET = 120;
 const DOOR_WIDTH = 960;
 const DOOR_TRANSITION_TOLERANCE = 16;
+const FULL_ARENA_POPULATION = Object.freeze({
+    densitySource: 'ARENA_OPTIONS',
+    scale: 'FULL_ARENA',
+    independentlyResolved: true
+});
 
 export const EXPERIMENTAL_COLLISION_CATEGORY = Object.freeze({
     HUMAN_PLAYER: 'human-player',
@@ -50,6 +55,8 @@ export function createExperimentalRooms(worldWidth, worldHeight) {
             right: worldWidth - SPAWN_INSET,
             bottom: worldHeight - SPAWN_INSET
         }),
+        population: FULL_ARENA_POPULATION,
+        npcAggressionSource: 'ARENA_OPTIONS',
         npcCount: 1
     });
     const room2 = Object.freeze({
@@ -80,6 +87,8 @@ export function createExperimentalRooms(worldWidth, worldHeight) {
             right: room1.spawnRegion.right,
             bottom: sharedBoundaryY + room1.height - SPAWN_INSET
         }),
+        population: FULL_ARENA_POPULATION,
+        npcAggressionSource: 'ARENA_OPTIONS',
         npcCount: 0
     });
     return [room1, room2];
