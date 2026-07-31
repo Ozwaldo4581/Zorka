@@ -110,6 +110,7 @@ export class Projectile {
 
     updateMissile(dt, asteroids, players, hazards, projectiles, worldRules = null) {
         const HOMING_RANGE = 1920;
+        const isInProjectileRoom = target => !worldRules?.usesRooms || target.roomId === this.roomId;
         const getDistance = target => {
             const delta = worldRules?.wrap === false
                 ? { x: target.x - this.x, y: target.y - this.y }
@@ -118,6 +119,7 @@ export class Projectile {
         };
         const isActiveTarget = target => {
             if (!target || target === this || target === this.owner) return false;
+            if (!isInProjectileRoom(target)) return false;
             if (players.includes(target)) return !target.isDead && !target.isEliminated;
             if (asteroids.includes(target)) return !target.isDestroyed;
             if (hazards.includes(target)) return !target.isDestroyed;
@@ -141,7 +143,7 @@ export class Projectile {
                 this.missileTarget = null;
 
                 players.forEach(player => {
-                    if (player === this.owner || player.isDead || player.isEliminated) return;
+                    if (player === this.owner || player.isDead || player.isEliminated || !isInProjectileRoom(player)) return;
                     const distance = getDistance(player);
                     if (distance < minDist && distance < HOMING_RANGE) {
                         minDist = distance;
@@ -150,7 +152,7 @@ export class Projectile {
                 });
 
                 hazards.forEach(hazard => {
-                    if (!hazard.isSatellite || hazard.isDestroyed) return;
+                    if (!hazard.isSatellite || hazard.isDestroyed || !isInProjectileRoom(hazard)) return;
                     const distance = getDistance(hazard);
                     if (distance < minDist && distance < HOMING_RANGE) {
                         minDist = distance;

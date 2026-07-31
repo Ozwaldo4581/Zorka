@@ -1,11 +1,13 @@
 import { DESIGN_WIDTH, DESIGN_HEIGHT, WORLD_WIDTH, WORLD_HEIGHT } from './game.js';
 import { nearestWrappedDisplacement } from './physics.js';
 
+export const DEFAULT_GAMEPLAY_ZOOM = 0.6;
+
 export class Camera {
     constructor() {
         this.x = 0;
         this.y = 0;
-        this.zoom = 0.6; // Zoomed out a bit
+        this.zoom = DEFAULT_GAMEPLAY_ZOOM;
         this.shake = 0;
         this.boundaryMode = 'WRAP';
         this.roomBounds = null;

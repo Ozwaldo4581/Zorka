@@ -668,6 +668,7 @@ export class Player {
         }
         this.npcThinkTimer -= dt;
         this.npcBehaviorTimer -= dt;
+        if (worldRules?.usesRooms && this.npcTarget?.roomId !== this.roomId) this.npcTarget = null;
 
         // Personality/Behavior state transitions
         if (this.npcBehaviorTimer <= 0) {
@@ -710,6 +711,7 @@ export class Player {
             // Priority 1: Players
             others.forEach(other => {
                 if (other === this || other.isDead) return;
+                if (worldRules?.usesRooms && other.roomId !== this.roomId) return;
                 const d = Math.hypot(other.x - this.x, other.y - this.y);
                 if (d < minDist && d <= aggressionRange) {
                     minDist = d;
@@ -721,6 +723,7 @@ export class Player {
             if (!this.npcTarget) {
                 hazards.forEach(h => {
                     if (h.isDestroyed) return;
+                    if (worldRules?.usesRooms && h.roomId !== this.roomId) return;
                     const d = Math.hypot(h.x - this.x, h.y - this.y);
                     if (d < minDist && d <= aggressionRange) {
                         minDist = d;
@@ -746,6 +749,7 @@ export class Player {
         const hasAwarenessLapse = Math.random() < 0.2;
 
         asteroids.forEach(a => {
+            if (worldRules?.usesRooms && a.roomId !== this.roomId) return;
             const dx = a.x - this.x;
             const dy = a.y - this.y;
             const dist = Math.hypot(dx, dy);
@@ -788,7 +792,8 @@ export class Player {
 
         if (worldRules?.room) {
             const predicted = { x: this.x + this.vx * lookAheadTime, y: this.y + this.vy * lookAheadTime };
-            for (const wall of worldRules.room.walls) {
+            const walls = worldRules.getWallsFor?.(this) || worldRules.room.walls;
+            for (const wall of walls) {
                 const closest = closestPointOnSegment(predicted, wall.start, wall.end);
                 const dx = predicted.x - closest.x;
                 const dy = predicted.y - closest.y;
