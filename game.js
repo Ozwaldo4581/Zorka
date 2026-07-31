@@ -6,11 +6,18 @@ import { Camera } from './camera.js';
 import { HUD } from './ui/hud.js';
 import { AudioManager } from './audio_manager.js';
 import { checkCollision, nearestWrappedDisplacement } from './physics.js';
+import { createExperimentalRooms } from './world/experimental_rooms.js';
 
 export const DESIGN_WIDTH = 1920;
 export const DESIGN_HEIGHT = 1080;
 export const WORLD_WIDTH = DESIGN_WIDTH * 9;
 export const WORLD_HEIGHT = DESIGN_HEIGHT * 9;
+export const GAME_MODE = Object.freeze({
+    SOLO: 'SOLO',
+    PVP: 'PVP',
+    ARCADE: 'ARCADE',
+    EXPERIMENTAL: 'EXPERIMENTAL'
+});
 export const PLAYER_COLORS = Object.freeze([
     '#00ffff', '#ff00ff', '#ffff00', '#ff0000',
     '#00ff00', '#0000ff', '#ff8800', '#8800ff'
@@ -67,6 +74,7 @@ export class Game {
         this.hazards = [];
         this.projectiles = [];
         this.vfx = [];
+        this.clearExperimentalState();
 
         this.camera = new Camera();
         this.hud = new HUD();
@@ -722,6 +730,20 @@ export class Game {
             this.updateSoloMockLobby(0);
         });
 
+        document.getElementById('btn-experimental-open').addEventListener('click', () => {
+            document.getElementById('main-menu').classList.add('hidden');
+            document.getElementById('experimental-menu').classList.remove('hidden');
+        });
+
+        document.getElementById('btn-experimental-start').addEventListener('click', () => {
+            this.startExperimentalMode();
+        });
+
+        document.getElementById('btn-experimental-back').addEventListener('click', () => {
+            document.getElementById('experimental-menu').classList.add('hidden');
+            document.getElementById('main-menu').classList.remove('hidden');
+        });
+
         document.getElementById('btn-solo-back').addEventListener('click', () => {
             document.getElementById('solo-menu').classList.add('hidden');
             document.getElementById('controls-selection').classList.add('hidden');
@@ -1297,6 +1319,41 @@ export class Game {
         this.audio.stopBGM();
     }
 
+    clearExperimentalState() {
+        this.experimentalRooms = [];
+        this.experimentalRoomAssignments = new Map();
+        this.experimentalCameraState = null;
+    }
+
+    initializeExperimentalRooms() {
+        this.experimentalRooms = createExperimentalRooms();
+    }
+
+    setupExperimentalMatch() {
+        this.clearExperimentalState();
+        this.initializeExperimentalRooms();
+        // The shell deliberately reuses standard entity setup until room rules
+        // are introduced in the next slices. No shared world constants change.
+        this.spawnPlayers(GAME_MODE.SOLO, 2);
+        this.gameState = GAME_MODE.EXPERIMENTAL;
+        this.spawnInitialAsteroids();
+    }
+
+    startExperimentalMode() {
+        this.closePauseMenu();
+        this.hideArcadeGameOver();
+        this.players = [];
+        this.asteroids = [];
+        this.hazards = [];
+        this.projectiles = [];
+        this.vfx = [];
+        this.setupExperimentalMatch();
+        document.getElementById('menu-overlay').classList.add('hidden');
+        this.camera.follow(this.players[0]);
+        this.audio.stopBGM();
+        this.resetMouseLockInput();
+    }
+
     async quickJoinOnlineGame() {
         // Look for an available lobby in this.network.activeLobbies
         const lobbies = Object.values(this.network.activeLobbies || {});
@@ -1461,6 +1518,7 @@ export class Game {
         document.getElementById('main-menu').classList.remove('hidden');
         document.getElementById('solo-menu').classList.add('hidden');
         document.getElementById('online-menu').classList.add('hidden');
+        document.getElementById('experimental-menu').classList.add('hidden');
         document.getElementById('main-options-popup').classList.add('hidden');
         document.getElementById('main-options-popup').querySelectorAll('.focused').forEach(el => el.classList.remove('focused'));
         document.getElementById('controls-selection').classList.add('hidden');
@@ -1482,6 +1540,7 @@ export class Game {
         this.hazards = [];
         this.projectiles = [];
         this.vfx = [];
+        this.clearExperimentalState();
     }
 
     handleFire(playerId, isBurstShot = false) {
@@ -1850,13 +1909,13 @@ export class Game {
             ? ['quit-confirmation']
             : this.arcadeGameOver
                 ? ['arcade-game-over']
-                : ['main-options-popup', 'botless-popup', 'options-popup', 'solo-menu', 'online-menu', 'main-menu'];
+                : ['main-options-popup', 'botless-popup', 'options-popup', 'solo-menu', 'online-menu', 'experimental-menu', 'main-menu'];
         for (const id of potentialContainers) {
             const el = document.getElementById(id);
             if (el && !el.classList.contains('hidden')) {
                 activeMenu = el;
                 // If it's a menu-level container, only count it if it's the specific active one
-                if (id === 'solo-menu' || id === 'online-menu' || id === 'main-menu') {
+                if (id === 'solo-menu' || id === 'online-menu' || id === 'experimental-menu' || id === 'main-menu') {
                     // These are siblings in menu-overlay
                 }
                 break;
