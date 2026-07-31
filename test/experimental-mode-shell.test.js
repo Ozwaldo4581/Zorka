@@ -19,6 +19,7 @@ test('Experimental temporary state is cleared without assigning rooms to base en
     const basePlayer = { id: 1 };
     const game = {
         experimentalRooms: [{ id: 'temporary-room' }],
+        experimentalDoors: [{ id: 'temporary-door' }],
         experimentalRoomAssignments: new Map([[basePlayer, 'temporary-room']]),
         experimentalCameraState: { roomId: 'temporary-room' }
     };
@@ -26,6 +27,7 @@ test('Experimental temporary state is cleared without assigning rooms to base en
     Game.prototype.clearExperimentalState.call(game);
 
     assert.deepEqual(game.experimentalRooms, []);
+    assert.deepEqual(game.experimentalDoors, []);
     assert.equal(game.experimentalRoomAssignments.size, 0);
     assert.equal(game.experimentalCameraState, null);
     assert.equal('roomId' in basePlayer, false);

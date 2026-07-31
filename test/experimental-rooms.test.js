@@ -4,6 +4,7 @@ import assert from 'node:assert/strict';
 import { GAME_MODE, Game, WORLD_HEIGHT, WORLD_WIDTH, getArenaPopulationTargets } from '../game.js';
 import { isPointInRoom } from '../physics.js';
 import {
+    createExperimentalDoors,
     createExperimentalRooms,
     EXPERIMENTAL_WALL_COLLISION_THICKNESS,
     EXPERIMENTAL_WALL_MAX_CORRECTION_PASSES,
@@ -11,7 +12,7 @@ import {
     EXPERIMENTAL_WALL_VISUAL_CORE_THICKNESS
 } from '../world/experimental_rooms.js';
 
-test('Experimental room 1 uses the full authoritative arena dimensions and four boundary walls', () => {
+test('Experimental room 1 uses the full authoritative arena dimensions and doorway-split boundary walls', () => {
     const [room] = createExperimentalRooms(WORLD_WIDTH, WORLD_HEIGHT);
 
     assert.equal(room.id, 'experimental-room-1');
@@ -19,11 +20,12 @@ test('Experimental room 1 uses the full authoritative arena dimensions and four 
     assert.equal(room.width, 17280);
     assert.equal(room.height, 9720);
     assert.deepEqual(room.bounds, { left: 0, top: 0, right: 17280, bottom: 9720 });
-    assert.equal(room.walls.length, 4);
+    assert.equal(room.walls.length, 5);
     assert.deepEqual(room.walls.map(wall => [wall.start, wall.end]), [
         [{ x: 0, y: 0 }, { x: 17280, y: 0 }],
         [{ x: 17280, y: 0 }, { x: 17280, y: 9720 }],
-        [{ x: 17280, y: 9720 }, { x: 0, y: 9720 }],
+        [{ x: 17280, y: 9720 }, { x: 9120, y: 9720 }],
+        [{ x: 8160, y: 9720 }, { x: 0, y: 9720 }],
         [{ x: 0, y: 9720 }, { x: 0, y: 0 }]
     ]);
     assert.equal(isPointInRoom({ x: 5000, y: 5000 }, room.bounds), true);
@@ -60,7 +62,26 @@ test('Experimental room 2 is equal-sized, directly below room 1, and reuses its 
         'room-2-wall-left'
     ]);
     assert.equal(room2.walls.some(wall => wall.start.y === room1.bounds.bottom && wall.end.y === room1.bounds.bottom), false);
-    assert.equal(room1.walls.filter(wall => wall.start.y === room1.bounds.bottom && wall.end.y === room1.bounds.bottom).length, 1);
+    assert.equal(room1.walls.filter(wall => wall.start.y === room1.bounds.bottom && wall.end.y === room1.bounds.bottom).length, 2);
+});
+
+test('the centered doorway owns one invisible blocker and exact shared-wall opening metadata', () => {
+    const rooms = createExperimentalRooms(WORLD_WIDTH, WORLD_HEIGHT);
+    const [door] = createExperimentalDoors(rooms);
+    const sharedWalls = rooms[0].walls.filter(wall => wall.start.y === WORLD_HEIGHT && wall.end.y === WORLD_HEIGHT);
+
+    assert.equal(door.id, 'experimental-door-1-2');
+    assert.deepEqual(door.roomIds, ['experimental-room-1', 'experimental-room-2']);
+    assert.equal(door.orientation, 'HORIZONTAL');
+    assert.equal(door.boundaryCoordinate, 9720);
+    assert.deepEqual(
+        { min: door.openingMin, max: door.openingMax, center: door.openingCenter, width: door.openingWidth },
+        { min: 8160, max: 9120, center: 8640, width: 960 }
+    );
+    assert.deepEqual(sharedWalls.map(wall => [wall.start.x, wall.end.x]), [[17280, 9120], [8160, 0]]);
+    assert.deepEqual([door.blocker.start, door.blocker.end], [{ x: 8160, y: 9720 }, { x: 9120, y: 9720 }]);
+    assert.equal(door.allowedCategories.includes('human-player'), true);
+    assert.equal(door.blockedCategories.includes('ordinary-projectile'), true);
 });
 
 test('Experimental and standard setup share one density resolver for every option level', () => {
@@ -141,6 +162,7 @@ test('only the Experimental initialization seam adds room definitions', () => {
     assert.deepEqual(game.experimentalRooms, []);
     Game.prototype.initializeExperimentalRooms.call(game);
     assert.deepEqual(game.experimentalRooms.map(room => room.id), ['experimental-room-1', 'experimental-room-2']);
+    assert.deepEqual(game.experimentalDoors.map(door => door.id), ['experimental-door-1-2']);
     Game.prototype.clearExperimentalState.call(game);
     assert.deepEqual(game.experimentalRooms, []);
 });

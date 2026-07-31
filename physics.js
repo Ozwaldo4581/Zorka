@@ -115,6 +115,7 @@ export function isPointInRoom(point, bounds, margin = 0) {
 
 export function isLineBlockedByWalls(from, to, walls, thickness = 0) {
     return walls.some(wall => {
+        if (wall.isTwoSided) return Boolean(sweptCircleSegmentIntersection(from, to, 0, wall, thickness));
         const wx = wall.end.x - wall.start.x;
         const wy = wall.end.y - wall.start.y;
         const length = Math.hypot(wx, wy);

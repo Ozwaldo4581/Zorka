@@ -1,8 +1,9 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { Camera } from '../camera.js';
+import { Camera, DEFAULT_GAMEPLAY_ZOOM } from '../camera.js';
 import { Game, GAME_MODE, WORLD_HEIGHT, WORLD_WIDTH } from '../game.js';
+import { Player } from '../entities/player.js';
 import { Projectile } from '../entities/projectile.js';
 import { Asteroid } from '../entities/asteroid.js';
 import { SpaceDebris, Satellite } from '../entities/hazards.js';
@@ -17,7 +18,23 @@ import {
     sweptCircleSegmentIntersection,
     updateNewtonian
 } from '../physics.js';
-import { createExperimentalRooms } from '../world/experimental_rooms.js';
+import { createExperimentalDoors, createExperimentalRooms } from '../world/experimental_rooms.js';
+
+const createExperimentalContext = overrides => {
+    const experimentalRooms = createExperimentalRooms(WORLD_WIDTH, WORLD_HEIGHT);
+    return {
+        gameState: GAME_MODE.EXPERIMENTAL,
+        experimentalRooms,
+        experimentalDoors: createExperimentalDoors(experimentalRooms),
+        players: [],
+        asteroids: [],
+        hazards: [],
+        projectiles: [],
+        audio: { playSpatialUnwrapped() {}, playSpatial() {} },
+        getActiveCameras: () => [],
+        ...overrides
+    };
+};
 
 const verticalWall = { start: { x: 0, y: 100 }, end: { x: 0, y: 0 } };
 
@@ -84,8 +101,170 @@ test('Experimental camera follows directly at every wall while a fresh base came
     }
 
     const wrapped = new Camera();
+    assert.equal(wrapped.zoom, DEFAULT_GAMEPLAY_ZOOM);
     assert.equal(wrapped.boundaryMode, 'WRAP');
     assert.ok(wrapped.worldToScreen(WORLD_WIDTH - 5, 0).x < 1920);
+});
+
+test('the door blocker ignores humans, blocks NPCs, and swept resolution prevents tunneling', () => {
+    const game = createExperimentalContext();
+    const human = new Player(8640, 9800, 1);
+    human.roomId = 'experimental-room-1';
+    human.previousX = 8640;
+    human.previousY = 9600;
+    human.vy = 400;
+    const npc = new Player(8640, 9800, 3);
+    npc.isNPC = true;
+    npc.roomId = 'experimental-room-1';
+    npc.previousX = 8640;
+    npc.previousY = 9600;
+    npc.vy = 400;
+
+    assert.equal(Game.prototype.resolveExperimentalSlide.call(game, human), false);
+    assert.equal(human.y, 9800);
+    assert.equal(Game.prototype.resolveExperimentalSlide.call(game, npc), true);
+    assert.ok(npc.y < WORLD_HEIGHT);
+    assert.equal(npc.vy, 0);
+    assert.equal(npc.roomId, 'experimental-room-1');
+});
+
+test('Experimental collision categories centrally distinguish every door outcome representation', () => {
+    const human = new Player(0, 0, 1);
+    const npc = new Player(0, 0, 3);
+    npc.isNPC = true;
+    const ordinary = new Projectile(0, 0, 0, 0);
+    const missile = new Projectile(0, 0, 0, 0); missile.isMissile = true;
+    const laser = new Projectile(0, 0, 0, 0); laser.isLaser = true;
+    const tentacle = new Projectile(0, 0, 0, 0); tentacle.isTentacle = true;
+    const orbital = new Projectile(0, 0, 0, 0); orbital.isOrbital = true;
+    const large = new Asteroid(0, 0, 'large');
+    const medium = new Asteroid(0, 0, 'medium');
+    const small = new Asteroid(0, 0, 'small');
+    const satellite = new Satellite(0, 0);
+    const debris = new SpaceDebris(0, 0);
+    const categories = [human, npc, ordinary, missile, laser, tentacle, orbital, large, medium, small, satellite, debris]
+        .map(entity => Game.prototype.getExperimentalCollisionCategory.call({}, entity));
+    assert.deepEqual(categories, [
+        'human-player', 'npc-ship', 'ordinary-projectile', 'missile', 'laser', 'tentacle', 'orbital',
+        'large-asteroid', 'medium-asteroid', 'small-asteroid', 'satellite', 'space-debris'
+    ]);
+});
+
+test('human membership commits beyond the doorway clearance without changing motion or camera', () => {
+    const game = createExperimentalContext();
+    const player = new Player(8640, WORLD_HEIGHT, 1);
+    player.roomId = 'experimental-room-1';
+    player.vx = 12;
+    player.vy = 34;
+    const camera = new Camera();
+    camera.useDirectWorld();
+    camera.follow(player);
+    const cameraBefore = { x: camera.x, y: camera.y };
+
+    assert.equal(Game.prototype.resolveExperimentalPlayerRoomMembership.call(game, player), 'experimental-room-1');
+    player.y = WORLD_HEIGHT + player.radius + game.experimentalDoors[0].transitionTolerance + 1;
+    assert.equal(Game.prototype.resolveExperimentalPlayerRoomMembership.call(game, player), 'experimental-room-2');
+    assert.deepEqual({ vx: player.vx, vy: player.vy }, { vx: 12, vy: 34 });
+    assert.deepEqual({ x: camera.x, y: camera.y }, cameraBefore);
+    assert.equal(Game.prototype.resolveExperimentalPlayerRoomMembership.call(game, player), 'experimental-room-2');
+    player.y = WORLD_HEIGHT - player.radius - game.experimentalDoors[0].transitionTolerance - 1;
+    assert.equal(Game.prototype.resolveExperimentalPlayerRoomMembership.call(game, player), 'experimental-room-1');
+});
+
+test('door projectile outcomes block every representation regardless of human ownership', () => {
+    const owner = new Player(8640, 9600, 1);
+    owner.roomId = 'experimental-room-1';
+    const removed = [];
+    const detonated = [];
+    const game = createExperimentalContext({
+        players: [owner],
+        removeProjectile(projectile) { projectile.isRemoved = true; removed.push(projectile); return true; },
+        detonateMissile(projectile) { projectile.hasDetonated = true; detonated.push(projectile); },
+        detonateAoEProjectile(projectile) { projectile.hasDetonated = true; detonated.push(projectile); }
+    });
+    for (const kind of ['ordinary', 'laser', 'tentacle', 'orbital', 'missile']) {
+        const projectile = new Projectile(8640, 9800, 0, 400);
+        projectile.owner = owner;
+        projectile.roomId = owner.roomId;
+        projectile.previousX = 8640;
+        projectile.previousY = 9600;
+        if (kind === 'laser') projectile.isLaser = true;
+        if (kind === 'tentacle') projectile.isTentacle = true;
+        if (kind === 'orbital') projectile.isOrbital = true;
+        if (kind === 'missile') projectile.isMissile = true;
+        game.projectiles.push(projectile);
+        assert.equal(Game.prototype.resolveExperimentalProjectileWall.call(game, projectile), true, kind);
+        assert.ok(projectile.y <= WORLD_HEIGHT, kind);
+    }
+    assert.equal(removed.length, 5);
+    assert.equal(detonated.length, 1);
+});
+
+test('door blocker reflects confined bodies and environmentally replaces a small asteroid in its room', () => {
+    const large = new Asteroid(8640, 9800, 'large');
+    const small = new Asteroid(8640, 9800, 'small');
+    const debris = new SpaceDebris(8640, 9800);
+    const satellite = new Satellite(8640, 9800);
+    for (const entity of [large, small, debris, satellite]) {
+        entity.roomId = 'experimental-room-1';
+        entity.previousX = 8640;
+        entity.previousY = 9600;
+        entity.vx = 0;
+        entity.vy = 100;
+    }
+    const angular = [large.rotSpeed, debris.rotSpeed, satellite.rotSpeed];
+    const replacements = [];
+    const game = createExperimentalContext({
+        asteroids: [large, small],
+        hazards: [debris, satellite],
+        hitTarget(target, killer) {
+            assert.equal(killer, null);
+            target.isDestroyed = true;
+            this.asteroids.splice(this.asteroids.indexOf(target), 1);
+        },
+        spawnAsteroid(size, x, y, roomId) { replacements.push({ size, roomId }); }
+    });
+    Game.prototype.resolveExperimentalEntityWalls.call(game);
+    assert.ok(large.vy < 0 && debris.vy < 0 && satellite.vy < 0);
+    assert.deepEqual([large.rotSpeed, debris.rotSpeed, satellite.rotSpeed], angular);
+    assert.equal(small.isDestroyed, true);
+    assert.deepEqual(replacements, [{ size: 'small', roomId: 'experimental-room-1' }]);
+});
+
+test('Experimental respawn stays in the human current room', () => {
+    const player = new Player(8640, 12000, 1);
+    player.roomId = 'experimental-room-2';
+    player.isDead = true;
+    const game = createExperimentalContext({
+        players: [player],
+        startingShieldCharges: 3,
+        findExperimentalSpawn: Game.prototype.findExperimentalSpawn
+    });
+    Game.prototype.respawnPlayer.call(game, player);
+    const room2 = game.experimentalRooms[1];
+    assert.equal(player.roomId, room2.id);
+    assert.ok(player.y >= room2.spawnRegion.top + player.radius && player.y <= room2.spawnRegion.bottom - player.radius);
+});
+
+test('NPC targeting drops players across the doorway and cross-room collisions are rejected', () => {
+    const npc = new Player(8640, 9600, 3);
+    npc.isNPC = true;
+    npc.roomId = 'experimental-room-1';
+    npc.aggressionLevel = 5;
+    npc.accuracyLevel = 5;
+    const human = new Player(8640, 9900, 1);
+    human.roomId = 'experimental-room-2';
+    npc.npcTarget = human;
+    npc.npcThinkTimer = 1;
+    const game = createExperimentalContext({ players: [human, npc] });
+    const worldRules = Game.prototype.getWorldRules.call(game);
+
+    npc.updateNPC(0.016, [human, npc], [], () => {}, [], worldRules);
+    assert.equal(npc.npcTarget, null);
+    assert.notEqual(npc.shouldFire, true);
+    assert.equal(Game.prototype.areExperimentalEntitiesCoLocated.call(game, npc, human), false);
+    game.gameState = GAME_MODE.SOLO;
+    assert.equal(Game.prototype.areExperimentalEntitiesCoLocated.call(game, npc, human), true);
 });
 
 test('Experimental cleanup restores the prior wrapped camera strategy and zoom', () => {
