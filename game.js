@@ -365,7 +365,7 @@ export class Game {
     }
 
     areTransformationsEnabled() {
-        return this.gameState !== 'ARCADE';
+        return this.gameState !== GAME_MODE.ARCADE && this.gameState !== GAME_MODE.EXPERIMENTAL;
     }
 
     findSafePlayerSpawn() {
@@ -657,6 +657,10 @@ export class Game {
                 return;
             }
             this.keys[e.code] = true;
+            if (Game.prototype.handleLevelUpgradeKey.call(this, e.code)) {
+                e.preventDefault();
+                return;
+            }
             if (e.code === 'Escape' && this.activeModal === 'quit') {
                 this.closeQuitConfirmation();
                 return;
@@ -1480,6 +1484,20 @@ export class Game {
         });
     }
 
+    handleLevelUpgradeKey(code) {
+        const choices = {
+            Digit1: 'projectile', Numpad1: 'projectile',
+            Digit2: 'speed', Numpad2: 'speed',
+            Digit3: 'shield', Numpad3: 'shield'
+        };
+        const choice = choices[code];
+        if (!choice || !this.isInGameplayState() || this.isPauseMenuOpen || this.activeModal) return false;
+        const player = this.players.find(candidate => !candidate.isNPC && candidate.controlMode === 'KEYBOARD');
+        if (!player || player.isDead || player.pendingLevelUps <= 0) return false;
+        player.applyLevelUpgrade(choice);
+        return true;
+    }
+
     addProjectile(projectile) {
         this.projectiles.push(projectile);
         Game.prototype.indexExperimentalEntity.call(this, 'projectiles', projectile);
@@ -1516,7 +1534,7 @@ export class Game {
         for (const npcRoom of this.experimentalRooms.filter(area => area.isPopulationEligible)) {
             for (let index = 0; index < npcRoom.npcCount; index++) {
                 const spawn = Game.prototype.findExperimentalSpawn.call(this, 25, placedPlayers, npcRoom.id);
-                const npc = new Player(spawn.x, spawn.y, nextNpcId++);
+                const npc = new Player(spawn.x, spawn.y, nextNpcId++, chooseRandomPlayerColor());
                 if (typeof this.configurePlayerShields === 'function') this.configurePlayerShields(npc);
                 npc.isNPC = true;
                 npc.name = `ROOM ${npcRoom.roomNumber} BOT ${index + 1}`;
@@ -2948,7 +2966,7 @@ export class Game {
             
             if (target instanceof Asteroid) {
                 if (target.size === 'large') {
-                    this.awardXP(killer, 1);
+                    this.awardXP(killer, 1, target);
                     for (let i = 0; i < 3; i++) this.spawnAsteroid('medium', target.x, target.y, target.roomId);
                     
                     // Queue a respawn for a new large asteroid
@@ -2966,7 +2984,7 @@ export class Game {
                     this.asteroids.splice(currentIndex, 1);
                 }
             } else if (target.isDebris || target.isSatellite) {
-                this.awardXP(killer, target.isSatellite ? 15 : 5);
+                this.awardXP(killer, target.isSatellite ? 15 : 5, target);
 
                 const currentIndex = this.hazards.indexOf(target);
                 if (currentIndex !== -1) {
@@ -3061,7 +3079,7 @@ export class Game {
 
         // Award the confirmed kill before Hardcore clears the victim's progression.
         if (killer && killer !== player && typeof killer.addCapsule === 'function') {
-            if (player.isNPC) this.awardXP(killer, Game.prototype.getNPCXPReward.call(this, player));
+            if (player.isNPC) this.awardXP(killer, Game.prototype.getNPCXPReward.call(this, player), player);
             killer.addCapsule();
             killer.score = (killer.score || 0) + 1;
             killer.killStreak = (killer.killStreak || 0) + 1;
@@ -3110,9 +3128,16 @@ export class Game {
 
     }
 
-    awardXP(killer, amount) {
-        if (!killer || !this.players.includes(killer) || typeof killer.addXP !== 'function') return 0;
+    awardXP(killer, amount, source = null) {
+        if (!killer || !this.players.includes(killer) || typeof killer.addXP !== 'function'
+            || !Number.isFinite(amount) || amount <= 0) return 0;
         const levelsGained = killer.addXP(amount);
+        if (source && Number.isFinite(source.x) && Number.isFinite(source.y)) {
+            Game.prototype.createFloatingText.call(this, `+${amount} XP`, source.x, source.y - (source.radius || 0) - 18, '#ffff66', source.roomId);
+        }
+        if (levelsGained > 0) {
+            Game.prototype.createFloatingText.call(this, 'Lvl Up!', killer.x, killer.y - killer.radius - 24, killer.color, killer.roomId);
+        }
         if (killer.isNPC) killer.resolveNPCLevelUps();
         return levelsGained;
     }
@@ -3467,6 +3492,31 @@ export class Game {
         });
         Game.prototype.indexExperimentalEntity.call(this, 'vfx', this.vfx.at(-1));
         return this.vfx.at(-1);
+    }
+
+    createFloatingText(text, x, y, color = '#fff', roomId = null) {
+        if (!Array.isArray(this.vfx)) this.vfx = [];
+        const effect = {
+            text, x, y, color, roomId, life: 1.25,
+            update(dt) {
+                this.life -= dt;
+                this.y -= 28 * dt;
+                if (this.life <= 0) this.finished = true;
+            },
+            draw(ctx, assets, camera) {
+                ctx.save();
+                camera.apply(ctx, this.x, this.y);
+                ctx.globalAlpha = Math.max(0, Math.min(1, this.life / 0.35));
+                ctx.font = 'bold 18px Orbitron';
+                ctx.textAlign = 'center';
+                ctx.fillStyle = this.color;
+                ctx.fillText(this.text, 0, 0);
+                ctx.restore();
+            }
+        };
+        this.vfx.push(effect);
+        Game.prototype.indexExperimentalEntity.call(this, 'vfx', effect);
+        return effect;
     }
 
     draw() {
