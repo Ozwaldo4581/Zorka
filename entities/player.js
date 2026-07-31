@@ -1,6 +1,6 @@
 import { updateNewtonian, checkCollision, nearestWrappedDisplacement } from '../physics.js';
 import { Projectile } from './projectile.js';
-import { DESIGN_WIDTH, DESIGN_HEIGHT } from '../game.js';
+import { DESIGN_WIDTH, DESIGN_HEIGHT, WORLD_WIDTH } from '../game.js';
 
 const BASE_GUN_COOLDOWN = 0.75;
 const BURST_INTERVAL = 0.05;
@@ -1009,6 +1009,10 @@ export class Player {
 
     getGunProjectiles(x, y, rotation, baseProjectile = this.resolveBaseProjectile()) {
         const projs = [];
+        const isDistanceLimitedGun = !baseProjectile.isLaser
+            && !this.isCyborg
+            && !this.isDimensionX
+            && ['Normal', 'Antigun', 'Double'].includes(this.activeGun);
 
         const createProj = (angle, lateralOffset = 0) => {
             const projSpeed = this.isCyborg ? baseProjectile.speed * 0.5 : baseProjectile.speed;
@@ -1036,6 +1040,7 @@ export class Player {
             p.radius = baseProjectile.radius;
             p.lifeSpan = baseProjectile.lifeSpan;
             p.canWrap = baseProjectile.canWrap;
+            if (isDistanceLimitedGun) p.maxTravelDistance = WORLD_WIDTH;
 
             // Cyborg base projectile is a single shot orb
             if (this.isCyborg) {
