@@ -2328,19 +2328,39 @@ export class Game {
     }
 
     playerDeath(player, killer) {
-        if (!player || player.isDead) return;
-        // Spawn immunity check
-        if (player.spawnImmunityTimer > 0) return;
+        return Game.prototype.resolvePlayerDamage.call(this, player, 1, killer);
+    }
 
-        // Let Player consume its shield state before Game resolves a death.
+    resolvePlayerDamage(player, amount, killer) {
+        if (!player || player.isDead || player.spawnImmunityTimer > 0) return;
+
+        const damage = Math.max(0, Math.floor(Number(amount) || 0));
+        const result = { shieldsConsumed: 0, hpLost: 0, died: false };
         const cameras = this.getActiveCameras();
-        if (player.consumeShield()) {
-            this.audio.playSpatial('shield_hit', player.x, player.y, cameras, WORLD_WIDTH, WORLD_HEIGHT); 
-            return;
+
+        for (let point = 0; point < damage && !player.isDead; point++) {
+            if (player.consumeShield()) {
+                result.shieldsConsumed++;
+                continue;
+            }
+
+            const hpBefore = player.currentHP;
+            const survived = player.takeHPDamage();
+            result.hpLost += Math.max(0, hpBefore - player.currentHP);
+            if (survived) continue;
+
+            Game.prototype.confirmPlayerDeath.call(this, player, killer, cameras);
+            result.died = player.isDead;
         }
 
-        if (player.takeHPDamage()) return;
+        if (result.shieldsConsumed > 0) {
+            this.audio.playSpatial('shield_hit', player.x, player.y, cameras, WORLD_WIDTH, WORLD_HEIGHT);
+        }
+        return result;
+    }
 
+    confirmPlayerDeath(player, killer, cameras = this.getActiveCameras()) {
+        if (!player || player.isDead || player.currentHP > 0) return;
         player.isDead = true;
         player.cancelBurstFire();
         player.resetControllerAimLock(true);
@@ -2514,21 +2534,36 @@ export class Game {
         }
 
         // Players vs Asteroids and Hazards
+        this.asteroidPlayerContacts ??= new WeakMap();
         for (let player of this.players) {
             if (!player || player.isDead || player.isEliminated || (player.id !== 1 && player.id !== 2)) continue;
 
             // Asteroids
             for (let a of this.asteroids) {
                 if (!a || a.isDestroyed) continue;
-                if (checkCollision(player, a)) {
+                const contacts = this.asteroidPlayerContacts.get(a) || new Set();
+                if (!checkCollision(player, a)) {
+                    contacts.delete(player);
+                    continue;
+                }
+                this.asteroidPlayerContacts.set(a, contacts);
+                if (a.size !== 'small' && player.spawnImmunityTimer > 0) break;
+                if (!contacts.has(player)) {
+                    contacts.add(player);
                     if (a.size === 'small') {
                         // Preserve the physical impact outcome while exempting only Player damage.
                         this.hitTarget(a);
+                    } else if (a.size === 'large') {
+                        player.clearShieldCharges();
+                        a.hits = a.maxHits - 1;
+                        this.hitTarget(a);
+                    } else if (a.size === 'medium') {
+                        Game.prototype.resolvePlayerDamage.call(this, player, 5);
                     } else {
                         this.playerDeath(player);
                     }
-                    break;
                 }
+                break;
             }
             if (player.isDead) continue;
 

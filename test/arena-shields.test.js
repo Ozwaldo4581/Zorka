@@ -9,6 +9,7 @@ const collisionGame = ({ player, asteroids = [], projectiles = [] }) => ({
     players: [player], asteroids, projectiles, hazards: [],
     hitTarget(target) { target.hits++; target.isDestroyed = target.hits >= target.maxHits; },
     playerDeath: Game.prototype.playerDeath,
+    resolvePlayerDamage: Game.prototype.resolvePlayerDamage,
     removeProjectile(projectile) { projectile.isRemoved = true; this.projectiles.splice(this.projectiles.indexOf(projectile), 1); },
     audio: { playSpatial() {} }, getActiveCameras: () => [], createExplosion() {}, clearAimLocksForTarget() {},
     removeProjectileMethod: Game.prototype.removeProjectile
@@ -43,15 +44,78 @@ test('small asteroid contact cannot damage an unshielded player', () => {
     assert.equal(player.shieldCharges, 0);
 });
 
-test('medium and large asteroid contact retain shield damage', () => {
-    for (const size of ['medium', 'large']) {
-        const player = new Player(100, 100);
-        player.spawnImmunityTimer = 0;
-        player.configureShields(2, 6);
-        runCollisions(collisionGame({ player, asteroids: [new Asteroid(100, 100, size)] }));
-        assert.equal(player.shieldCharges, 1, `${size} consumes one shield`);
-        assert.equal(player.shieldRechargeTimer, 0);
-    }
+test('large asteroid contact clears shields, preserves HP timing, and forces one destruction', () => {
+    const player = new Player(100, 100);
+    player.spawnImmunityTimer = 0;
+    player.configureShields(5, 6);
+    player.currentHP = 1;
+    player.hpRechargeTimer = 12;
+    const asteroid = new Asteroid(100, 100, 'large');
+    const game = collisionGame({ player, asteroids: [asteroid] });
+
+    runCollisions(game);
+
+    assert.deepEqual([player.shieldCharges, player.currentHP, player.hpRechargeTimer, player.isDead], [0, 1, 12, false]);
+    assert.equal(asteroid.hits, asteroid.maxHits);
+    assert.equal(asteroid.isDestroyed, true);
+});
+
+test('large asteroid contact cannot kill an unshielded player', () => {
+    const player = new Player(100, 100);
+    player.spawnImmunityTimer = 0;
+    const asteroid = new Asteroid(100, 100, 'large');
+    runCollisions(collisionGame({ player, asteroids: [asteroid] }));
+    assert.deepEqual([player.shieldCharges, player.currentHP, player.isDead], [0, 5, false]);
+    assert.equal(asteroid.isDestroyed, true);
+});
+
+test('large collision reuses asteroid destruction for Medium children without rewards', t => {
+    t.mock.method(globalThis, 'setTimeout', () => 0);
+    const player = new Player(100, 100);
+    player.spawnImmunityTimer = 0;
+    player.configureShields(2, 6);
+    const asteroid = new Asteroid(100, 100, 'large');
+    const game = collisionGame({ player, asteroids: [asteroid] });
+    const spawned = [];
+    game.hitTarget = Game.prototype.hitTarget;
+    game.spawnAsteroid = (size, x, y) => spawned.push({ size, x, y });
+    game.awardXP = Game.prototype.awardXP;
+    game.gameState = 'SOLO';
+
+    runCollisions(game);
+
+    assert.deepEqual(spawned, Array.from({ length: 3 }, () => ({ size: 'medium', x: 100, y: 100 })));
+    assert.equal(game.asteroids.includes(asteroid), false);
+    assert.equal(player.totalXP, 0);
+});
+
+test('medium asteroid contact routes five damage through shields then HP only once per contact', () => {
+    const player = new Player(100, 100);
+    player.spawnImmunityTimer = 0;
+    player.configureShields(3, 6);
+    const asteroid = new Asteroid(100, 100, 'medium');
+    const game = collisionGame({ player, asteroids: [asteroid] });
+
+    runCollisions(game);
+    assert.deepEqual([player.shieldCharges, player.currentHP, player.hpRechargeTimer, player.isDead], [0, 3, 20, false]);
+    assert.equal(asteroid.isDestroyed, false);
+
+    runCollisions(game);
+    assert.deepEqual([player.shieldCharges, player.currentHP], [0, 3]);
+});
+
+test('medium asteroid damage can be fully shielded or blocked by spawn immunity', () => {
+    const shielded = new Player(100, 100);
+    shielded.spawnImmunityTimer = 0;
+    shielded.configureShields(10, 6);
+    shielded.hpRechargeTimer = 9;
+    runCollisions(collisionGame({ player: shielded, asteroids: [new Asteroid(100, 100, 'medium')] }));
+    assert.deepEqual([shielded.shieldCharges, shielded.currentHP, shielded.hpRechargeTimer], [5, 5, 9]);
+
+    const immune = new Player(100, 100);
+    immune.configureShields(5, 6);
+    runCollisions(collisionGame({ player: immune, asteroids: [new Asteroid(100, 100, 'medium')] }));
+    assert.deepEqual([immune.shieldCharges, immune.currentHP, immune.isDead], [5, 5, false]);
 });
 
 test('small asteroid projectile collision still removes the projectile and hits the asteroid', () => {
