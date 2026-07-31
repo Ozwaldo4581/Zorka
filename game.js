@@ -3263,7 +3263,20 @@ export class Game {
         }
 
         if (this.gameState !== 'MENU') {
-            this.hud.draw(this.ctx, this.players, this.asteroids, this.camera, this.gameState === 'PVP', this.swapUI);
+            this.hud.draw(
+                this.ctx,
+                this.players,
+                this.asteroids,
+                this.camera,
+                this.gameState === 'PVP',
+                this.swapUI,
+                {
+                    usesRooms: this.gameState === GAME_MODE.EXPERIMENTAL,
+                    owner: this.players[0],
+                    rooms: this.experimentalRooms,
+                    hazards: this.hazards
+                }
+            );
         }
 
         this.drawCrosshair();

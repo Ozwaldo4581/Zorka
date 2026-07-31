@@ -3,7 +3,7 @@ export class HUD {
         this.maxSpeed = 800; // Updated max speed reference for meter
     }
 
-    draw(ctx, players, asteroids, camera, isSplitScreen = false, swapUI = false) {
+    draw(ctx, players, asteroids, camera, isSplitScreen = false, swapUI = false, minimapContext = null) {
         if (!players || players.length === 0) return;
 
         // Check for Game Over / Win condition based on Event Horizon elimination
@@ -12,7 +12,7 @@ export class HUD {
         
         const activePlayers = players.filter(p => !p.isDead);
 
-        this.drawMinimap(ctx, players, asteroids, camera, swapUI);
+        this.drawMinimap(ctx, players, asteroids, camera, swapUI, minimapContext);
         this.drawScoreboard(ctx, players, swapUI);
         
         if (isSplitScreen) {
@@ -306,7 +306,7 @@ export class HUD {
         ctx.restore();
     }
 
-    drawMinimap(ctx, players, asteroids, camera, swapUI = false) {
+    drawMinimap(ctx, players, asteroids, camera, swapUI = false, minimapContext = null) {
         const DESIGN_WIDTH = 1920;
         const DESIGN_HEIGHT = 1080;
         const WORLD_WIDTH = DESIGN_WIDTH * 9;
@@ -319,7 +319,19 @@ export class HUD {
         // Swapped Logic: Minimap at bottom-left if swapUI is true
         const x = swapUI ? padding : (DESIGN_WIDTH - mapWidth - padding);
         const y = DESIGN_HEIGHT - mapHeight - padding;
+        const room = minimapContext?.usesRooms
+            ? minimapContext.rooms?.find(candidate => candidate.id === minimapContext.owner?.roomId)
+            : null;
+        const usesRoom = Boolean(minimapContext?.usesRooms && room);
         const scale = mapWidth / WORLD_WIDTH;
+        const positionOnMap = entity => usesRoom
+            ? {
+                x: x + ((entity.x - room.bounds.left) / room.width) * mapWidth,
+                y: y + ((entity.y - room.bounds.top) / room.height) * mapHeight
+            }
+            : { x: x + entity.x * scale, y: y + entity.y * scale };
+        const belongsOnMap = entity => !minimapContext?.usesRooms
+            || (usesRoom && entity.roomId === minimapContext.owner.roomId);
 
         // Background
         ctx.fillStyle = 'rgba(0, 0, 0, 0.7)';
@@ -346,19 +358,36 @@ export class HUD {
         // Asteroids
         ctx.fillStyle = '#444';
         asteroids.forEach(a => {
+            if (!belongsOnMap(a)) return;
+            const point = positionOnMap(a);
             ctx.beginPath();
-            ctx.arc(x + a.x * scale, y + a.y * scale, Math.max(1, a.radius * scale), 0, Math.PI * 2);
+            ctx.arc(point.x, point.y, Math.max(1, a.radius * (usesRoom ? mapWidth / room.width : scale)), 0, Math.PI * 2);
             ctx.fill();
         });
+
+        // Experimental hazards use their authoritative room assignment just like
+        // other room-local minimap markers.
+        if (usesRoom) {
+            ctx.fillStyle = '#888';
+            (minimapContext.hazards || []).forEach(hazard => {
+                if (hazard.isDestroyed || !belongsOnMap(hazard)) return;
+                const point = positionOnMap(hazard);
+                ctx.beginPath();
+                ctx.arc(point.x, point.y, 2, 0, Math.PI * 2);
+                ctx.fill();
+            });
+        }
 
         // Players
         players.forEach(p => {
             if (p.isDead || p.isEliminated) return;
+            if (!belongsOnMap(p)) return;
+            const point = positionOnMap(p);
             ctx.fillStyle = p.color || (p.id === 1 ? '#00ffff' : '#ff00ff');
             if (p.id > 2 && !p.isNPC && !p.color) ctx.fillStyle = '#ffffff'; // Fallback for remote
             
             ctx.beginPath();
-            ctx.arc(x + p.x * scale, y + p.y * scale, 4, 0, Math.PI * 2);
+            ctx.arc(point.x, point.y, 4, 0, Math.PI * 2);
             ctx.fill();
             
             // Highlight P1 dot slightly
