@@ -61,9 +61,8 @@ test('Experimental room 2 is equal-sized, directly below room 1, and reuses its 
     assert.equal(room2.npcCount, 2);
     assert.equal(room2.npcLevel, 2);
     assert.deepEqual(room2.walls.map(wall => wall.id), [
-        'room-2-wall-right',
-        'room-2-wall-bottom',
-        'room-2-wall-left'
+        'room-2-wall-right', 'room-2-wall-bottom',
+        'room-2-wall-left-bottom', 'room-2-wall-left-top'
     ]);
     assert.equal(room2.walls.some(wall => wall.start.y === room1.bounds.bottom && wall.end.y === room1.bounds.bottom), false);
     assert.equal(room1.walls.filter(wall => wall.start.y === room1.bounds.bottom && wall.end.y === room1.bounds.bottom).length, 2);
@@ -86,6 +85,50 @@ test('the centered doorway owns one invisible blocker and exact shared-wall open
     assert.deepEqual([door.blocker.start, door.blocker.end], [{ x: 8160, y: 9720 }, { x: 9120, y: 9720 }]);
     assert.equal(door.allowedCategories.includes('human-player'), true);
     assert.equal(door.blockedCategories.includes('ordinary-projectile'), true);
+});
+
+test('nine-room layout uses exact continuous coordinates, progression, safe spawns, and chain-only adjacency', () => {
+    const rooms = createExperimentalRooms(WORLD_WIDTH, WORLD_HEIGHT);
+    const expectedOrigins = [
+        [0, 0], [0, 9720], [-17280, 9720], [-17280, 0], [-17280, -9720],
+        [0, -9720], [17280, -9720], [17280, 0], [17280, 9720]
+    ];
+    assert.equal(rooms.length, 9);
+    rooms.forEach((room, index) => {
+        const number = index + 1;
+        const [left, top] = expectedOrigins[index];
+        assert.deepEqual({ id: room.id, roomNumber: room.roomNumber, origin: room.origin }, {
+            id: `experimental-room-${number}`, roomNumber: number, origin: { x: left, y: top }
+        });
+        assert.deepEqual(room.bounds, { left, top, right: left + 17280, bottom: top + 9720 });
+        assert.deepEqual(room.spawnRegion, { left: left + 120, top: top + 120, right: left + 17160, bottom: top + 9600 });
+        assert.deepEqual([room.width, room.height, room.npcCount, room.npcLevel], [17280, 9720, number, number]);
+    });
+
+    const doors = createExperimentalDoors(rooms);
+    assert.equal(doors.length, 8);
+    assert.deepEqual(doors.map(door => door.roomIds), Array.from({ length: 8 }, (_, index) => [
+        `experimental-room-${index + 1}`, `experimental-room-${index + 2}`
+    ]));
+});
+
+test('all horizontal and vertical doors are centered, split their one authoritative wall, and stay invisible', () => {
+    const rooms = createExperimentalRooms(WORLD_WIDTH, WORLD_HEIGHT);
+    const doors = createExperimentalDoors(rooms);
+    const expected = [
+        ['HORIZONTAL', 9720, 8160, 9120], ['VERTICAL', 0, 14100, 15060],
+        ['HORIZONTAL', 9720, -9120, -8160], ['HORIZONTAL', 0, -9120, -8160],
+        ['VERTICAL', 0, -5340, -4380], ['VERTICAL', 17280, -5340, -4380],
+        ['HORIZONTAL', 0, 25440, 26400], ['HORIZONTAL', 9720, 25440, 26400]
+    ];
+    doors.forEach((door, index) => {
+        assert.deepEqual([door.orientation, door.boundaryCoordinate, door.openingMin, door.openingMax], expected[index]);
+        assert.equal(door.sharedWallIds.length, 2);
+        assert.equal(door.blocker.isDoorBlocker, true);
+        assert.equal('render' in door.blocker, false);
+        assert.deepEqual(door.allowedCategories, ['human-player']);
+        assert.equal(door.blockedCategories.length, 11);
+    });
 });
 
 test('Experimental and standard setup share one density resolver for every option level', () => {
@@ -128,9 +171,9 @@ test('Experimental population setup applies the shared targets through room-loca
         Game.prototype.setupExperimentalPopulations.call(game);
         const targets = getArenaPopulationTargets(level, level, level);
         assert.deepEqual(calls, {
-            asteroids: targets.asteroids * 2,
-            debris: targets.debris * 2,
-            satellites: targets.satellites * 2
+            asteroids: targets.asteroids * 9,
+            debris: targets.debris * 9,
+            satellites: targets.satellites * 9
         });
         for (const room of game.experimentalRooms) {
             assert.deepEqual(roomCalls.get(room.id) || {}, Object.fromEntries(
@@ -190,8 +233,8 @@ test('only the Experimental initialization seam adds room definitions', () => {
 
     assert.deepEqual(game.experimentalRooms, []);
     Game.prototype.initializeExperimentalRooms.call(game);
-    assert.deepEqual(game.experimentalRooms.map(room => room.id), ['experimental-room-1', 'experimental-room-2']);
-    assert.deepEqual(game.experimentalDoors.map(door => door.id), ['experimental-door-1-2']);
+    assert.deepEqual(game.experimentalRooms.map(room => room.id), Array.from({ length: 9 }, (_, index) => `experimental-room-${index + 1}`));
+    assert.deepEqual(game.experimentalDoors.map(door => door.id), Array.from({ length: 8 }, (_, index) => `experimental-door-${index + 1}-${index + 2}`));
     for (const room of game.experimentalRooms) {
         assert.deepEqual(game.experimentalRoomPopulations.get(room.id)?.desired, { asteroids: 160, debris: 10, satellites: 9 });
     }
@@ -290,15 +333,12 @@ test('Experimental composition follows each room NPC count and level', () => {
     game.gameState = GAME_MODE.EXPERIMENTAL;
     Game.prototype.setupExperimentalPopulations.call(game);
 
-    assert.equal(game.players.length, 4);
+    assert.equal(game.players.length, 46);
     assert.equal(game.players.filter(player => !player.isNPC).length, 1);
-    assert.equal(game.players.filter(player => player.isNPC).length, 3);
+    assert.equal(game.players.filter(player => player.isNPC).length, 45);
     assert.equal(game.players[0].controlMode, 'KEYBOARD');
-    assert.deepEqual(game.players.filter(player => player.isNPC).map(player => [player.roomId, player.level]), [
-        ['experimental-room-1', 1],
-        ['experimental-room-2', 2],
-        ['experimental-room-2', 2]
-    ]);
+    assert.deepEqual(game.players.filter(player => player.isNPC).map(player => [player.roomId, player.level]),
+        game.experimentalRooms.flatMap(room => Array.from({ length: room.roomNumber }, () => [room.id, room.roomNumber])));
     assert.ok(game.players.slice(1).every(player => Math.hypot(game.players[0].x - player.x, game.players[0].y - player.y) > 120));
 });
 
