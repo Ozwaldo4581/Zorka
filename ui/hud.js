@@ -1,3 +1,10 @@
+export function getHPBlockLayout(maxHP, totalWidth = 120, normalGap = 2, minimumBlockWidth = 0.5) {
+    const blockCount = Math.max(1, Math.floor(Number(maxHP) || 1));
+    const gap = Math.min(normalGap, Math.max(0, (totalWidth - blockCount * minimumBlockWidth) / Math.max(1, blockCount - 1)));
+    const blockWidth = Math.max(0, (totalWidth - gap * (blockCount - 1)) / blockCount);
+    return { blockCount, gap, blockWidth, totalWidth };
+}
+
 export class HUD {
     constructor() {
         this.maxSpeed = 800; // Updated max speed reference for meter
@@ -38,18 +45,42 @@ export class HUD {
 
     drawLevelDisplay(ctx, player, x, y) {
         if (!player || player.isNPC || player.id > 2) return;
+        const panelWidth = 300;
+        const panelHeight = 46;
+        const hpBarWidth = 120;
+        const hpBarHeight = 8;
+        const hpBarX = x + 90;
+        const hpBarY = y + 28;
+        const { blockCount: maxHP, gap, blockWidth } = getHPBlockLayout(player.maxHP, hpBarWidth);
+        const currentHP = Math.max(0, Math.min(maxHP, Math.floor(player.currentHP || 0)));
+
         ctx.save();
         ctx.font = 'bold 14px Orbitron';
         ctx.textAlign = 'left';
         ctx.fillStyle = 'rgba(0, 0, 0, 0.7)';
-        ctx.fillRect(x, y, 132, 34);
+        ctx.fillRect(x, y, panelWidth, panelHeight);
         ctx.strokeStyle = player.color;
-        ctx.strokeRect(x, y, 132, 34);
+        ctx.strokeRect(x, y, panelWidth, panelHeight);
         ctx.fillStyle = player.color;
         ctx.fillText('LEVEL', x + 10, y + 22);
+        ctx.fillStyle = '#fff';
+        ctx.fillText(String(player.level), x + 67, y + 22);
+        ctx.fillStyle = player.color;
+        ctx.fillText('SHIELD', x + 220, y + 22);
         ctx.textAlign = 'right';
         ctx.fillStyle = '#fff';
-        ctx.fillText(String(player.level), x + 122, y + 22);
+        ctx.fillText(String(player.shieldCharges), x + 290, y + 22);
+
+        for (let index = 0; index < maxHP; index++) {
+            const blockX = hpBarX + index * (blockWidth + gap);
+            ctx.fillStyle = index < currentHP ? '#248cff' : 'rgba(36, 140, 255, 0.18)';
+            ctx.fillRect(blockX, hpBarY, blockWidth, hpBarHeight);
+            if (index >= currentHP && blockWidth >= 1) {
+                ctx.strokeStyle = 'rgba(36, 140, 255, 0.7)';
+                ctx.lineWidth = Math.min(1, blockWidth);
+                ctx.strokeRect(blockX, hpBarY, blockWidth, hpBarHeight);
+            }
+        }
         ctx.restore();
     }
 

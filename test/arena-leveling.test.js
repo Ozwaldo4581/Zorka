@@ -311,7 +311,7 @@ test('confirmed ship death awards 100 XP once and shield absorption awards none'
         createExplosion() {},
         awardXP: Game.prototype.awardXP
     };
-    Game.prototype.playerDeath.call(game, victim, killer);
+    for (let hit = 0; hit < 5; hit++) Game.prototype.playerDeath.call(game, victim, killer);
     Game.prototype.playerDeath.call(game, victim, killer);
     assert.equal(killer.totalXP, 100);
 
@@ -341,7 +341,8 @@ test('Hardcore resets victim level progress only after a confirmed unshielded de
     hardcoreVictim.totalXP = 100;
     hardcoreVictim.level = 1;
     hardcoreVictim.pendingLevelUps = 1;
-    Game.prototype.playerDeath.call(makeGame([hardcoreVictim], true), hardcoreVictim);
+    const hardcoreGame = makeGame([hardcoreVictim], true);
+    for (let hit = 0; hit < 5; hit++) Game.prototype.playerDeath.call(hardcoreGame, hardcoreVictim);
     assert.equal(hardcoreVictim.level, 0);
     assert.equal(hardcoreVictim.totalXP, 0);
 
@@ -351,7 +352,8 @@ test('Hardcore resets victim level progress only after a confirmed unshielded de
     standardVictim.level = 1;
     standardVictim.pendingLevelUps = 1;
     standardVictim.burstCount = 4;
-    Game.prototype.playerDeath.call(makeGame([standardVictim], false), standardVictim);
+    const standardGame = makeGame([standardVictim], false);
+    for (let hit = 0; hit < 5; hit++) Game.prototype.playerDeath.call(standardGame, standardVictim);
     assert.equal(standardVictim.level, 1);
     assert.equal(standardVictim.totalXP, 100);
     assert.equal(standardVictim.pendingLevelUps, 1);

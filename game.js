@@ -2188,6 +2188,7 @@ export class Game {
     respawnPlayer(player) {
         player.resetControllerAimLock(true);
         player.isDead = false;
+        player.restoreHP();
         player.vx = 0;
         player.vy = 0;
         player.spawnImmunityTimer = 1.0; 
@@ -2329,6 +2330,8 @@ export class Game {
             return;
         }
 
+        if (player.takeHPDamage()) return;
+
         player.isDead = true;
         player.cancelBurstFire();
         player.resetControllerAimLock(true);
@@ -2463,11 +2466,9 @@ export class Game {
                         if (p.isSkinnyMissile) this.detonateAoEProjectile(p);
                         else this.detonateMissile(p);
                         this.removeProjectile(p);
-                        this.playerDeath(player, p.owner);
                     } else if (p.aoeRadius > 0) {
                         this.detonateAoEProjectile(p);
                         if (!p.isOrbital) this.removeProjectile(p);
-                        this.playerDeath(player, p.owner);
                     } else {
                         if (!p.isLaser && !p.isOrbital && !p.isTentacle) {
                             this.removeProjectile(p);
