@@ -1,0 +1,84 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+
+import { Player } from '../entities/player.js';
+import { Game } from '../game.js';
+import { getHPBlockLayout } from '../ui/hud.js';
+
+const makeDamageGame = players => ({
+    players,
+    gameState: 'SOLO',
+    hardcoreMode: false,
+    startingShieldCharges: 0,
+    audio: { playSpatial() {} },
+    getActiveCameras: () => [],
+    clearAimLocksForTarget() {},
+    createExplosion() {},
+    awardXP: Game.prototype.awardXP
+});
+
+test('Player owns HP damage, resettable recharge, and instant full restoration', () => {
+    const player = new Player(0, 0);
+    assert.deepEqual([player.currentHP, player.maxHP, player.hpRechargeTimer], [5, 5, 0]);
+
+    assert.equal(player.takeHPDamage(), true);
+    assert.deepEqual([player.currentHP, player.hpRechargeTimer], [4, 20]);
+    player.updateHPRecharge(19);
+    assert.deepEqual([player.currentHP, player.hpRechargeTimer], [4, 1]);
+    player.takeHPDamage();
+    assert.deepEqual([player.currentHP, player.hpRechargeTimer], [3, 20]);
+    player.updateHPRecharge(20);
+    assert.deepEqual([player.currentHP, player.hpRechargeTimer], [5, 0]);
+});
+
+test('level gains grant only the newly earned current and maximum HP', () => {
+    const player = new Player(0, 0);
+    player.currentHP = 2;
+    player.hpRechargeTimer = 12;
+    assert.equal(player.addXP(300), 2);
+    assert.deepEqual([player.level, player.currentHP, player.maxHP], [2, 4, 7]);
+    assert.equal(player.hpRechargeTimer, 12);
+
+    player.resetLevelProgress();
+    assert.deepEqual([player.level, player.currentHP, player.maxHP, player.hpRechargeTimer], [0, 5, 5, 0]);
+});
+
+test('Game resolves immunity, shields, HP, death, and respawn in order', () => {
+    globalThis.window = globalThis.window || {};
+    const killer = new Player(0, 0);
+    const victim = new Player(0, 0, 2);
+    victim.configureShields(1, 6);
+    const game = makeDamageGame([killer, victim]);
+
+    Game.prototype.playerDeath.call(game, victim, killer);
+    assert.deepEqual([victim.shieldCharges, victim.currentHP], [1, 5]);
+
+    victim.spawnImmunityTimer = 0;
+    Game.prototype.playerDeath.call(game, victim, killer);
+    assert.deepEqual([victim.shieldCharges, victim.currentHP, victim.hpRechargeTimer], [0, 5, 0]);
+
+    for (let hit = 0; hit < 4; hit++) Game.prototype.playerDeath.call(game, victim, killer);
+    assert.deepEqual([victim.isDead, victim.currentHP, killer.score], [false, 1, 0]);
+    Game.prototype.playerDeath.call(game, victim, killer);
+    assert.deepEqual([victim.isDead, victim.currentHP, killer.score], [true, 0, 1]);
+
+    victim.maxHP = 8;
+    victim.currentHP = 0;
+    victim.hpRechargeTimer = 20;
+    Game.prototype.respawnPlayer.call(game, victim);
+    assert.deepEqual([victim.isDead, victim.currentHP, victim.maxHP, victim.hpRechargeTimer], [false, 8, 8, 0]);
+});
+
+test('fixed-width HP layout compresses blocks without overflowing', () => {
+    const layouts = [5, 6, 10, 20, 500].map(maxHP => getHPBlockLayout(maxHP));
+    for (const layout of layouts) {
+        const occupiedWidth = layout.blockCount * layout.blockWidth + (layout.blockCount - 1) * layout.gap;
+        assert.ok(layout.blockWidth > 0);
+        assert.ok(occupiedWidth <= layout.totalWidth + Number.EPSILON * 100);
+        assert.ok(Math.abs(occupiedWidth - 120) < 1e-9);
+    }
+    assert.ok(layouts[0].blockWidth > layouts[1].blockWidth);
+    assert.ok(layouts[1].blockWidth > layouts[2].blockWidth);
+    assert.ok(layouts[2].blockWidth > layouts[3].blockWidth);
+    assert.ok(layouts[4].gap < 2);
+});

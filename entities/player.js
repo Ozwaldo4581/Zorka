@@ -40,6 +40,10 @@ export class Player {
         this.maxShieldCharges = 0;
         this.shieldRechargeDelay = 6;
         this.shieldRechargeTimer = 0;
+        this.maxHP = 5;
+        this.currentHP = 5;
+        this.hpRechargeDelay = 20;
+        this.hpRechargeTimer = 0;
         this.hasMissile = false;
         this.missileCooldown = 0;
         this.missileReloadLevel = 0; // Increases each time Missile capsule is selected
@@ -114,6 +118,7 @@ export class Player {
         let levelsGained = 0;
         while (this.totalXP >= this.getLevelThreshold(this.level + 1)) {
             this.level++;
+            this.increaseMaxHP();
             this.pendingLevelUps++;
             levelsGained++;
         }
@@ -188,6 +193,8 @@ export class Player {
         this.pendingLevelUps = 0;
         this.projectileUpgradeCount = 0;
         this.speedUpgradeCount = 0;
+        this.maxHP = 5;
+        this.restoreHP();
 
         const levelShieldCapacity = Math.max(0, this.levelShieldUpgradeCount || 0);
         this.maxShieldCharges = Math.max(0, this.maxShieldCharges - levelShieldCapacity);
@@ -335,6 +342,7 @@ export class Player {
         }
 
         this.updateShieldRecharge(dt);
+        this.updateHPRecharge(dt);
 
         // Update immunity
         if (this.spawnImmunityTimer > 0) {
@@ -552,6 +560,36 @@ export class Player {
         this.hasForcefield = this.shieldCharges > 0;
         this.shieldRechargeTimer = 0;
         return true;
+    }
+
+    // Returns true when HP absorbed the hit and the ship remains alive.
+    // False means the hit depleted HP, or HP was already depleted.
+    takeHPDamage() {
+        if (this.currentHP <= 0) return false;
+        this.currentHP = Math.max(0, this.currentHP - 1);
+        this.hpRechargeTimer = this.hpRechargeDelay;
+        return this.currentHP > 0;
+    }
+
+    restoreHP() {
+        this.currentHP = this.maxHP;
+        this.hpRechargeTimer = 0;
+    }
+
+    increaseMaxHP(amount = 1) {
+        const increase = Math.max(0, Math.floor(Number(amount) || 0));
+        this.maxHP += increase;
+        this.currentHP = Math.min(this.maxHP, this.currentHP + increase);
+    }
+
+    updateHPRecharge(dt) {
+        if (this.isDead || this.currentHP >= this.maxHP) {
+            this.hpRechargeTimer = 0;
+            return;
+        }
+
+        this.hpRechargeTimer = Math.max(0, this.hpRechargeTimer - dt);
+        if (this.hpRechargeTimer === 0) this.restoreHP();
     }
 
     updateShieldRecharge(dt) {
