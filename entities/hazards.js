@@ -20,8 +20,8 @@ export class SpaceDebris {
         this.rotSpeed = (Math.random() - 0.5) * 1.5;
     }
 
-    update(dt) {
-        updateNewtonian(this, dt);
+    update(dt, worldRules = null) {
+        updateNewtonian(this, dt, undefined, worldRules);
         this.rotation += this.rotSpeed * dt;
     }
 
@@ -57,8 +57,8 @@ export class Satellite {
         this.fireRate = 0.8 + Math.random() * 0.2; 
     }
 
-    update(dt, game) {
-        updateNewtonian(this, dt);
+    update(dt, game, worldRules = null) {
+        updateNewtonian(this, dt, undefined, worldRules);
         this.rotation += this.rotSpeed * dt;
 
         this.fireCooldown -= dt;

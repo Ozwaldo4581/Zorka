@@ -5,12 +5,28 @@ import { Projectile } from './entities/projectile.js';
 import { Camera } from './camera.js';
 import { HUD } from './ui/hud.js';
 import { AudioManager } from './audio_manager.js';
-import { checkCollision, nearestWrappedDisplacement } from './physics.js';
+import {
+    checkCollision,
+    nearestWrappedDisplacement,
+    circleThickSegmentContact,
+    correctWallPenetration,
+    slideVelocity,
+    reflectVelocity,
+    sweptCircleSegmentIntersection,
+    isLineBlockedByWalls
+} from './physics.js';
+import { createExperimentalRooms } from './world/experimental_rooms.js';
 
 export const DESIGN_WIDTH = 1920;
 export const DESIGN_HEIGHT = 1080;
 export const WORLD_WIDTH = DESIGN_WIDTH * 9;
 export const WORLD_HEIGHT = DESIGN_HEIGHT * 9;
+export const GAME_MODE = Object.freeze({
+    SOLO: 'SOLO',
+    PVP: 'PVP',
+    ARCADE: 'ARCADE',
+    EXPERIMENTAL: 'EXPERIMENTAL'
+});
 export const PLAYER_COLORS = Object.freeze([
     '#00ffff', '#ff00ff', '#ffff00', '#ff0000',
     '#00ff00', '#0000ff', '#ff8800', '#8800ff'
@@ -41,6 +57,16 @@ export const SHIELD_RECHARGE_DELAYS = Object.freeze({
     4: 1.5,
     5: 0.5
 });
+const DEBRIS_DENSITY_COUNTS = Object.freeze([0, 3, 7, 10, 16, 21]);
+const SATELLITE_DENSITY_COUNTS = Object.freeze([0, 3, 5, 6, 9, 14]);
+
+export function getArenaPopulationTargets(asteroidLevel, debrisLevel, satelliteLevel) {
+    return {
+        asteroids: Math.max(0, Math.min(5, asteroidLevel || 0)) * 80,
+        debris: DEBRIS_DENSITY_COUNTS[debrisLevel] || 0,
+        satellites: SATELLITE_DENSITY_COUNTS[satelliteLevel] || 0
+    };
+}
 
 export function getShieldRechargeDelay(optionValue) {
     return SHIELD_RECHARGE_DELAYS[optionValue] ?? SHIELD_RECHARGE_DELAYS[3];
@@ -67,6 +93,7 @@ export class Game {
         this.hazards = [];
         this.projectiles = [];
         this.vfx = [];
+        this.clearExperimentalState();
 
         this.camera = new Camera();
         this.hud = new HUD();
@@ -382,6 +409,7 @@ export class Game {
     }
 
     startArcadeMode() {
+        this.clearExperimentalState();
         this.closePauseMenu();
         this.hideArcadeGameOver();
         document.getElementById('menu-overlay').classList.add('hidden');
@@ -535,37 +563,40 @@ export class Game {
     spawnInitialAsteroids() {
         this.asteroids = [];
         this.hazards = [];
-        // Density Level (0-5): 0 = 0, 1 = 80, 2 = 160, 3 = 240, 4 = 320, 5 = 400
-        const asteroidCount = this.asteroidDensityLevel * 80;
-        for (let i = 0; i < asteroidCount; i++) {
+        const targets = getArenaPopulationTargets(
+            this.asteroidDensityLevel,
+            this.debrisDensityLevel,
+            this.satelliteDensityLevel
+        );
+        for (let i = 0; i < targets.asteroids; i++) {
             this.spawnAsteroid('large');
         }
 
-        // Space Debris: 0=0, 1=3, 2=7, 3=10, 4=16, 5=21
-        const debrisCounts = [0, 3, 7, 10, 16, 21];
-        const debrisCount = debrisCounts[this.debrisDensityLevel] || 0;
-        for (let i = 0; i < debrisCount; i++) {
+        for (let i = 0; i < targets.debris; i++) {
             this.spawnSpaceDebris();
         }
 
-        // Broken Satellites: 0=0, 1=3, 2=5, 3=6, 4=9, 5=14
-        const satelliteCounts = [0, 3, 5, 6, 9, 14];
-        const satelliteCount = satelliteCounts[this.satelliteDensityLevel] || 0;
-        for (let i = 0; i < satelliteCount; i++) {
+        for (let i = 0; i < targets.satellites; i++) {
             this.spawnSatellite();
         }
     }
 
     spawnSpaceDebris() {
-        const x = Math.random() * WORLD_WIDTH;
-        const y = Math.random() * WORLD_HEIGHT;
-        this.hazards.push(new SpaceDebris(x, y));
+        const spawn = this.gameState === GAME_MODE.EXPERIMENTAL
+            ? this.findExperimentalSpawn(45)
+            : { x: Math.random() * WORLD_WIDTH, y: Math.random() * WORLD_HEIGHT };
+        const debris = new SpaceDebris(spawn.x, spawn.y);
+        if (this.gameState === GAME_MODE.EXPERIMENTAL) debris.roomId = this.experimentalRooms[0].id;
+        this.hazards.push(debris);
     }
 
     spawnSatellite() {
-        const x = Math.random() * WORLD_WIDTH;
-        const y = Math.random() * WORLD_HEIGHT;
-        this.hazards.push(new Satellite(x, y));
+        const spawn = this.gameState === GAME_MODE.EXPERIMENTAL
+            ? this.findExperimentalSpawn(32)
+            : { x: Math.random() * WORLD_WIDTH, y: Math.random() * WORLD_HEIGHT };
+        const satellite = new Satellite(spawn.x, spawn.y);
+        if (this.gameState === GAME_MODE.EXPERIMENTAL) satellite.roomId = this.experimentalRooms[0].id;
+        this.hazards.push(satellite);
     }
 
     spawnAsteroid(size, x, y) {
@@ -573,25 +604,31 @@ export class Game {
         const maxAttempts = 50;
         
         if (x === undefined || y === undefined) {
-            while (attempts < maxAttempts) {
-                x = Math.random() * WORLD_WIDTH;
-                y = Math.random() * WORLD_HEIGHT;
-                
-                let tooClose = false;
-                // Don't spawn too close to players
-                for (let p of this.players) {
-                    const dist = Math.hypot(x - p.x, y - p.y);
-                    if (dist < 400) {
-                        tooClose = true;
-                        break;
+            if (this.gameState === GAME_MODE.EXPERIMENTAL) {
+                const spawn = this.findExperimentalSpawn(size === 'large' ? 80 : size === 'medium' ? 45 : 20);
+                x = spawn.x;
+                y = spawn.y;
+            } else {
+                while (attempts < maxAttempts) {
+                    x = Math.random() * WORLD_WIDTH;
+                    y = Math.random() * WORLD_HEIGHT;
+                    let tooClose = false;
+                    // Don't spawn too close to players
+                    for (let p of this.players) {
+                        const dist = Math.hypot(x - p.x, y - p.y);
+                        if (dist < 400) {
+                            tooClose = true;
+                            break;
+                        }
                     }
+                    if (!tooClose) break;
+                    attempts++;
                 }
-                if (!tooClose) break;
-                attempts++;
             }
         }
         
         const asteroid = new Asteroid(x, y, size);
+        if (this.gameState === GAME_MODE.EXPERIMENTAL) asteroid.roomId = this.experimentalRooms[0].id;
         this.asteroids.push(asteroid);
     }
 
@@ -720,6 +757,20 @@ export class Game {
             this.selectedBotCount = 0;
             document.querySelectorAll('.bot-count-btn').forEach(b => b.classList.remove('selected'));
             this.updateSoloMockLobby(0);
+        });
+
+        document.getElementById('btn-experimental-open').addEventListener('click', () => {
+            document.getElementById('main-menu').classList.add('hidden');
+            document.getElementById('experimental-menu').classList.remove('hidden');
+        });
+
+        document.getElementById('btn-experimental-start').addEventListener('click', () => {
+            this.startExperimentalMode();
+        });
+
+        document.getElementById('btn-experimental-back').addEventListener('click', () => {
+            document.getElementById('experimental-menu').classList.add('hidden');
+            document.getElementById('main-menu').classList.remove('hidden');
         });
 
         document.getElementById('btn-solo-back').addEventListener('click', () => {
@@ -1285,6 +1336,7 @@ export class Game {
     }
 
     startGame(mode, customShipCount) {
+        if (mode !== GAME_MODE.EXPERIMENTAL) this.clearExperimentalState();
         this.gameState = mode;
         document.getElementById('menu-overlay').classList.add('hidden');
         this.closePauseMenu();
@@ -1295,6 +1347,97 @@ export class Game {
 
         // Stop BGM when entering gameplay
         this.audio.stopBGM();
+    }
+
+    clearExperimentalState() {
+        if (this.camera && this.experimentalCameraState?.previousZoom) {
+            this.camera.zoom = this.experimentalCameraState.previousZoom;
+            this.camera.useWrappedWorld();
+        }
+        for (const entity of [...(this.players || []), ...(this.asteroids || []), ...(this.hazards || []), ...(this.projectiles || [])]) {
+            delete entity.roomId;
+        }
+        this.experimentalRooms = [];
+        this.experimentalRoomAssignments = new Map();
+        this.experimentalCameraState = null;
+    }
+
+    initializeExperimentalRooms() {
+        this.experimentalRooms = createExperimentalRooms(WORLD_WIDTH, WORLD_HEIGHT);
+    }
+
+    getWorldRules() {
+        if (this.gameState === GAME_MODE.EXPERIMENTAL) {
+            const room = this.experimentalRooms[0] || null;
+            return { wrap: false, usesRooms: true, camera: 'ROOM', spawn: 'ROOM', room };
+        }
+        return { wrap: true, usesRooms: false, camera: 'WRAP', spawn: 'GLOBAL', room: null };
+    }
+
+    findExperimentalSpawn(radius = 40, occupants = this.players) {
+        const room = this.experimentalRooms[0];
+        if (!room) return { x: DESIGN_WIDTH / 2, y: DESIGN_HEIGHT / 2 };
+        const region = room.spawnRegion;
+        for (let attempt = 0; attempt < 40; attempt++) {
+            const point = {
+                x: region.left + radius + Math.random() * Math.max(0, region.right - region.left - radius * 2),
+                y: region.top + radius + Math.random() * Math.max(0, region.bottom - region.top - radius * 2)
+            };
+            if (occupants.every(player => player.isDead || Math.hypot(player.x - point.x, player.y - point.y) > player.radius + radius + 120)) return point;
+        }
+        return { x: (room.bounds.left + room.bounds.right) / 2, y: (room.bounds.top + room.bounds.bottom) / 2 };
+    }
+
+    setupExperimentalPopulations() {
+        const room = this.experimentalRooms[0];
+        const placedPlayers = [];
+        this.players.forEach(player => {
+            const spawn = this.findExperimentalSpawn(player.radius, placedPlayers);
+            player.x = spawn.x;
+            player.y = spawn.y;
+            player.roomId = room.id;
+            placedPlayers.push(player);
+        });
+        this.asteroids = [];
+        this.hazards = [];
+        const targets = getArenaPopulationTargets(
+            this.asteroidDensityLevel,
+            this.debrisDensityLevel,
+            this.satelliteDensityLevel
+        );
+        for (let index = 0; index < targets.asteroids; index++) this.spawnAsteroid('large');
+        for (let index = 0; index < targets.debris; index++) this.spawnSpaceDebris();
+        for (let index = 0; index < targets.satellites; index++) this.spawnSatellite();
+    }
+
+    setupExperimentalMatch() {
+        this.clearExperimentalState();
+        this.initializeExperimentalRooms();
+        // Reuse the shared Solo player contract with the room's explicit 1v1
+        // composition; Experimental placement is applied immediately below.
+        const room = this.experimentalRooms[0];
+        this.spawnPlayers(GAME_MODE.SOLO, room.npcCount + 1);
+        this.gameState = GAME_MODE.EXPERIMENTAL;
+        this.setupExperimentalPopulations();
+    }
+
+    startExperimentalMode() {
+        this.closePauseMenu();
+        this.hideArcadeGameOver();
+        this.clearExperimentalState();
+        this.players = [];
+        this.asteroids = [];
+        this.hazards = [];
+        this.projectiles = [];
+        this.vfx = [];
+        this.setupExperimentalMatch();
+        document.getElementById('menu-overlay').classList.add('hidden');
+        this.experimentalCameraState = { previousZoom: this.camera.zoom };
+        this.camera.zoom = 1;
+        this.camera.follow(this.players[0]);
+        this.camera.useDirectWorld();
+        this.audio.stopBGM();
+        this.resetMouseLockInput();
     }
 
     async quickJoinOnlineGame() {
@@ -1461,6 +1604,7 @@ export class Game {
         document.getElementById('main-menu').classList.remove('hidden');
         document.getElementById('solo-menu').classList.add('hidden');
         document.getElementById('online-menu').classList.add('hidden');
+        document.getElementById('experimental-menu').classList.add('hidden');
         document.getElementById('main-options-popup').classList.add('hidden');
         document.getElementById('main-options-popup').querySelectorAll('.focused').forEach(el => el.classList.remove('focused'));
         document.getElementById('controls-selection').classList.add('hidden');
@@ -1477,6 +1621,7 @@ export class Game {
             else btn.classList.remove('focused');
         });
 
+        this.clearExperimentalState();
         this.players = [];
         this.asteroids = [];
         this.hazards = [];
@@ -1850,13 +1995,13 @@ export class Game {
             ? ['quit-confirmation']
             : this.arcadeGameOver
                 ? ['arcade-game-over']
-                : ['main-options-popup', 'botless-popup', 'options-popup', 'solo-menu', 'online-menu', 'main-menu'];
+                : ['main-options-popup', 'botless-popup', 'options-popup', 'solo-menu', 'online-menu', 'experimental-menu', 'main-menu'];
         for (const id of potentialContainers) {
             const el = document.getElementById(id);
             if (el && !el.classList.contains('hidden')) {
                 activeMenu = el;
                 // If it's a menu-level container, only count it if it's the specific active one
-                if (id === 'solo-menu' || id === 'online-menu' || id === 'main-menu') {
+                if (id === 'solo-menu' || id === 'online-menu' || id === 'experimental-menu' || id === 'main-menu') {
                     // These are siblings in menu-overlay
                 }
                 break;
@@ -2022,6 +2167,7 @@ export class Game {
     update(dt) {
         const gamepads = navigator.getGamepads ? navigator.getGamepads() : [];
         const prestigeTriggers = [];
+        const worldRules = this.getWorldRules();
 
         for (let player of this.players) {
             if (player.isEliminated) continue; // Skip eliminated players completely
@@ -2037,7 +2183,7 @@ export class Game {
                     if (player.controlMode === 'GAMEPAD') this.updateControllerAimLock(player, assignedGamepad);
                     else if (player.controllerAimLockLatched || !player.controllerAimLockArmed) player.resetControllerAimLock();
                     const isAimTargetValid = target => this.isValidAimLockTarget(player, target);
-                    player.update(dt, this.keys, this.mouse, inputCamera, this.players, this.asteroids, gamepads, this.gameState === 'PVP', this.transformationKills, this.hazards, isAimTargetValid, this.areTransformationsEnabled());
+                    player.update(dt, this.keys, this.mouse, inputCamera, this.players, this.asteroids, gamepads, this.gameState === 'PVP', this.transformationKills, this.hazards, isAimTargetValid, this.areTransformationsEnabled(), worldRules);
                     if (player.id === 1) {
                         this.mouse.m2Pressed = false;
                         this.mouse.m2Released = false;
@@ -2104,7 +2250,7 @@ export class Game {
                         }
                     }
                 } else if (player.isNPC) {
-                    player.update(dt, {}, {}, this.camera, this.players, this.asteroids, [], false, this.transformationKills, this.hazards, null, this.areTransformationsEnabled());
+                    player.update(dt, {}, {}, this.camera, this.players, this.asteroids, [], false, this.transformationKills, this.hazards, null, this.areTransformationsEnabled(), worldRules);
                     player.resolveNPCLevelUps();
                     if (player.justPrestiged) prestigeTriggers.push(player);
                     
@@ -2143,8 +2289,11 @@ export class Game {
             this.network.sendState();
         }
 
-        this.asteroids.forEach(a => a.update(dt));
-        this.hazards.forEach(h => h.update(dt, this));
+        if (worldRules.usesRooms) this.players.filter(player => !player.isDead).forEach(player => this.resolveExperimentalSlide(player));
+
+        this.asteroids.forEach(a => a.update(dt, worldRules));
+        this.hazards.forEach(h => h.update(dt, this, worldRules));
+        if (worldRules.usesRooms) this.resolveExperimentalEntityWalls();
         
         const activeCameras = this.getActiveCameras();
         
@@ -2154,7 +2303,8 @@ export class Game {
                 this.removeProjectile(p);
                 continue;
             }
-            p.update(dt, this.asteroids, this.players, this.hazards, this.projectiles);
+            p.update(dt, this.asteroids, this.players, this.hazards, this.projectiles, worldRules);
+            if (worldRules.usesRooms && this.resolveExperimentalProjectileWall(p)) continue;
             
             // Lasers persist only while on screen (visible in any active camera)
             if (p.isLaser) {
@@ -2190,8 +2340,91 @@ export class Game {
         this.reconcileArcadeNPCs();
         
         if (this.players[0]) {
+            if (worldRules.usesRooms) this.camera.useDirectWorld();
+            else this.camera.useWrappedWorld();
             this.camera.follow(this.players[0]);
         }
+    }
+
+    resolveExperimentalSlide(entity) {
+        const room = this.experimentalRooms[0];
+        if (!room) return false;
+        let collided = false;
+        for (let pass = 0; pass < room.maxCorrectionPasses; pass++) {
+            let passCollision = false;
+            for (const wall of room.walls) {
+                const contact = circleThickSegmentContact(entity, wall, room.wallCollisionThickness);
+                if (!contact) continue;
+                correctWallPenetration(entity, contact, room.collisionEpsilon);
+                slideVelocity(entity, contact.normal);
+                passCollision = true;
+                collided = true;
+            }
+            if (!passCollision) break;
+        }
+        if (collided) this.audio.playSpatialUnwrapped('laser_fire', entity.x, entity.y, this.getActiveCameras());
+        return collided;
+    }
+
+    resolveExperimentalEntityWalls() {
+        const room = this.experimentalRooms[0];
+        if (!room) return;
+        const destroyedSmall = [];
+        let confirmedImpact = false;
+        for (const asteroid of this.asteroids) {
+            for (const wall of room.walls) {
+                const contact = circleThickSegmentContact(asteroid, wall, room.wallCollisionThickness);
+                if (!contact) continue;
+                confirmedImpact = true;
+                if (asteroid.size === 'small') {
+                    destroyedSmall.push(asteroid);
+                    break;
+                }
+                correctWallPenetration(asteroid, contact, room.collisionEpsilon);
+                reflectVelocity(asteroid, contact.normal);
+            }
+        }
+        for (const asteroid of destroyedSmall) {
+            asteroid.hits = asteroid.maxHits - 1;
+            this.hitTarget(asteroid, null);
+        }
+        for (const hazard of this.hazards) {
+            for (const wall of room.walls) {
+                const contact = circleThickSegmentContact(hazard, wall, room.wallCollisionThickness);
+                if (!contact) continue;
+                confirmedImpact = true;
+                correctWallPenetration(hazard, contact, room.collisionEpsilon);
+                reflectVelocity(hazard, contact.normal);
+            }
+        }
+        if (confirmedImpact) {
+            const impact = destroyedSmall[0] || this.asteroids[0] || this.hazards[0];
+            if (impact) this.audio.playSpatialUnwrapped('laser_fire', impact.x, impact.y, this.getActiveCameras());
+        }
+    }
+
+    resolveExperimentalProjectileWall(projectile) {
+        const room = this.experimentalRooms[0];
+        if (!room || projectile.isRemoved) return false;
+        const from = { x: projectile.previousX ?? projectile.x, y: projectile.previousY ?? projectile.y };
+        const to = { x: projectile.x, y: projectile.y };
+        let firstHit = null;
+        for (const wall of room.walls) {
+            const hit = sweptCircleSegmentIntersection(from, to, projectile.radius || 0, wall, room.wallCollisionThickness);
+            if (hit && (!firstHit || hit.t < firstHit.t)) firstHit = hit;
+        }
+        if (!firstHit) return false;
+        projectile.x = firstHit.x;
+        projectile.y = firstHit.y;
+        if (projectile.isMissile || projectile.isSkinnyMissile) {
+            if (projectile.isSkinnyMissile) this.detonateAoEProjectile(projectile);
+            else this.detonateMissile(projectile);
+        }
+        this.removeProjectile(projectile);
+        if (!projectile.isMissile && !projectile.isSkinnyMissile) {
+            this.audio.playSpatialUnwrapped('laser_fire', projectile.x, projectile.y, this.getActiveCameras());
+        }
+        return true;
     }
 
     respawnPlayer(player) {
@@ -2204,6 +2437,15 @@ export class Game {
 
         // Preserve match-local capacity while restoring the Arena's respawn benefit.
         player.restoreShieldCharges(this.startingShieldCharges);
+
+        if (this.gameState === GAME_MODE.EXPERIMENTAL) {
+            const spawn = this.findExperimentalSpawn(player.radius);
+            player.x = spawn.x;
+            player.y = spawn.y;
+            player.roomId = this.experimentalRooms[0].id;
+            if (player.isNPC) player.rollAggression();
+            return;
+        }
 
         // Pick a spawn point far from other players
         let bestSpawn = { x: WORLD_WIDTH / 2, y: WORLD_HEIGHT / 2 };
@@ -2607,7 +2849,7 @@ export class Game {
             const a = this.asteroids[j];
             if (!a || a.isDestroyed) continue;
             const dist = Math.hypot(a.x - p.x, a.y - p.y);
-            if (dist < radius + a.radius) {
+            if (dist < radius + a.radius && !this.isExperimentalBlastBlocked(p, a)) {
                 impactedAsteroids.push(a);
             }
         }
@@ -2628,7 +2870,7 @@ export class Game {
             const h = this.hazards[j];
             if (!h || h.isDestroyed) continue;
             const dist = Math.hypot(h.x - p.x, h.y - p.y);
-            if (dist < radius + h.radius) {
+            if (dist < radius + h.radius && !this.isExperimentalBlastBlocked(p, h)) {
                 impactedHazards.push(h);
             }
         }
@@ -2642,7 +2884,7 @@ export class Game {
         for (let player of this.players) {
             if (player.isDead || player === p.owner) continue;
             const dist = Math.hypot(player.x - p.x, player.y - p.y);
-            if (dist < radius + player.radius) {
+            if (dist < radius + player.radius && !this.isExperimentalBlastBlocked(p, player)) {
                 this.playerDeath(player, p.owner);
             }
         }
@@ -2667,7 +2909,7 @@ export class Game {
             const a = this.asteroids[j];
             if (!a || a.isDestroyed) continue;
             const dist = Math.hypot(a.x - missile.x, a.y - missile.y);
-            if (dist < radius + a.radius) {
+            if (dist < radius + a.radius && !this.isExperimentalBlastBlocked(missile, a)) {
                 impactedAsteroids.push(a);
             }
         }
@@ -2685,7 +2927,7 @@ export class Game {
             const h = this.hazards[j];
             if (!h || h.isDestroyed) continue;
             const dist = Math.hypot(h.x - missile.x, h.y - missile.y);
-            if (dist < radius + h.radius) {
+            if (dist < radius + h.radius && !this.isExperimentalBlastBlocked(missile, h)) {
                 impactedHazards.push(h);
             }
         }
@@ -2699,10 +2941,16 @@ export class Game {
         for (let player of this.players) {
             if (player.isDead || player === missile.owner) continue;
             const dist = Math.hypot(player.x - missile.x, player.y - missile.y);
-            if (dist < radius + player.radius) {
+            if (dist < radius + player.radius && !this.isExperimentalBlastBlocked(missile, player)) {
                 this.playerDeath(player, missile.owner);
             }
         }
+    }
+
+    isExperimentalBlastBlocked(source, target) {
+        if (this.gameState !== GAME_MODE.EXPERIMENTAL) return false;
+        const room = this.experimentalRooms[0];
+        return Boolean(room && isLineBlockedByWalls(source, target, room.walls, room.wallCollisionThickness));
     }
 
     createExplosion(x, y, radius) {
@@ -2915,6 +3163,7 @@ export class Game {
 
     drawWorld(ctx, camera) {
         this.drawBackground(ctx, camera);
+        if (this.gameState === GAME_MODE.EXPERIMENTAL) this.drawExperimentalWalls(ctx, camera);
         
         this.asteroids.forEach(a => a.draw(ctx, this.assets, camera));
         this.hazards.forEach(h => h.draw(ctx, this.assets, camera));
@@ -2923,6 +3172,31 @@ export class Game {
             if (!p.isDead && !p.isEliminated) p.draw(ctx, this.assets, camera);
         });
         this.vfx.forEach(v => v.draw(ctx, this.assets, camera));
+    }
+
+    drawExperimentalWalls(ctx, camera) {
+        for (const room of this.experimentalRooms) {
+            for (const wall of room.walls) {
+                const dx = wall.end.x - wall.start.x;
+                const dy = wall.end.y - wall.start.y;
+                ctx.save();
+                camera.apply(ctx, wall.start.x, wall.start.y);
+                ctx.lineCap = 'round';
+                ctx.shadowColor = '#00ffff';
+                ctx.shadowBlur = 28;
+                ctx.strokeStyle = 'rgba(0, 255, 255, 0.22)';
+                ctx.lineWidth = room.wallCollisionThickness;
+                ctx.beginPath();
+                ctx.moveTo(0, 0);
+                ctx.lineTo(dx, dy);
+                ctx.stroke();
+                ctx.shadowBlur = 10;
+                ctx.strokeStyle = '#00ffff';
+                ctx.lineWidth = room.wallVisualCoreThickness;
+                ctx.stroke();
+                ctx.restore();
+            }
+        }
     }
 
     drawAimLockOutline(ctx, player, camera) {

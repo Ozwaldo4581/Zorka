@@ -27,8 +27,8 @@ export class Asteroid {
         this.isDestroyed = false; // Flag to prevent double-destruction in one frame
     }
 
-    update(dt) {
-        updateNewtonian(this, dt);
+    update(dt, worldRules = null) {
+        updateNewtonian(this, dt, undefined, worldRules);
         this.rotation += this.rotSpeed * dt;
     }
 

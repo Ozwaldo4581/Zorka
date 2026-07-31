@@ -30,9 +30,11 @@ export class Projectile {
         this.aoeRadius = 0;
     }
 
-    update(dt, asteroids = [], players = [], hazards = [], projectiles = []) {
+    update(dt, asteroids = [], players = [], hazards = [], projectiles = [], worldRules = null) {
+        this.previousX = this.x;
+        this.previousY = this.y;
         if (this.isMissile) {
-            this.updateMissile(dt, asteroids, players, hazards, projectiles);
+            this.updateMissile(dt, asteroids, players, hazards, projectiles, worldRules);
         } else if (this.isTentacle) {
             this.updateTentacle(dt);
         } else if (this.isOrbital) {
@@ -51,7 +53,9 @@ export class Projectile {
             }
         }
 
-        if (this.canWrap) {
+        if (worldRules?.wrap === false) {
+            // Experimental wall coordination owns boundary outcomes.
+        } else if (this.canWrap) {
             if (this.x < 0) this.x += WORLD_WIDTH;
             if (this.x > WORLD_WIDTH) this.x -= WORLD_WIDTH;
             if (this.y < 0) this.y += WORLD_HEIGHT;
@@ -104,10 +108,12 @@ export class Projectile {
         }
     }
 
-    updateMissile(dt, asteroids, players, hazards, projectiles) {
+    updateMissile(dt, asteroids, players, hazards, projectiles, worldRules = null) {
         const HOMING_RANGE = 1920;
         const getDistance = target => {
-            const delta = nearestWrappedDisplacement(this.x, this.y, target.x, target.y);
+            const delta = worldRules?.wrap === false
+                ? { x: target.x - this.x, y: target.y - this.y }
+                : nearestWrappedDisplacement(this.x, this.y, target.x, target.y);
             return Math.hypot(delta.x, delta.y);
         };
         const isActiveTarget = target => {
@@ -161,7 +167,9 @@ export class Projectile {
         }
 
         if (target) {
-            const delta = nearestWrappedDisplacement(this.x, this.y, target.x, target.y);
+            const delta = worldRules?.wrap === false
+                ? { x: target.x - this.x, y: target.y - this.y }
+                : nearestWrappedDisplacement(this.x, this.y, target.x, target.y);
             const targetRot = Math.atan2(delta.y, delta.x) + Math.PI / 2;
             const currentRot = Math.atan2(this.vy, this.vx) + Math.PI / 2;
             let diff = targetRot - currentRot;
