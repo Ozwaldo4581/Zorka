@@ -10,6 +10,11 @@ const FULL_ARENA_POPULATION = Object.freeze({
     densitySource: 'ARENA_OPTIONS', scale: 'FULL_ARENA', independentlyResolved: true
 });
 
+export const EXPERIMENTAL_AREA_TYPE = Object.freeze({
+    ROOM: 'ROOM',
+    HALLWAY: 'HALLWAY'
+});
+
 const ROOM_LAYOUT = Object.freeze([
     [1, 0, 0], [2, 0, 1], [3, -1, 1], [4, -1, 0], [5, -1, -1],
     [6, 0, -1], [7, 1, -1], [8, 1, 0], [9, 1, 1]
@@ -22,6 +27,44 @@ const DOOR_CONNECTIONS = Object.freeze([
 export function createExperimentalRoomProgression(roomNumber) {
     const normalizedRoomNumber = Math.max(1, Math.floor(Number(roomNumber) || 1));
     return Object.freeze({ roomNumber: normalizedRoomNumber, npcCount: normalizedRoomNumber, npcLevel: normalizedRoomNumber });
+}
+
+export function createExperimentalArea({
+    id,
+    areaType,
+    roomNumber,
+    bounds,
+    walls = [],
+    entrances = [],
+    connectedAreaIds = [],
+    population = null,
+    ...properties
+}) {
+    if (!id || !bounds) throw new Error('Experimental areas require a unique ID and bounds.');
+    if (!Object.values(EXPERIMENTAL_AREA_TYPE).includes(areaType)) {
+        throw new Error(`Unsupported Experimental area type: ${areaType}`);
+    }
+
+    const normalizedRoomNumber = Math.floor(Number(roomNumber));
+    if (areaType === EXPERIMENTAL_AREA_TYPE.HALLWAY && normalizedRoomNumber !== 0) {
+        throw new Error('Experimental hallways must use room number 0.');
+    }
+    if (areaType === EXPERIMENTAL_AREA_TYPE.ROOM && normalizedRoomNumber <= 0) {
+        throw new Error('Experimental combat rooms require a positive room number.');
+    }
+
+    return Object.freeze({
+        ...properties,
+        id,
+        areaType,
+        roomNumber: normalizedRoomNumber,
+        isPopulationEligible: areaType === EXPERIMENTAL_AREA_TYPE.ROOM,
+        bounds: Object.freeze({ ...bounds }),
+        walls: Object.freeze([...walls]),
+        entrances: Object.freeze([...entrances]),
+        connectedAreaIds: Object.freeze([...connectedAreaIds]),
+        population: areaType === EXPERIMENTAL_AREA_TYPE.ROOM ? population : null
+    });
 }
 
 export const EXPERIMENTAL_COLLISION_CATEGORY = Object.freeze({
@@ -88,8 +131,10 @@ export function createExperimentalRooms(worldWidth, worldHeight) {
                 walls.push(wall(`room-${room.roomNumber}-wall-${side}-top`, boundary, min, boundary, Math.min(y1, y2)));
             }
         }
-        return Object.freeze({
-            ...room, walls: Object.freeze(walls),
+        return createExperimentalArea({
+            ...room,
+            areaType: EXPERIMENTAL_AREA_TYPE.ROOM,
+            walls,
             wallCollisionThickness: EXPERIMENTAL_WALL_COLLISION_THICKNESS,
             wallVisualCoreThickness: EXPERIMENTAL_WALL_VISUAL_CORE_THICKNESS,
             collisionEpsilon: EXPERIMENTAL_WALL_SEPARATION_EPSILON,

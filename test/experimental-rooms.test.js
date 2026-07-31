@@ -6,14 +6,49 @@ import { Asteroid } from '../entities/asteroid.js';
 import { SpaceDebris, Satellite } from '../entities/hazards.js';
 import { isPointInRoom } from '../physics.js';
 import {
+    createExperimentalArea,
     createExperimentalDoors,
     createExperimentalRoomProgression,
     createExperimentalRooms,
+    EXPERIMENTAL_AREA_TYPE,
     EXPERIMENTAL_WALL_COLLISION_THICKNESS,
     EXPERIMENTAL_WALL_MAX_CORRECTION_PASSES,
     EXPERIMENTAL_WALL_SEPARATION_EPSILON,
     EXPERIMENTAL_WALL_VISUAL_CORE_THICKNESS
 } from '../world/experimental_rooms.js';
+
+test('Experimental area metadata separates unique identity from progression classification', () => {
+    const rooms = createExperimentalRooms(WORLD_WIDTH, WORLD_HEIGHT);
+    assert.equal(rooms.length, 9);
+    for (const [index, room] of rooms.entries()) {
+        assert.equal(room.areaType, EXPERIMENTAL_AREA_TYPE.ROOM);
+        assert.equal(room.roomNumber, index + 1);
+        assert.equal(room.isPopulationEligible, true);
+        assert.ok(room.population);
+    }
+
+    const hallwayBounds = { left: 0, top: WORLD_HEIGHT, right: 960, bottom: WORLD_HEIGHT + 4000 };
+    const first = createExperimentalArea({
+        id: 'experimental-hallway-1-2',
+        areaType: EXPERIMENTAL_AREA_TYPE.HALLWAY,
+        roomNumber: 0,
+        bounds: hallwayBounds,
+        connectedAreaIds: ['experimental-room-1', 'experimental-room-2'],
+        population: { npcCount: 99 }
+    });
+    const second = createExperimentalArea({
+        id: 'experimental-hallway-2-3',
+        areaType: EXPERIMENTAL_AREA_TYPE.HALLWAY,
+        roomNumber: 0,
+        bounds: { left: -4000, top: WORLD_HEIGHT, right: 0, bottom: WORLD_HEIGHT + 960 }
+    });
+
+    assert.notEqual(first.id, second.id);
+    assert.deepEqual([first.roomNumber, second.roomNumber], [0, 0]);
+    assert.deepEqual(first.connectedAreaIds, ['experimental-room-1', 'experimental-room-2']);
+    assert.equal(first.isPopulationEligible, false);
+    assert.equal(first.population, null);
+});
 
 test('Experimental room 1 uses the full authoritative arena dimensions and doorway-split boundary walls', () => {
     const [room] = createExperimentalRooms(WORLD_WIDTH, WORLD_HEIGHT);
