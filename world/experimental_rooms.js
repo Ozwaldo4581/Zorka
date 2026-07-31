@@ -6,7 +6,8 @@ export const EXPERIMENTAL_WALL_MAX_CORRECTION_PASSES = 4;
 const SPAWN_INSET = 120;
 
 export function createExperimentalRooms(worldWidth, worldHeight) {
-    const room = Object.freeze({
+    const sharedBoundaryY = worldHeight;
+    const room1 = Object.freeze({
         id: 'experimental-room-1',
         origin: Object.freeze({ x: 0, y: 0 }),
         width: worldWidth,
@@ -30,5 +31,35 @@ export function createExperimentalRooms(worldWidth, worldHeight) {
         }),
         npcCount: 1
     });
-    return [room];
+    const room2 = Object.freeze({
+        id: 'experimental-room-2',
+        origin: Object.freeze({ x: 0, y: sharedBoundaryY }),
+        width: room1.width,
+        height: room1.height,
+        bounds: Object.freeze({
+            left: room1.bounds.left,
+            top: sharedBoundaryY,
+            right: room1.bounds.right,
+            bottom: sharedBoundaryY + room1.height
+        }),
+        // Room 1's bottom wall is the single authoritative shared boundary.
+        // Room 2 owns only its three exterior walls until the doorway slice.
+        walls: Object.freeze([
+            Object.freeze({ id: 'room-2-wall-right', start: Object.freeze({ x: worldWidth, y: sharedBoundaryY }), end: Object.freeze({ x: worldWidth, y: sharedBoundaryY + worldHeight }) }),
+            Object.freeze({ id: 'room-2-wall-bottom', start: Object.freeze({ x: worldWidth, y: sharedBoundaryY + worldHeight }), end: Object.freeze({ x: 0, y: sharedBoundaryY + worldHeight }) }),
+            Object.freeze({ id: 'room-2-wall-left', start: Object.freeze({ x: 0, y: sharedBoundaryY + worldHeight }), end: Object.freeze({ x: 0, y: sharedBoundaryY }) })
+        ]),
+        wallCollisionThickness: room1.wallCollisionThickness,
+        wallVisualCoreThickness: room1.wallVisualCoreThickness,
+        collisionEpsilon: room1.collisionEpsilon,
+        maxCorrectionPasses: room1.maxCorrectionPasses,
+        spawnRegion: Object.freeze({
+            left: room1.spawnRegion.left,
+            top: sharedBoundaryY + SPAWN_INSET,
+            right: room1.spawnRegion.right,
+            bottom: sharedBoundaryY + room1.height - SPAWN_INSET
+        }),
+        npcCount: 0
+    });
+    return [room1, room2];
 }
