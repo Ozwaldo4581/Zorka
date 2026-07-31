@@ -11,6 +11,15 @@ export const DESIGN_WIDTH = 1920;
 export const DESIGN_HEIGHT = 1080;
 export const WORLD_WIDTH = DESIGN_WIDTH * 9;
 export const WORLD_HEIGHT = DESIGN_HEIGHT * 9;
+export const PLAYER_COLORS = Object.freeze([
+    '#00ffff', '#ff00ff', '#ffff00', '#ff0000',
+    '#00ff00', '#0000ff', '#ff8800', '#8800ff'
+]);
+
+export function chooseRandomPlayerColor(random = Math.random) {
+    return PLAYER_COLORS[Math.floor(random() * PLAYER_COLORS.length)];
+}
+
 const TARGET_TIE_PRIORITY = Object.freeze({
     player: 0,
     missile: 1,
@@ -189,7 +198,7 @@ export class Game {
             this.transformationKills = 20;
         }
 
-        let colors = ['#00ffff', '#ff00ff', '#ffff00', '#ff0000', '#00ff00', '#0000ff', '#ff8800', '#8800ff'];
+        const colors = [...PLAYER_COLORS];
         
         // Shuffle colors
         for (let i = colors.length - 1; i > 0; i--) {
@@ -388,7 +397,7 @@ export class Game {
         this.projectiles = [];
         this.vfx = [];
         const spawn = { x: WORLD_WIDTH / 2, y: WORLD_HEIGHT / 2 };
-        const player = new Player(spawn.x, spawn.y, 1, '#00ffff');
+        const player = new Player(spawn.x, spawn.y, 1, chooseRandomPlayerColor());
         this.configurePlayerShields(player);
         player.name = 'PLAYER 1';
         player.controlMode = this.p1ControlMode;

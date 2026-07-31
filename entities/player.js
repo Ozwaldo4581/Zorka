@@ -8,6 +8,13 @@ const BASE_PROJECTILE_SPEED = 1200;
 const MARTIAN_PARALLEL_OFFSET = 30;
 const MAX_PROJECTILE_UPGRADES = 5;
 
+export function getHPBlockLayout(maxHP, totalWidth = 120, normalGap = 2, minimumBlockWidth = 0.5) {
+    const blockCount = Math.max(1, Math.floor(Number(maxHP) || 1));
+    const gap = Math.min(normalGap, Math.max(0, (totalWidth - blockCount * minimumBlockWidth) / Math.max(1, blockCount - 1)));
+    const blockWidth = Math.max(0, (totalWidth - gap * (blockCount - 1)) / blockCount);
+    return { blockCount, gap, blockWidth, totalWidth };
+}
+
 export class Player {
     constructor(x, y, id = 1, color = '#00ffff') {
         this.x = x;
@@ -1258,34 +1265,38 @@ export class Player {
                 ctx.stroke();
                 ctx.restore();
 
-            // Shield and level numbers
-                if (this.shieldCharges > 0) {
-                    ctx.save();
-
-                    ctx.fillStyle = '#ffffff';
-                    ctx.font = 'bold 16px Orbitron';
-                    ctx.textAlign = 'center';
-                    ctx.textBaseline = 'middle';
-
-                    const offset = shieldRadius + 10;
-
-                    // Shield charges: bottom-right
-                    ctx.fillText(
-                        `${this.shieldCharges}/${this.maxShieldCharges}`,
-                        offset,
-                        offset
-                    );
-
-                    // Player level: bottom-left
-                    ctx.fillText(
-                        `${this.level}`,
-                        -offset,
-                        offset
-                    );
-
-                    ctx.restore();
-                }
         }
+
+        // Ship-attached status uses this same wrapped camera transform as the ship and shield.
+        ctx.save();
+        const hpBarWidth = 120;
+        const hpBarHeight = 8;
+        const hpBarY = this.radius * 2 + 10;
+        const hpBarX = -hpBarWidth / 2;
+        const hpBarRight = hpBarX + hpBarWidth;
+        const { blockCount: maxHP, gap, blockWidth } = getHPBlockLayout(this.maxHP, hpBarWidth);
+        const currentHP = Math.max(0, Math.min(maxHP, Math.floor(this.currentHP || 0)));
+
+        for (let index = 0; index < maxHP; index++) {
+            const blockX = hpBarX + index * (blockWidth + gap);
+            const renderedWidth = index === maxHP - 1 ? hpBarRight - blockX : blockWidth;
+            ctx.fillStyle = index < currentHP ? '#248cff' : 'rgba(36, 140, 255, 0.18)';
+            ctx.fillRect(blockX, hpBarY, renderedWidth, hpBarHeight);
+            if (index >= currentHP && renderedWidth >= 1) {
+                ctx.strokeStyle = 'rgba(36, 140, 255, 0.7)';
+                ctx.lineWidth = Math.min(1, renderedWidth);
+                ctx.strokeRect(blockX, hpBarY, renderedWidth, hpBarHeight);
+            }
+        }
+
+        ctx.fillStyle = '#ffffff';
+        ctx.font = 'bold 16px Orbitron';
+        ctx.textBaseline = 'middle';
+        ctx.textAlign = 'right';
+        ctx.fillText(`${this.level}`, hpBarX - 8, hpBarY + hpBarHeight / 2);
+        ctx.textAlign = 'left';
+        ctx.fillText(`${this.shieldCharges}/${this.maxShieldCharges}`, hpBarRight + 8, hpBarY + hpBarHeight / 2);
+        ctx.restore();
 
         // Spawn Immunity Flashing
         if (this.spawnImmunityTimer > 0) {
