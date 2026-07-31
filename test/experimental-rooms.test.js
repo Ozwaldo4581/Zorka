@@ -43,6 +43,26 @@ test('Experimental room 1 preserves wall dimensions and a 120-unit safe-spawn in
     assert.equal(room.npcCount, 1);
 });
 
+test('Experimental room 2 is equal-sized, directly below room 1, and reuses its shared boundary', () => {
+    const [room1, room2] = createExperimentalRooms(WORLD_WIDTH, WORLD_HEIGHT);
+
+    assert.equal(room2.id, 'experimental-room-2');
+    assert.deepEqual(room2.origin, { x: 0, y: 9720 });
+    assert.equal(room2.width, room1.width);
+    assert.equal(room2.height, room1.height);
+    assert.equal(room2.bounds.top, room1.bounds.bottom);
+    assert.deepEqual(room2.bounds, { left: 0, top: 9720, right: 17280, bottom: 19440 });
+    assert.deepEqual(room2.spawnRegion, { left: 120, top: 9840, right: 17160, bottom: 19320 });
+    assert.equal(room2.npcCount, 0);
+    assert.deepEqual(room2.walls.map(wall => wall.id), [
+        'room-2-wall-right',
+        'room-2-wall-bottom',
+        'room-2-wall-left'
+    ]);
+    assert.equal(room2.walls.some(wall => wall.start.y === room1.bounds.bottom && wall.end.y === room1.bounds.bottom), false);
+    assert.equal(room1.walls.filter(wall => wall.start.y === room1.bounds.bottom && wall.end.y === room1.bounds.bottom).length, 1);
+});
+
 test('Experimental and standard setup share one density resolver for every option level', () => {
     assert.deepEqual(
         Array.from({ length: 6 }, (_, level) => getArenaPopulationTargets(level, level, level)),
@@ -120,7 +140,7 @@ test('only the Experimental initialization seam adds room definitions', () => {
 
     assert.deepEqual(game.experimentalRooms, []);
     Game.prototype.initializeExperimentalRooms.call(game);
-    assert.deepEqual(game.experimentalRooms.map(room => room.id), ['experimental-room-1']);
+    assert.deepEqual(game.experimentalRooms.map(room => room.id), ['experimental-room-1', 'experimental-room-2']);
     Game.prototype.clearExperimentalState.call(game);
     assert.deepEqual(game.experimentalRooms, []);
 });
