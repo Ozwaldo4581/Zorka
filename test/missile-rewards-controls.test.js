@@ -115,12 +115,15 @@ test('controller face buttons dispatch distinct player intents on press edges', 
     player.powerUpCapsules = 1;
     player.pendingLevelUps = 3;
 
-    player.handleGamepadPowerUpIntents(pad(0));
+    player.handleGamepadPowerUpIntents(pad(2));
     assert.equal(player.projectileUpgradeCount, 1);
-    assert.equal(player.powerUpCapsules, 1, 'contextual A must not also consume capsules');
+    assert.equal(player.powerUpCapsules, 1, 'contextual X must not consume capsules');
     player.handleGamepadPowerUpIntents(pad());
     player.handleGamepadPowerUpIntents(pad(3));
     assert.equal(player.speedUpgradeCount, 1);
+    player.handleGamepadPowerUpIntents(pad());
+    player.handleGamepadPowerUpIntents(pad(0));
+    assert.equal(player.powerUpCapsules, 1, 'contextual A is suppressed while choosing a level upgrade');
     player.handleGamepadPowerUpIntents(pad());
     player.handleGamepadPowerUpIntents(pad(1));
     assert.equal(player.levelShieldUpgradeCount, 1);

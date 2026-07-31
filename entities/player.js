@@ -299,13 +299,12 @@ export class Player {
         this.faceButtonState = pressed;
 
         if (this.pendingLevelUps > 0) {
-            if (justPressed[0]) this.useProjectileLevelPowerUp();
+            if (justPressed[2]) this.useProjectileLevelPowerUp();
             if (justPressed[3]) this.useSpeedLevelPowerUp();
             if (justPressed[1]) this.useGeneralLevelPowerUp();
         } else if (justPressed[0]) {
             this.consumeCapsules();
         }
-        if (justPressed[2]) this.useProjectileLevelPowerUp();
     }
 
     consumeCapsules() {
