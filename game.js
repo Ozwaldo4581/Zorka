@@ -57,6 +57,16 @@ export const SHIELD_RECHARGE_DELAYS = Object.freeze({
     4: 1.5,
     5: 0.5
 });
+const DEBRIS_DENSITY_COUNTS = Object.freeze([0, 3, 7, 10, 16, 21]);
+const SATELLITE_DENSITY_COUNTS = Object.freeze([0, 3, 5, 6, 9, 14]);
+
+export function getArenaPopulationTargets(asteroidLevel, debrisLevel, satelliteLevel) {
+    return {
+        asteroids: Math.max(0, Math.min(5, asteroidLevel || 0)) * 80,
+        debris: DEBRIS_DENSITY_COUNTS[debrisLevel] || 0,
+        satellites: SATELLITE_DENSITY_COUNTS[satelliteLevel] || 0
+    };
+}
 
 export function getShieldRechargeDelay(optionValue) {
     return SHIELD_RECHARGE_DELAYS[optionValue] ?? SHIELD_RECHARGE_DELAYS[3];
@@ -553,23 +563,20 @@ export class Game {
     spawnInitialAsteroids() {
         this.asteroids = [];
         this.hazards = [];
-        // Density Level (0-5): 0 = 0, 1 = 80, 2 = 160, 3 = 240, 4 = 320, 5 = 400
-        const asteroidCount = this.asteroidDensityLevel * 80;
-        for (let i = 0; i < asteroidCount; i++) {
+        const targets = getArenaPopulationTargets(
+            this.asteroidDensityLevel,
+            this.debrisDensityLevel,
+            this.satelliteDensityLevel
+        );
+        for (let i = 0; i < targets.asteroids; i++) {
             this.spawnAsteroid('large');
         }
 
-        // Space Debris: 0=0, 1=3, 2=7, 3=10, 4=16, 5=21
-        const debrisCounts = [0, 3, 7, 10, 16, 21];
-        const debrisCount = debrisCounts[this.debrisDensityLevel] || 0;
-        for (let i = 0; i < debrisCount; i++) {
+        for (let i = 0; i < targets.debris; i++) {
             this.spawnSpaceDebris();
         }
 
-        // Broken Satellites: 0=0, 1=3, 2=5, 3=6, 4=9, 5=14
-        const satelliteCounts = [0, 3, 5, 6, 9, 14];
-        const satelliteCount = satelliteCounts[this.satelliteDensityLevel] || 0;
-        for (let i = 0; i < satelliteCount; i++) {
+        for (let i = 0; i < targets.satellites; i++) {
             this.spawnSatellite();
         }
     }
@@ -1356,7 +1363,7 @@ export class Game {
     }
 
     initializeExperimentalRooms() {
-        this.experimentalRooms = createExperimentalRooms();
+        this.experimentalRooms = createExperimentalRooms(WORLD_WIDTH, WORLD_HEIGHT);
     }
 
     getWorldRules() {
@@ -1367,7 +1374,7 @@ export class Game {
         return { wrap: true, usesRooms: false, camera: 'WRAP', spawn: 'GLOBAL', room: null };
     }
 
-    findExperimentalSpawn(radius = 40) {
+    findExperimentalSpawn(radius = 40, occupants = this.players) {
         const room = this.experimentalRooms[0];
         if (!room) return { x: DESIGN_WIDTH / 2, y: DESIGN_HEIGHT / 2 };
         const region = room.spawnRegion;
@@ -1376,35 +1383,40 @@ export class Game {
                 x: region.left + radius + Math.random() * Math.max(0, region.right - region.left - radius * 2),
                 y: region.top + radius + Math.random() * Math.max(0, region.bottom - region.top - radius * 2)
             };
-            if (this.players.every(player => player.isDead || Math.hypot(player.x - point.x, player.y - point.y) > player.radius + radius + 120)) return point;
+            if (occupants.every(player => player.isDead || Math.hypot(player.x - point.x, player.y - point.y) > player.radius + radius + 120)) return point;
         }
         return { x: (room.bounds.left + room.bounds.right) / 2, y: (room.bounds.top + room.bounds.bottom) / 2 };
     }
 
     setupExperimentalPopulations() {
         const room = this.experimentalRooms[0];
-        this.players.forEach((player, index) => {
-            const spawn = index === 0 ? { x: room.width / 2, y: room.height / 2 } : this.findExperimentalSpawn(player.radius);
+        const placedPlayers = [];
+        this.players.forEach(player => {
+            const spawn = this.findExperimentalSpawn(player.radius, placedPlayers);
             player.x = spawn.x;
             player.y = spawn.y;
             player.roomId = room.id;
+            placedPlayers.push(player);
         });
         this.asteroids = [];
         this.hazards = [];
-        const asteroidCount = room.populationMappings.asteroids[this.asteroidDensityLevel] || 0;
-        const debrisCount = room.populationMappings.debris[this.debrisDensityLevel] || 0;
-        const satelliteCount = room.populationMappings.satellites[this.satelliteDensityLevel] || 0;
-        for (let index = 0; index < asteroidCount; index++) this.spawnAsteroid('large');
-        for (let index = 0; index < debrisCount; index++) this.spawnSpaceDebris();
-        for (let index = 0; index < satelliteCount; index++) this.spawnSatellite();
+        const targets = getArenaPopulationTargets(
+            this.asteroidDensityLevel,
+            this.debrisDensityLevel,
+            this.satelliteDensityLevel
+        );
+        for (let index = 0; index < targets.asteroids; index++) this.spawnAsteroid('large');
+        for (let index = 0; index < targets.debris; index++) this.spawnSpaceDebris();
+        for (let index = 0; index < targets.satellites; index++) this.spawnSatellite();
     }
 
     setupExperimentalMatch() {
         this.clearExperimentalState();
         this.initializeExperimentalRooms();
-        // The shell deliberately reuses standard entity setup until room rules
-        // are introduced in the next slices. No shared world constants change.
-        this.spawnPlayers(GAME_MODE.SOLO, 2);
+        // Reuse the shared Solo player contract with the room's explicit 1v1
+        // composition; Experimental placement is applied immediately below.
+        const room = this.experimentalRooms[0];
+        this.spawnPlayers(GAME_MODE.SOLO, room.npcCount + 1);
         this.gameState = GAME_MODE.EXPERIMENTAL;
         this.setupExperimentalPopulations();
     }
@@ -1423,7 +1435,7 @@ export class Game {
         this.experimentalCameraState = { previousZoom: this.camera.zoom };
         this.camera.zoom = 1;
         this.camera.follow(this.players[0]);
-        this.camera.useRoomBounds(this.experimentalRooms[0].bounds);
+        this.camera.useDirectWorld();
         this.audio.stopBGM();
         this.resetMouseLockInput();
     }
@@ -2329,7 +2341,7 @@ export class Game {
         this.reconcileArcadeNPCs();
         
         if (this.players[0]) {
-            if (worldRules.usesRooms) this.camera.useRoomBounds(worldRules.room.bounds);
+            if (worldRules.usesRooms) this.camera.useDirectWorld();
             else this.camera.useWrappedWorld();
             this.camera.follow(this.players[0]);
         }

@@ -31,6 +31,11 @@ export class Camera {
         this.clampToRoom(bounds);
     }
 
+    useDirectWorld() {
+        this.boundaryMode = 'ROOM';
+        this.roomBounds = null;
+    }
+
     clampToRoom(bounds, viewport = { width: DESIGN_WIDTH, height: DESIGN_HEIGHT }) {
         const halfWidth = viewport.width / (2 * this.zoom);
         const halfHeight = viewport.height / (2 * this.zoom);

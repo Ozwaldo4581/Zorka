@@ -40,7 +40,7 @@ test('Experimental setup uses its dedicated state while reusing the unchanged So
         },
         initializeExperimentalRooms() {
             calls.push('initialize-rooms');
-            this.experimentalRooms = [{ id: 'experimental-room-1' }];
+            this.experimentalRooms = [{ id: 'experimental-room-1', npcCount: 1 }];
         },
         spawnPlayers(mode, count) {
             calls.push(['spawn-players', mode, count]);
@@ -54,7 +54,7 @@ test('Experimental setup uses its dedicated state while reusing the unchanged So
     Game.prototype.setupExperimentalMatch.call(game);
 
     assert.equal(game.gameState, GAME_MODE.EXPERIMENTAL);
-    assert.deepEqual(game.experimentalRooms, [{ id: 'experimental-room-1' }]);
+    assert.deepEqual(game.experimentalRooms, [{ id: 'experimental-room-1', npcCount: 1 }]);
     assert.deepEqual(calls, [
         'clear-experimental',
         'initialize-rooms',

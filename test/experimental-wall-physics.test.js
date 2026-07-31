@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import { Camera } from '../camera.js';
-import { Game, GAME_MODE, WORLD_WIDTH } from '../game.js';
+import { Game, GAME_MODE, WORLD_HEIGHT, WORLD_WIDTH } from '../game.js';
 import { Projectile } from '../entities/projectile.js';
 import { Asteroid } from '../entities/asteroid.js';
 import { SpaceDebris, Satellite } from '../entities/hazards.js';
@@ -75,20 +75,40 @@ test('movement strategy keeps base wrapping and disables it only for Experimenta
     assert.equal(bounded.x, 1929);
 });
 
-test('Experimental camera clamps while a fresh base camera remains wrap-aware', () => {
+test('Experimental camera follows directly at every wall while a fresh base camera remains wrap-aware', () => {
     const camera = new Camera();
-    camera.zoom = 1;
-    camera.useRoomBounds({ left: 0, top: 0, right: 1920, bottom: 1080 });
-    camera.follow({ x: 40, y: 40 });
-    assert.deepEqual({ x: camera.x, y: camera.y, mode: camera.boundaryMode }, { x: 960, y: 540, mode: 'ROOM' });
+    camera.useDirectWorld();
+    for (const target of [{ x: 40, y: 40 }, { x: 17240, y: 40 }, { x: 40, y: 9680 }, { x: 17240, y: 9680 }]) {
+        camera.follow(target);
+        assert.deepEqual({ x: camera.x, y: camera.y, mode: camera.boundaryMode }, { ...target, mode: 'ROOM' });
+    }
 
     const wrapped = new Camera();
     assert.equal(wrapped.boundaryMode, 'WRAP');
     assert.ok(wrapped.worldToScreen(WORLD_WIDTH - 5, 0).x < 1920);
 });
 
+test('Experimental cleanup restores the prior wrapped camera strategy and zoom', () => {
+    const camera = new Camera();
+    const originalZoom = camera.zoom;
+    camera.zoom = 1;
+    camera.useDirectWorld();
+    const game = {
+        camera,
+        experimentalCameraState: { previousZoom: originalZoom },
+        players: [],
+        asteroids: [],
+        hazards: [],
+        projectiles: []
+    };
+    Game.prototype.clearExperimentalState.call(game);
+    assert.equal(camera.zoom, originalZoom);
+    assert.equal(camera.boundaryMode, 'WRAP');
+    assert.equal(camera.roomBounds, null);
+});
+
 test('Experimental projectile wall outcomes remove ordinary shots and detonate missiles once', () => {
-    const room = createExperimentalRooms()[0];
+    const room = createExperimentalRooms(WORLD_WIDTH, WORLD_HEIGHT)[0];
     const removed = [];
     const detonated = [];
     const game = {
@@ -115,7 +135,7 @@ test('Experimental projectile wall outcomes remove ordinary shots and detonate m
 });
 
 test('world rules expose rooms only for the explicit Experimental state', () => {
-    const room = createExperimentalRooms()[0];
+    const room = createExperimentalRooms(WORLD_WIDTH, WORLD_HEIGHT)[0];
     const experimental = Game.prototype.getWorldRules.call({ gameState: GAME_MODE.EXPERIMENTAL, experimentalRooms: [room] });
     const solo = Game.prototype.getWorldRules.call({ gameState: GAME_MODE.SOLO, experimentalRooms: [room] });
     assert.deepEqual([experimental.wrap, experimental.camera, experimental.spawn], [false, 'ROOM', 'ROOM']);
@@ -123,7 +143,7 @@ test('world rules expose rooms only for the explicit Experimental state', () => 
 });
 
 test('Experimental entity coordination slides ships, bounces large bodies, and destroys small asteroids environmentally', () => {
-    const room = createExperimentalRooms()[0];
+    const room = createExperimentalRooms(WORLD_WIDTH, WORLD_HEIGHT)[0];
     const audio = { playSpatialUnwrapped() {} };
     const ship = { x: 20, y: 400, vx: -20, vy: 9, radius: 20 };
     Game.prototype.resolveExperimentalSlide.call({ experimentalRooms: [room], audio, getActiveCameras: () => [] }, ship);
@@ -159,7 +179,7 @@ test('Experimental entity coordination slides ships, bounces large bodies, and d
 });
 
 test('Experimental spawn queries stay inside the room-safe region and away from a player', () => {
-    const room = createExperimentalRooms()[0];
+    const room = createExperimentalRooms(WORLD_WIDTH, WORLD_HEIGHT)[0];
     const game = {
         experimentalRooms: [room],
         players: [{ x: 960, y: 540, radius: 30, isDead: false }]
