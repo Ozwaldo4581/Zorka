@@ -79,6 +79,7 @@ export class Satellite {
 
         const p = new Projectile(sx, sy, vx, vy, '#ff0000'); // Red laser
         p.owner = this;
+        p.roomId = this.roomId;
         p.isLaser = true;
         p.lifeSpan = 10;
         p.canWrap = false;
