@@ -2298,6 +2298,7 @@ export class Game {
                             const diff = nextReq - currentReq;
                             
                             this.vfx.push({
+                                roomId: player.roomId,
                                 text: `${currentReq} KILLS! TRANSFORMATION ACHIEVED! NEXT TRANSFORMATION: ${diff} KILLS`,
                                 life: 4.0,
                                 flashTimer: 0,
@@ -2751,7 +2752,7 @@ export class Game {
             const cameras = this.getActiveCameras();
             this.audio.playSpatial('explosion', target.x, target.y, cameras, WORLD_WIDTH, WORLD_HEIGHT);
             
-            this.createExplosion(target.x, target.y, target.radius);
+            this.createExplosion(target.x, target.y, target.radius, target.roomId);
             
             if (target instanceof Asteroid) {
                 if (target.size === 'large') {
@@ -2897,7 +2898,7 @@ export class Game {
         // Spatial explosion sound
         this.audio.playSpatial('explosion', player.x, player.y, cameras, WORLD_WIDTH, WORLD_HEIGHT);
         
-        this.createExplosion(player.x, player.y, 50);
+        this.createExplosion(player.x, player.y, 50, player.roomId);
         
         if (window.ProgressLogger) {
             window.ProgressLogger.logProgress('player_death');
@@ -3007,7 +3008,7 @@ export class Game {
                 if (!Game.prototype.areExperimentalEntitiesCoLocated.call(this, p, player)) continue;
                 if (checkCollision(p, player)) {
                     if (p.isDecoy) {
-                        this.createExplosion(p.x, p.y, 60);
+                        this.createExplosion(p.x, p.y, 60, p.roomId);
                         this.removeProjectile(p);
                         this.playerDeath(player, p.owner);
                     } else if (p.isMissile || p.isSkinnyMissile) {
@@ -3105,7 +3106,7 @@ export class Game {
                 if (!p || p.isRemoved || p.hasDetonated) continue;
                 if (!Game.prototype.areExperimentalEntitiesCoLocated.call(this, player, p)) continue;
                 if (p.isDecoy && p.owner !== player && checkCollision(player, p)) {
-                    this.createExplosion(p.x, p.y, 60);
+                    this.createExplosion(p.x, p.y, 60, p.roomId);
                     this.removeProjectile(p);
                     this.playerDeath(player, p.owner);
                 }
@@ -3122,7 +3123,7 @@ export class Game {
         const cameras = this.getActiveCameras();
 
         this.audio.playSpatial('explosion', p.x, p.y, cameras, WORLD_WIDTH, WORLD_HEIGHT);
-        this.createExplosion(p.x, p.y, radius);
+        this.createExplosion(p.x, p.y, radius, p.roomId);
 
         // Check asteroids
         const impactedAsteroids = [];
@@ -3185,7 +3186,7 @@ export class Game {
         const cameras = this.getActiveCameras();
 
         this.audio.playSpatial('explosion', missile.x, missile.y, cameras, WORLD_WIDTH, WORLD_HEIGHT);
-        this.createExplosion(missile.x, missile.y, radius);
+        this.createExplosion(missile.x, missile.y, radius, missile.roomId);
 
         // Instantly destroy every asteroid caught in the blast radius
         const impactedAsteroids = [];
@@ -3242,9 +3243,9 @@ export class Game {
         return Boolean(room && isLineBlockedByWalls(source, target, walls, room.wallCollisionThickness));
     }
 
-    createExplosion(x, y, radius) {
+    createExplosion(x, y, radius, roomId = null) {
         this.vfx.push({
-            x, y, 
+            x, y, roomId,
             radius: radius * 2,
             life: 1.0,
             update(dt) {
@@ -3474,14 +3475,24 @@ export class Game {
         visible(this.players).forEach(p => {
             if (!p.isDead && !p.isEliminated) p.draw(ctx, this.assets, camera);
         });
-        this.vfx.forEach(v => v.draw(ctx, this.assets, camera));
+        visible(this.vfx).forEach(v => v.draw(ctx, this.assets, camera));
+    }
+
+    getExperimentalRenderArea() {
+        if (this.gameState !== GAME_MODE.EXPERIMENTAL) return null;
+        const localPlayer = this.players.find(player => !player.isNPC && !player.isDead && !player.isEliminated);
+        return Game.prototype.getExperimentalRoom.call(this, localPlayer?.roomId);
     }
 
     getRenderableEntities(entities, camera) {
         if (this.gameState !== GAME_MODE.EXPERIMENTAL) return entities;
+        const currentArea = Game.prototype.getExperimentalRenderArea.call(this);
+        if (!currentArea) return [];
         const halfWidth = DESIGN_WIDTH / (2 * camera.zoom);
         const halfHeight = DESIGN_HEIGHT / (2 * camera.zoom);
         return entities.filter(entity => {
+            if (entity.roomId !== currentArea.id) return false;
+            if (!Number.isFinite(entity.x) || !Number.isFinite(entity.y)) return true;
             const radius = Math.max(0, entity.radius || 0);
             return Math.abs(entity.x - camera.x) <= halfWidth + radius
                 && Math.abs(entity.y - camera.y) <= halfHeight + radius;
@@ -3489,28 +3500,52 @@ export class Game {
     }
 
     drawExperimentalWalls(ctx, camera) {
-        for (const room of this.experimentalRooms) {
+        for (const { area: room, wall } of Game.prototype.getExperimentalRenderableWalls.call(this, camera)) {
+            const dx = wall.end.x - wall.start.x;
+            const dy = wall.end.y - wall.start.y;
+            ctx.save();
+            camera.apply(ctx, wall.start.x, wall.start.y);
+            ctx.lineCap = 'round';
+            ctx.shadowColor = '#00ffff';
+            ctx.shadowBlur = 28;
+            ctx.strokeStyle = 'rgba(0, 255, 255, 0.22)';
+            ctx.lineWidth = room.wallCollisionThickness;
+            ctx.beginPath();
+            ctx.moveTo(0, 0);
+            ctx.lineTo(dx, dy);
+            ctx.stroke();
+            ctx.shadowBlur = 10;
+            ctx.strokeStyle = '#00ffff';
+            ctx.lineWidth = room.wallVisualCoreThickness;
+            ctx.stroke();
+            ctx.restore();
+        }
+    }
+
+    getExperimentalRenderableWalls(camera) {
+        const currentArea = Game.prototype.getExperimentalRenderArea.call(this);
+        if (!currentArea) return [];
+        const renderAreaIds = new Set([currentArea.id, ...(currentArea.connectedAreaIds || [])]);
+        const halfWidth = DESIGN_WIDTH / (2 * camera.zoom);
+        const halfHeight = DESIGN_HEIGHT / (2 * camera.zoom);
+        const viewport = {
+            left: camera.x - halfWidth,
+            right: camera.x + halfWidth,
+            top: camera.y - halfHeight,
+            bottom: camera.y + halfHeight
+        };
+        const intersectsViewport = wall => Math.max(wall.start.x, wall.end.x) >= viewport.left
+            && Math.min(wall.start.x, wall.end.x) <= viewport.right
+            && Math.max(wall.start.y, wall.end.y) >= viewport.top
+            && Math.min(wall.start.y, wall.end.y) <= viewport.bottom;
+        const renderableWalls = [];
+        for (const room of this.experimentalRooms.filter(area => renderAreaIds.has(area.id))) {
             for (const wall of room.walls) {
-                const dx = wall.end.x - wall.start.x;
-                const dy = wall.end.y - wall.start.y;
-                ctx.save();
-                camera.apply(ctx, wall.start.x, wall.start.y);
-                ctx.lineCap = 'round';
-                ctx.shadowColor = '#00ffff';
-                ctx.shadowBlur = 28;
-                ctx.strokeStyle = 'rgba(0, 255, 255, 0.22)';
-                ctx.lineWidth = room.wallCollisionThickness;
-                ctx.beginPath();
-                ctx.moveTo(0, 0);
-                ctx.lineTo(dx, dy);
-                ctx.stroke();
-                ctx.shadowBlur = 10;
-                ctx.strokeStyle = '#00ffff';
-                ctx.lineWidth = room.wallVisualCoreThickness;
-                ctx.stroke();
-                ctx.restore();
+                if (!intersectsViewport(wall)) continue;
+                renderableWalls.push({ area: room, wall });
             }
         }
+        return renderableWalls;
     }
 
     drawAimLockOutline(ctx, player, camera) {

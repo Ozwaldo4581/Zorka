@@ -558,20 +558,47 @@ test('doorway adjacency permits genuine cross-room environment contact but not d
     assert.equal(contacted, true);
 });
 
-test('Experimental rendering uses direct viewport visibility, includes both doorway sides, and draws no duplicates', () => {
-    const game = createExperimentalContext();
+test('Experimental rendering includes only current-area entities and viewport-intersecting entrance continuity walls', () => {
+    const localPlayer = Object.assign(new Player(8640, WORLD_HEIGHT - 200, 1), { roomId: 'experimental-room-1' });
+    const game = createExperimentalContext({ players: [localPlayer] });
     const camera = new Camera();
     camera.useDirectWorld();
     camera.x = 8640;
     camera.y = WORLD_HEIGHT;
     const room1Visible = { x: 8640, y: WORLD_HEIGHT - 200, radius: 20, roomId: 'experimental-room-1' };
-    const room2Visible = { x: 8640, y: WORLD_HEIGHT + 200, radius: 20, roomId: 'experimental-room-2' };
+    const hallwayVisible = { x: 8640, y: WORLD_HEIGHT + 200, radius: 20, roomId: 'experimental-hallway-1-2' };
     const room2Distant = { x: 8640, y: 16000, radius: 20, roomId: 'experimental-room-2' };
-    const visible = Game.prototype.getRenderableEntities.call(game, [room1Visible, room2Visible, room2Distant], camera);
-    assert.deepEqual(visible, [room1Visible, room2Visible]);
+    const visible = Game.prototype.getRenderableEntities.call(game, [room1Visible, hallwayVisible, room2Distant], camera);
+    assert.deepEqual(visible, [room1Visible]);
     assert.equal(new Set(visible).size, visible.length);
+
+    const walls = Game.prototype.getExperimentalRenderableWalls.call(game, camera);
+    assert.ok(walls.some(({ area }) => area.id === 'experimental-room-1'));
+    assert.ok(walls.some(({ area }) => area.id === 'experimental-hallway-1-2'));
+    assert.equal(walls.some(({ area }) => area.id === 'experimental-room-2'), false);
+    assert.equal(walls.some(({ area }) => !['experimental-room-1', 'experimental-hallway-1-2'].includes(area.id)), false);
+
+    localPlayer.roomId = 'experimental-hallway-1-2';
+    localPlayer.y = WORLD_HEIGHT + 500;
+    camera.follow(localPlayer);
+    assert.deepEqual(Game.prototype.getRenderableEntities.call(game, [room1Visible, hallwayVisible, room2Distant], camera), [hallwayVisible]);
+
     game.gameState = GAME_MODE.SOLO;
     assert.deepEqual(Game.prototype.getRenderableEntities.call(game, [room1Visible, room2Distant], camera), [room1Visible, room2Distant]);
+});
+
+test('Experimental VFX rendering follows current area while standard modes retain presentation VFX', () => {
+    const localPlayer = Object.assign(new Player(100, 100, 1), { roomId: 'experimental-room-1' });
+    const game = createExperimentalContext({ players: [localPlayer] });
+    const camera = new Camera();
+    camera.useDirectWorld();
+    camera.follow(localPlayer);
+    const roomVfx = { x: 100, y: 100, radius: 50, roomId: 'experimental-room-1' };
+    const hallwayVfx = { x: 100, y: 100, radius: 50, roomId: 'experimental-hallway-1-2' };
+    const screenVfx = { roomId: 'experimental-room-1' };
+    assert.deepEqual(Game.prototype.getRenderableEntities.call(game, [roomVfx, hallwayVfx, screenVfx], camera), [roomVfx, screenVfx]);
+    game.gameState = GAME_MODE.SOLO;
+    assert.deepEqual(Game.prototype.getRenderableEntities.call(game, [roomVfx, hallwayVfx, screenVfx], camera), [roomVfx, hallwayVfx, screenVfx]);
 });
 
 test('Experimental cleanup restores the prior wrapped camera strategy and zoom', () => {
