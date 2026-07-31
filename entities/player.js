@@ -90,7 +90,7 @@ export class Player {
         // Arena-local progression. Score remains the independent evolution currency.
         this.totalXP = 0;
         this.totalCapsulesGained = 0;
-        this.level = 0;
+        this.level = 1;
         this.pendingLevelUps = 0;
         this.projectileUpgradeCount = 0;
         this.speedUpgradeCount = 0;
@@ -114,9 +114,15 @@ export class Player {
         this.accuracyLevel = 1 + Math.floor(Math.random() * 5);
     }
 
+    getXPRequirement(level = this.level) {
+        const safeLevel = Math.max(1, Math.floor(Number(level) || 1));
+        return 100 * safeLevel * safeLevel;
+    }
+
     getLevelThreshold(level) {
-        const safeLevel = Math.max(0, Math.floor(Number(level) || 0));
-        return 100 * safeLevel * (safeLevel + 1) / 2;
+        const safeLevel = Math.max(1, Math.floor(Number(level) || 1));
+        const completedLevel = safeLevel - 1;
+        return 100 * completedLevel * safeLevel * (2 * safeLevel - 1) / 6;
     }
 
     addXP(amount) {
@@ -167,9 +173,9 @@ export class Player {
     }
 
     initializeNPCLevel(targetLevel, random = Math.random) {
-        if (!this.isNPC || this.level !== 0 || this.totalXP !== 0 || this.pendingLevelUps !== 0) return false;
-        const normalizedLevel = Math.max(0, Math.floor(Number(targetLevel) || 0));
-        if (normalizedLevel === 0) return true;
+        if (!this.isNPC || this.level !== 1 || this.totalXP !== 0 || this.pendingLevelUps !== 0) return false;
+        const normalizedLevel = Math.max(1, Math.floor(Number(targetLevel) || 1));
+        if (normalizedLevel === 1) return true;
 
         this.addXP(this.getLevelThreshold(normalizedLevel));
         this.resolveNPCLevelUps(random);
@@ -196,7 +202,7 @@ export class Player {
 
     resetLevelProgress() {
         this.totalXP = 0;
-        this.level = 0;
+        this.level = 1;
         this.pendingLevelUps = 0;
         this.projectileUpgradeCount = 0;
         this.speedUpgradeCount = 0;
@@ -939,6 +945,17 @@ export class Player {
             this.powerUpError = null;
         }
         return success;
+    }
+
+    clearExperimentalRoomCapsuleBonuses() {
+        this.activeGun = 'Normal';
+        this.cancelBurstFire();
+        this.hasMissile = false;
+        this.missileReloadLevel = 0;
+        this.missileCooldown = 0;
+        this.martianParallelGuns = 1;
+        this.ghosts = [];
+        this.history = [];
     }
 
     fire(isBurstShot = false) {

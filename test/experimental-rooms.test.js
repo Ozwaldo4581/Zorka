@@ -7,6 +7,7 @@ import { SpaceDebris, Satellite } from '../entities/hazards.js';
 import { isPointInRoom } from '../physics.js';
 import {
     createExperimentalDoors,
+    createExperimentalRoomProgression,
     createExperimentalRooms,
     EXPERIMENTAL_WALL_COLLISION_THICKNESS,
     EXPERIMENTAL_WALL_MAX_CORRECTION_PASSES,
@@ -57,7 +58,8 @@ test('Experimental room 2 is equal-sized, directly below room 1, and reuses its 
     assert.equal(room2.bounds.top, room1.bounds.bottom);
     assert.deepEqual(room2.bounds, { left: 0, top: 9720, right: 17280, bottom: 19440 });
     assert.deepEqual(room2.spawnRegion, { left: 120, top: 9840, right: 17160, bottom: 19320 });
-    assert.equal(room2.npcCount, 0);
+    assert.equal(room2.npcCount, 2);
+    assert.equal(room2.npcLevel, 2);
     assert.deepEqual(room2.walls.map(wall => wall.id), [
         'room-2-wall-right',
         'room-2-wall-bottom',
@@ -266,7 +268,7 @@ test('Experimental destruction preserves Room 2 across children and authoritativ
     ]);
 });
 
-test('Experimental composition is explicitly one local human and one room-local NPC', () => {
+test('Experimental composition follows each room NPC count and level', () => {
     const game = {
         players: [],
         p1ControlMode: 'KEYBOARD',
@@ -288,10 +290,19 @@ test('Experimental composition is explicitly one local human and one room-local 
     game.gameState = GAME_MODE.EXPERIMENTAL;
     Game.prototype.setupExperimentalPopulations.call(game);
 
-    assert.equal(game.players.length, 2);
+    assert.equal(game.players.length, 4);
     assert.equal(game.players.filter(player => !player.isNPC).length, 1);
-    assert.equal(game.players.filter(player => player.isNPC).length, 1);
+    assert.equal(game.players.filter(player => player.isNPC).length, 3);
     assert.equal(game.players[0].controlMode, 'KEYBOARD');
-    assert.ok(game.players.every(player => player.roomId === 'experimental-room-1'));
-    assert.ok(Math.hypot(game.players[0].x - game.players[1].x, game.players[0].y - game.players[1].y) > 120);
+    assert.deepEqual(game.players.filter(player => player.isNPC).map(player => [player.roomId, player.level]), [
+        ['experimental-room-1', 1],
+        ['experimental-room-2', 2],
+        ['experimental-room-2', 2]
+    ]);
+    assert.ok(game.players.slice(1).every(player => Math.hypot(game.players[0].x - player.x, game.players[0].y - player.y) > 120));
+});
+
+test('future Experimental room progression scales count and level from explicit room number', () => {
+    assert.deepEqual(createExperimentalRoomProgression(3), { roomNumber: 3, npcCount: 3, npcLevel: 3 });
+    assert.deepEqual(createExperimentalRoomProgression(12), { roomNumber: 12, npcCount: 12, npcLevel: 12 });
 });

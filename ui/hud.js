@@ -91,10 +91,11 @@ export class HUD {
             ctx.fillText(box.choice.toUpperCase(), box.x + box.width / 2, box.y + 23);
         }
 
-        const nextThreshold = player.getLevelThreshold(player.level + 1);
+        const currentLevelXP = player.totalXP - player.getLevelThreshold(player.level);
+        const nextThreshold = player.getXPRequirement();
         ctx.font = '10px Orbitron';
         ctx.fillStyle = player.color;
-        ctx.fillText(`LEVEL ${player.level}  XP ${player.totalXP}/${nextThreshold}`, centerX, startY - 94);
+        ctx.fillText(`LEVEL ${player.level}  XP ${currentLevelXP}/${nextThreshold}`, centerX, startY - 94);
         ctx.restore();
     }
 
