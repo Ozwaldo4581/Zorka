@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import { Camera, DEFAULT_GAMEPLAY_ZOOM } from '../camera.js';
-import { Game, GAME_MODE, WORLD_HEIGHT, WORLD_WIDTH } from '../game.js';
+import { EXPERIMENTAL_RENDER_CULL_MARGIN, Game, GAME_MODE, WORLD_HEIGHT, WORLD_WIDTH } from '../game.js';
 import { Player } from '../entities/player.js';
 import { Projectile } from '../entities/projectile.js';
 import { Asteroid } from '../entities/asteroid.js';
@@ -599,6 +599,39 @@ test('Experimental VFX rendering follows current area while standard modes retai
     assert.deepEqual(Game.prototype.getRenderableEntities.call(game, [roomVfx, hallwayVfx, screenVfx], camera), [roomVfx, screenVfx]);
     game.gameState = GAME_MODE.SOLO;
     assert.deepEqual(Game.prototype.getRenderableEntities.call(game, [roomVfx, hallwayVfx, screenVfx], camera), [roomVfx, hallwayVfx, screenVfx]);
+});
+
+test('Experimental viewport culling uses render bounds and a documented fast-edge margin', () => {
+    assert.equal(EXPERIMENTAL_RENDER_CULL_MARGIN, 120);
+    const localPlayer = Object.assign(new Player(0, 0, 1), { roomId: 'experimental-room-1' });
+    const game = createExperimentalContext({ players: [localPlayer] });
+    const camera = new Camera();
+    camera.useDirectWorld();
+    camera.x = 0;
+    camera.y = 0;
+    const baseRightEdge = 1920 / (2 * camera.zoom);
+
+    const fullyOffscreen = { x: baseRightEdge + EXPERIMENTAL_RENDER_CULL_MARGIN + 200, y: 0, radius: 20, roomId: localPlayer.roomId };
+    const partiallyVisibleLarge = { x: baseRightEdge + EXPERIMENTAL_RENDER_CULL_MARGIN + 200, y: 0, renderRadius: 250, roomId: localPlayer.roomId };
+    const fastProjectile = Object.assign(new Projectile(baseRightEdge + 100, 0, -1200, 0), { roomId: localPlayer.roomId });
+    const ghostOwner = Object.assign(new Player(baseRightEdge + 500, 0, 2), {
+        roomId: localPlayer.roomId,
+        ghosts: [{ x: baseRightEdge - 20, y: 0, rotation: 0 }]
+    });
+    const tentacle = Object.assign(new Projectile(baseRightEdge + 500, 0, 0, 0), {
+        roomId: localPlayer.roomId,
+        isTentacle: true,
+        owner: { x: baseRightEdge - 20, y: 0 }
+    });
+
+    assert.deepEqual(
+        Game.prototype.getRenderableEntities.call(
+            game,
+            [fullyOffscreen, partiallyVisibleLarge, fastProjectile, ghostOwner, tentacle],
+            camera
+        ),
+        [partiallyVisibleLarge, fastProjectile, ghostOwner, tentacle]
+    );
 });
 
 test('Experimental cleanup restores the prior wrapped camera strategy and zoom', () => {

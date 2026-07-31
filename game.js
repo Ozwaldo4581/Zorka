@@ -51,6 +51,8 @@ const CONTROLLER_LOCK_RELEASE_THRESHOLD = 0.25;
 const CONTROLLER_LOCK_MAX_DISTANCE = DESIGN_WIDTH;
 export const MOUSE_AIM_LOCK_PADDING = 18;
 export const CONTROLLER_AIM_LOCK_PADDING = 24;
+// Covers one high-speed projectile frame plus common sprite glow/shield overflow.
+export const EXPERIMENTAL_RENDER_CULL_MARGIN = 120;
 const CONTROLLER_AIM_DEADZONE = 0.15;
 const RAY_DISTANCE_TIE_EPSILON = 0.001;
 export const SHIELD_RECHARGE_DELAYS = Object.freeze({
@@ -3488,15 +3490,63 @@ export class Game {
         if (this.gameState !== GAME_MODE.EXPERIMENTAL) return entities;
         const currentArea = Game.prototype.getExperimentalRenderArea.call(this);
         if (!currentArea) return [];
-        const halfWidth = DESIGN_WIDTH / (2 * camera.zoom);
-        const halfHeight = DESIGN_HEIGHT / (2 * camera.zoom);
+        const halfWidth = DESIGN_WIDTH / (2 * camera.zoom) + EXPERIMENTAL_RENDER_CULL_MARGIN;
+        const halfHeight = DESIGN_HEIGHT / (2 * camera.zoom) + EXPERIMENTAL_RENDER_CULL_MARGIN;
+        const viewport = {
+            left: camera.x - halfWidth,
+            right: camera.x + halfWidth,
+            top: camera.y - halfHeight,
+            bottom: camera.y + halfHeight
+        };
         return entities.filter(entity => {
             if (entity.roomId !== currentArea.id) return false;
             if (!Number.isFinite(entity.x) || !Number.isFinite(entity.y)) return true;
-            const radius = Math.max(0, entity.radius || 0);
-            return Math.abs(entity.x - camera.x) <= halfWidth + radius
-                && Math.abs(entity.y - camera.y) <= halfHeight + radius;
+            const bounds = Game.prototype.getExperimentalRenderBounds.call(this, entity);
+            return bounds.right >= viewport.left && bounds.left <= viewport.right
+                && bounds.bottom >= viewport.top && bounds.top <= viewport.bottom;
         });
+    }
+
+    getExperimentalRenderBounds(entity) {
+        let extent = Math.max(0, entity.renderRadius || entity.radius || 0);
+        if (entity instanceof Player) {
+            let spriteExtent = entity.radius * 1.8;
+            if (entity.isMartian) spriteExtent = entity.radius * 3.5;
+            else if (entity.isDimensionX) spriteExtent = entity.radius * 4.2;
+            else if (entity.isCyborg) spriteExtent = entity.radius * 2.275;
+            else if (entity.isEventHorizon) spriteExtent *= 1 + (entity.highTide || 0) * 0.02;
+            extent = Math.max(extent, spriteExtent, entity.hasForcefield ? entity.radius * 2 : 0, 60);
+        } else if (entity instanceof Asteroid || entity instanceof SpaceDebris || entity instanceof Satellite) {
+            extent = Math.max(extent, entity.radius * 1.25);
+        } else if (entity instanceof Projectile) {
+            if (entity.isDecoy) extent = Math.max(extent, 62);
+            else if (entity.isLaser || entity.isMissile || entity.isSkinnyMissile) extent = Math.max(extent, 55);
+            else if (entity.isOrbital) extent = Math.max(extent, entity.radius * 1.5);
+            else extent = Math.max(extent, entity.radius * 2);
+        }
+        let bounds = {
+            left: entity.x - extent,
+            right: entity.x + extent,
+            top: entity.y - extent,
+            bottom: entity.y + extent
+        };
+        if (entity instanceof Player && Array.isArray(entity.ghosts)) {
+            for (const ghost of entity.ghosts) {
+                bounds.left = Math.min(bounds.left, ghost.x - extent);
+                bounds.right = Math.max(bounds.right, ghost.x + extent);
+                bounds.top = Math.min(bounds.top, ghost.y - extent);
+                bounds.bottom = Math.max(bounds.bottom, ghost.y + extent);
+            }
+        }
+        if (entity instanceof Projectile && entity.isTentacle && entity.owner) {
+            bounds = {
+                left: Math.min(bounds.left, entity.owner.x - 40),
+                right: Math.max(bounds.right, entity.owner.x + 40),
+                top: Math.min(bounds.top, entity.owner.y - 40),
+                bottom: Math.max(bounds.bottom, entity.owner.y + 40)
+            };
+        }
+        return bounds;
     }
 
     drawExperimentalWalls(ctx, camera) {
