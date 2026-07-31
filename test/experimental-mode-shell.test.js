@@ -46,8 +46,8 @@ test('Experimental setup uses its dedicated state while reusing the unchanged So
             calls.push(['spawn-players', mode, count]);
             this.gameState = mode;
         },
-        spawnInitialAsteroids() {
-            calls.push('spawn-asteroids');
+        setupExperimentalPopulations() {
+            calls.push('setup-room-populations');
         }
     };
 
@@ -59,7 +59,7 @@ test('Experimental setup uses its dedicated state while reusing the unchanged So
         'clear-experimental',
         'initialize-rooms',
         ['spawn-players', GAME_MODE.SOLO, 2],
-        'spawn-asteroids'
+        'setup-room-populations'
     ]);
 });
 
