@@ -68,6 +68,29 @@ test('Game resolves immunity, shields, HP, death, and respawn in order', () => {
     assert.deepEqual([victim.isDead, victim.currentHP, victim.maxHP, victim.hpRechargeTimer], [false, 8, 8, 0]);
 });
 
+test('Game resolves a multi-point hit as one shield-first damage event', () => {
+    globalThis.window = globalThis.window || {};
+    const cases = [
+        { shields: 5, hp: 5, expected: [0, 5, false] },
+        { shields: 3, hp: 5, expected: [0, 3, false] },
+        { shields: 10, hp: 5, expected: [5, 5, false] },
+        { shields: 0, hp: 5, expected: [0, 0, true] },
+        { shields: 1, hp: 3, expected: [0, 0, true] }
+    ];
+
+    for (const { shields, hp, expected } of cases) {
+        const player = new Player(0, 0);
+        player.spawnImmunityTimer = 0;
+        player.configureShields(shields, 6);
+        player.currentHP = hp;
+        const game = makeDamageGame([player]);
+        const result = Game.prototype.resolvePlayerDamage.call(game, player, 5);
+        assert.deepEqual([player.shieldCharges, player.currentHP, player.isDead], expected);
+        assert.equal(result.shieldsConsumed + result.hpLost, Math.min(5, shields + hp));
+        assert.equal(result.died, expected[2]);
+    }
+});
+
 test('fixed-width HP layout compresses blocks without overflowing', () => {
     const layouts = [5, 6, 10, 20, 500].map(maxHP => getHPBlockLayout(maxHP));
     for (const layout of layouts) {

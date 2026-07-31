@@ -569,6 +569,14 @@ export class Player {
         return true;
     }
 
+    clearShieldCharges() {
+        const chargesRemoved = Math.max(0, this.shieldCharges);
+        this.shieldCharges = 0;
+        this.hasForcefield = false;
+        this.shieldRechargeTimer = 0;
+        return chargesRemoved;
+    }
+
     // Returns true when HP absorbed the hit and the ship remains alive.
     // False means the hit depleted HP, or HP was already depleted.
     takeHPDamage() {
