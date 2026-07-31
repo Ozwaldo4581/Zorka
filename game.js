@@ -1627,6 +1627,7 @@ export class Game {
         this.hazards = [];
         this.projectiles = [];
         this.vfx = [];
+        this.clearExperimentalState();
     }
 
     handleFire(playerId, isBurstShot = false) {
