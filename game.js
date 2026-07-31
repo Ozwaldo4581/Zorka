@@ -16,8 +16,8 @@ import {
     isLineBlockedByWalls
 } from './physics.js';
 import {
+    createExperimentalAreas,
     createExperimentalDoors,
-    createExperimentalRooms,
     EXPERIMENTAL_COLLISION_CATEGORY
 } from './world/experimental_rooms.js';
 
@@ -51,6 +51,8 @@ const CONTROLLER_LOCK_RELEASE_THRESHOLD = 0.25;
 const CONTROLLER_LOCK_MAX_DISTANCE = DESIGN_WIDTH;
 export const MOUSE_AIM_LOCK_PADDING = 18;
 export const CONTROLLER_AIM_LOCK_PADDING = 24;
+// Covers one high-speed projectile frame plus common sprite glow/shield overflow.
+export const EXPERIMENTAL_RENDER_CULL_MARGIN = 120;
 const CONTROLLER_AIM_DEADZONE = 0.15;
 const RAY_DISTANCE_TIE_EPSILON = 0.001;
 export const SHIELD_RECHARGE_DELAYS = Object.freeze({
@@ -1378,14 +1380,14 @@ export class Game {
     }
 
     initializeExperimentalRooms() {
-        this.experimentalRooms = createExperimentalRooms(WORLD_WIDTH, WORLD_HEIGHT);
+        this.experimentalRooms = createExperimentalAreas(WORLD_WIDTH, WORLD_HEIGHT);
         this.experimentalDoors = createExperimentalDoors(this.experimentalRooms);
         const desired = getArenaPopulationTargets(
             this.asteroidDensityLevel,
             this.debrisDensityLevel,
             this.satelliteDensityLevel
         );
-        this.experimentalRoomPopulations = new Map(this.experimentalRooms.map(room => [room.id, {
+        this.experimentalRoomPopulations = new Map(this.experimentalRooms.filter(room => room.isPopulationEligible).map(room => [room.id, {
             density: Object.freeze({
                 asteroidLevel: this.asteroidDensityLevel,
                 debrisLevel: this.debrisDensityLevel,
@@ -1440,7 +1442,7 @@ export class Game {
             placedPlayers.push(player);
         });
         let nextNpcId = Math.max(1, ...this.players.map(player => player.id || 0)) + 1;
-        for (const npcRoom of this.experimentalRooms) {
+        for (const npcRoom of this.experimentalRooms.filter(area => area.isPopulationEligible)) {
             for (let index = 0; index < npcRoom.npcCount; index++) {
                 const spawn = Game.prototype.findExperimentalSpawn.call(this, 25, placedPlayers, npcRoom.id);
                 const npc = new Player(spawn.x, spawn.y, nextNpcId++);
@@ -1461,7 +1463,7 @@ export class Game {
         }
         this.asteroids = [];
         this.hazards = [];
-        for (const populationRoom of this.experimentalRooms) {
+        for (const populationRoom of this.experimentalRooms.filter(area => area.isPopulationEligible)) {
             const targets = this.experimentalRoomPopulations?.get(populationRoom.id)?.desired
                 || getArenaPopulationTargets(this.asteroidDensityLevel, this.debrisDensityLevel, this.satelliteDensityLevel);
             for (let index = 0; index < targets.asteroids; index++) this.spawnAsteroid('large', undefined, undefined, populationRoom.id);
@@ -2298,6 +2300,7 @@ export class Game {
                             const diff = nextReq - currentReq;
                             
                             this.vfx.push({
+                                roomId: player.roomId,
                                 text: `${currentReq} KILLS! TRANSFORMATION ACHIEVED! NEXT TRANSFORMATION: ${diff} KILLS`,
                                 life: 4.0,
                                 flashTimer: 0,
@@ -2547,9 +2550,10 @@ export class Game {
                 break;
             }
         }
+        const nextRoom = Game.prototype.getExperimentalRoom.call(this, player.roomId);
         if (player.roomId !== previousRoomId
-            && Game.prototype.getExperimentalRoom.call(this, previousRoomId)
-            && Game.prototype.getExperimentalRoom.call(this, player.roomId)) {
+            && currentRoom?.roomNumber > 0
+            && nextRoom?.roomNumber === 0) {
             player.clearExperimentalRoomCapsuleBonuses();
         }
         return player.roomId;
@@ -2750,7 +2754,7 @@ export class Game {
             const cameras = this.getActiveCameras();
             this.audio.playSpatial('explosion', target.x, target.y, cameras, WORLD_WIDTH, WORLD_HEIGHT);
             
-            this.createExplosion(target.x, target.y, target.radius);
+            this.createExplosion(target.x, target.y, target.radius, target.roomId);
             
             if (target instanceof Asteroid) {
                 if (target.size === 'large') {
@@ -2896,7 +2900,7 @@ export class Game {
         // Spatial explosion sound
         this.audio.playSpatial('explosion', player.x, player.y, cameras, WORLD_WIDTH, WORLD_HEIGHT);
         
-        this.createExplosion(player.x, player.y, 50);
+        this.createExplosion(player.x, player.y, 50, player.roomId);
         
         if (window.ProgressLogger) {
             window.ProgressLogger.logProgress('player_death');
@@ -3006,7 +3010,7 @@ export class Game {
                 if (!Game.prototype.areExperimentalEntitiesCoLocated.call(this, p, player)) continue;
                 if (checkCollision(p, player)) {
                     if (p.isDecoy) {
-                        this.createExplosion(p.x, p.y, 60);
+                        this.createExplosion(p.x, p.y, 60, p.roomId);
                         this.removeProjectile(p);
                         this.playerDeath(player, p.owner);
                     } else if (p.isMissile || p.isSkinnyMissile) {
@@ -3104,7 +3108,7 @@ export class Game {
                 if (!p || p.isRemoved || p.hasDetonated) continue;
                 if (!Game.prototype.areExperimentalEntitiesCoLocated.call(this, player, p)) continue;
                 if (p.isDecoy && p.owner !== player && checkCollision(player, p)) {
-                    this.createExplosion(p.x, p.y, 60);
+                    this.createExplosion(p.x, p.y, 60, p.roomId);
                     this.removeProjectile(p);
                     this.playerDeath(player, p.owner);
                 }
@@ -3121,7 +3125,7 @@ export class Game {
         const cameras = this.getActiveCameras();
 
         this.audio.playSpatial('explosion', p.x, p.y, cameras, WORLD_WIDTH, WORLD_HEIGHT);
-        this.createExplosion(p.x, p.y, radius);
+        this.createExplosion(p.x, p.y, radius, p.roomId);
 
         // Check asteroids
         const impactedAsteroids = [];
@@ -3184,7 +3188,7 @@ export class Game {
         const cameras = this.getActiveCameras();
 
         this.audio.playSpatial('explosion', missile.x, missile.y, cameras, WORLD_WIDTH, WORLD_HEIGHT);
-        this.createExplosion(missile.x, missile.y, radius);
+        this.createExplosion(missile.x, missile.y, radius, missile.roomId);
 
         // Instantly destroy every asteroid caught in the blast radius
         const impactedAsteroids = [];
@@ -3241,9 +3245,9 @@ export class Game {
         return Boolean(room && isLineBlockedByWalls(source, target, walls, room.wallCollisionThickness));
     }
 
-    createExplosion(x, y, radius) {
+    createExplosion(x, y, radius, roomId = null) {
         this.vfx.push({
-            x, y, 
+            x, y, roomId,
             radius: radius * 2,
             life: 1.0,
             update(dt) {
@@ -3473,43 +3477,125 @@ export class Game {
         visible(this.players).forEach(p => {
             if (!p.isDead && !p.isEliminated) p.draw(ctx, this.assets, camera);
         });
-        this.vfx.forEach(v => v.draw(ctx, this.assets, camera));
+        visible(this.vfx).forEach(v => v.draw(ctx, this.assets, camera));
+    }
+
+    getExperimentalRenderArea() {
+        if (this.gameState !== GAME_MODE.EXPERIMENTAL) return null;
+        const localPlayer = this.players.find(player => !player.isNPC && !player.isDead && !player.isEliminated);
+        return Game.prototype.getExperimentalRoom.call(this, localPlayer?.roomId);
     }
 
     getRenderableEntities(entities, camera) {
         if (this.gameState !== GAME_MODE.EXPERIMENTAL) return entities;
-        const halfWidth = DESIGN_WIDTH / (2 * camera.zoom);
-        const halfHeight = DESIGN_HEIGHT / (2 * camera.zoom);
+        const currentArea = Game.prototype.getExperimentalRenderArea.call(this);
+        if (!currentArea) return [];
+        const halfWidth = DESIGN_WIDTH / (2 * camera.zoom) + EXPERIMENTAL_RENDER_CULL_MARGIN;
+        const halfHeight = DESIGN_HEIGHT / (2 * camera.zoom) + EXPERIMENTAL_RENDER_CULL_MARGIN;
+        const viewport = {
+            left: camera.x - halfWidth,
+            right: camera.x + halfWidth,
+            top: camera.y - halfHeight,
+            bottom: camera.y + halfHeight
+        };
         return entities.filter(entity => {
-            const radius = Math.max(0, entity.radius || 0);
-            return Math.abs(entity.x - camera.x) <= halfWidth + radius
-                && Math.abs(entity.y - camera.y) <= halfHeight + radius;
+            if (entity.roomId !== currentArea.id) return false;
+            if (!Number.isFinite(entity.x) || !Number.isFinite(entity.y)) return true;
+            const bounds = Game.prototype.getExperimentalRenderBounds.call(this, entity);
+            return bounds.right >= viewport.left && bounds.left <= viewport.right
+                && bounds.bottom >= viewport.top && bounds.top <= viewport.bottom;
         });
     }
 
-    drawExperimentalWalls(ctx, camera) {
-        for (const room of this.experimentalRooms) {
-            for (const wall of room.walls) {
-                const dx = wall.end.x - wall.start.x;
-                const dy = wall.end.y - wall.start.y;
-                ctx.save();
-                camera.apply(ctx, wall.start.x, wall.start.y);
-                ctx.lineCap = 'round';
-                ctx.shadowColor = '#00ffff';
-                ctx.shadowBlur = 28;
-                ctx.strokeStyle = 'rgba(0, 255, 255, 0.22)';
-                ctx.lineWidth = room.wallCollisionThickness;
-                ctx.beginPath();
-                ctx.moveTo(0, 0);
-                ctx.lineTo(dx, dy);
-                ctx.stroke();
-                ctx.shadowBlur = 10;
-                ctx.strokeStyle = '#00ffff';
-                ctx.lineWidth = room.wallVisualCoreThickness;
-                ctx.stroke();
-                ctx.restore();
+    getExperimentalRenderBounds(entity) {
+        let extent = Math.max(0, entity.renderRadius || entity.radius || 0);
+        if (entity instanceof Player) {
+            let spriteExtent = entity.radius * 1.8;
+            if (entity.isMartian) spriteExtent = entity.radius * 3.5;
+            else if (entity.isDimensionX) spriteExtent = entity.radius * 4.2;
+            else if (entity.isCyborg) spriteExtent = entity.radius * 2.275;
+            else if (entity.isEventHorizon) spriteExtent *= 1 + (entity.highTide || 0) * 0.02;
+            extent = Math.max(extent, spriteExtent, entity.hasForcefield ? entity.radius * 2 : 0, 60);
+        } else if (entity instanceof Asteroid || entity instanceof SpaceDebris || entity instanceof Satellite) {
+            extent = Math.max(extent, entity.radius * 1.25);
+        } else if (entity instanceof Projectile) {
+            if (entity.isDecoy) extent = Math.max(extent, 62);
+            else if (entity.isLaser || entity.isMissile || entity.isSkinnyMissile) extent = Math.max(extent, 55);
+            else if (entity.isOrbital) extent = Math.max(extent, entity.radius * 1.5);
+            else extent = Math.max(extent, entity.radius * 2);
+        }
+        let bounds = {
+            left: entity.x - extent,
+            right: entity.x + extent,
+            top: entity.y - extent,
+            bottom: entity.y + extent
+        };
+        if (entity instanceof Player && Array.isArray(entity.ghosts)) {
+            for (const ghost of entity.ghosts) {
+                bounds.left = Math.min(bounds.left, ghost.x - extent);
+                bounds.right = Math.max(bounds.right, ghost.x + extent);
+                bounds.top = Math.min(bounds.top, ghost.y - extent);
+                bounds.bottom = Math.max(bounds.bottom, ghost.y + extent);
             }
         }
+        if (entity instanceof Projectile && entity.isTentacle && entity.owner) {
+            bounds = {
+                left: Math.min(bounds.left, entity.owner.x - 40),
+                right: Math.max(bounds.right, entity.owner.x + 40),
+                top: Math.min(bounds.top, entity.owner.y - 40),
+                bottom: Math.max(bounds.bottom, entity.owner.y + 40)
+            };
+        }
+        return bounds;
+    }
+
+    drawExperimentalWalls(ctx, camera) {
+        for (const { area: room, wall } of Game.prototype.getExperimentalRenderableWalls.call(this, camera)) {
+            const dx = wall.end.x - wall.start.x;
+            const dy = wall.end.y - wall.start.y;
+            ctx.save();
+            camera.apply(ctx, wall.start.x, wall.start.y);
+            ctx.lineCap = 'round';
+            ctx.shadowColor = '#00ffff';
+            ctx.shadowBlur = 28;
+            ctx.strokeStyle = 'rgba(0, 255, 255, 0.22)';
+            ctx.lineWidth = room.wallCollisionThickness;
+            ctx.beginPath();
+            ctx.moveTo(0, 0);
+            ctx.lineTo(dx, dy);
+            ctx.stroke();
+            ctx.shadowBlur = 10;
+            ctx.strokeStyle = '#00ffff';
+            ctx.lineWidth = room.wallVisualCoreThickness;
+            ctx.stroke();
+            ctx.restore();
+        }
+    }
+
+    getExperimentalRenderableWalls(camera) {
+        const currentArea = Game.prototype.getExperimentalRenderArea.call(this);
+        if (!currentArea) return [];
+        const renderAreaIds = new Set([currentArea.id, ...(currentArea.connectedAreaIds || [])]);
+        const halfWidth = DESIGN_WIDTH / (2 * camera.zoom);
+        const halfHeight = DESIGN_HEIGHT / (2 * camera.zoom);
+        const viewport = {
+            left: camera.x - halfWidth,
+            right: camera.x + halfWidth,
+            top: camera.y - halfHeight,
+            bottom: camera.y + halfHeight
+        };
+        const intersectsViewport = wall => Math.max(wall.start.x, wall.end.x) >= viewport.left
+            && Math.min(wall.start.x, wall.end.x) <= viewport.right
+            && Math.max(wall.start.y, wall.end.y) >= viewport.top
+            && Math.min(wall.start.y, wall.end.y) <= viewport.bottom;
+        const renderableWalls = [];
+        for (const room of this.experimentalRooms.filter(area => renderAreaIds.has(area.id))) {
+            for (const wall of room.walls) {
+                if (!intersectsViewport(wall)) continue;
+                renderableWalls.push({ area: room, wall });
+            }
+        }
+        return renderableWalls;
     }
 
     drawAimLockOutline(ctx, player, camera) {
