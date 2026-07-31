@@ -113,13 +113,13 @@ test('Experimental room and door state re-entry initializes one clean layout', (
         players: [], asteroids: [], hazards: [], projectiles: []
     };
     Game.prototype.initializeExperimentalRooms.call(game);
-    assert.deepEqual(game.experimentalRooms.map(room => room.id), ['experimental-room-1', 'experimental-room-2']);
-    assert.deepEqual(game.experimentalDoors.map(door => door.id), ['experimental-door-1-2']);
+    assert.deepEqual(game.experimentalRooms.map(room => room.id), Array.from({ length: 9 }, (_, index) => `experimental-room-${index + 1}`));
+    assert.deepEqual(game.experimentalDoors.map(door => door.id), Array.from({ length: 8 }, (_, index) => `experimental-door-${index + 1}-${index + 2}`));
     Game.prototype.clearExperimentalState.call(game);
     Game.prototype.initializeExperimentalRooms.call(game);
-    assert.equal(game.experimentalRooms.length, 2);
-    assert.equal(game.experimentalDoors.length, 1);
-    assert.equal(game.experimentalRoomPopulations.size, 2);
+    assert.equal(game.experimentalRooms.length, 9);
+    assert.equal(game.experimentalDoors.length, 8);
+    assert.equal(game.experimentalRoomPopulations.size, 9);
 });
 
 test('Experimental cleanup clears room-local NPC intent', () => {

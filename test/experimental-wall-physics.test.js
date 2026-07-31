@@ -171,6 +171,34 @@ test('human membership commits beyond the doorway clearance without changing mot
     assert.equal(Game.prototype.resolveExperimentalPlayerRoomMembership.call(game, player), 'experimental-room-1');
 });
 
+test('membership traverses every connected doorway in both directions without non-adjacent jumps', () => {
+    const game = createExperimentalContext();
+    for (const door of game.experimentalDoors) {
+        const [firstId, secondId] = door.roomIds;
+        const first = game.experimentalRooms.find(room => room.id === firstId);
+        const second = game.experimentalRooms.find(room => room.id === secondId);
+        const player = new Player(0, 0, 1);
+        player.roomId = firstId;
+        player.x = door.orientation === 'HORIZONTAL' ? door.openingCenter : door.boundaryCoordinate;
+        player.y = door.orientation === 'VERTICAL' ? door.openingCenter : door.boundaryCoordinate;
+        const firstAcross = door.orientation === 'HORIZONTAL' ? first.bounds.top : first.bounds.left;
+        const secondAcross = door.orientation === 'HORIZONTAL' ? second.bounds.top : second.bounds.left;
+        const direction = Math.sign(secondAcross - firstAcross);
+        const clearance = player.radius + door.transitionTolerance + 1;
+        if (door.orientation === 'HORIZONTAL') player.y = door.boundaryCoordinate + direction * clearance;
+        else player.x = door.boundaryCoordinate + direction * clearance;
+        assert.equal(Game.prototype.resolveExperimentalPlayerRoomMembership.call(game, player), secondId, door.id);
+
+        if (door.orientation === 'HORIZONTAL') player.y = door.boundaryCoordinate - direction * clearance;
+        else player.x = door.boundaryCoordinate - direction * clearance;
+        assert.equal(Game.prototype.resolveExperimentalPlayerRoomMembership.call(game, player), firstId, `${door.id} reverse`);
+    }
+
+    const player = new Player(-100, -100, 1);
+    player.roomId = 'experimental-room-1';
+    assert.equal(Game.prototype.resolveExperimentalPlayerRoomMembership.call(game, player), 'experimental-room-1');
+});
+
 test('confirmed human room changes clear tier 1-4 bonuses once while preserving shields and state', () => {
     const game = createExperimentalContext();
     const player = new Player(8640, WORLD_HEIGHT, 1);

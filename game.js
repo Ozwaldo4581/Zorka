@@ -2487,20 +2487,20 @@ export class Game {
     getExperimentalCollisionWalls(entity) {
         const category = Game.prototype.getExperimentalCollisionCategory.call(this, entity);
         const room = Game.prototype.getExperimentalRoom.call(this, entity?.roomId) || this.experimentalRooms[0];
-        const door = this.experimentalDoors?.find(candidate => candidate.roomIds.includes(room?.id));
-        const roomIds = category === EXPERIMENTAL_COLLISION_CATEGORY.HUMAN_PLAYER
-            && Game.prototype.isExperimentalDoorAdjacent.call(this, entity, door)
-            ? door.roomIds
-            : [room?.id];
+        const connectedDoors = (this.experimentalDoors || []).filter(door => door.roomIds.includes(room?.id));
+        const adjacentDoors = category === EXPERIMENTAL_COLLISION_CATEGORY.HUMAN_PLAYER
+            ? connectedDoors.filter(door => Game.prototype.isExperimentalDoorAdjacent.call(this, entity, door)) : [];
+        const roomIds = new Set([room?.id]);
+        adjacentDoors.forEach(door => door.roomIds.forEach(roomId => roomIds.add(roomId)));
         const walls = [];
         const seenWallIds = new Set();
         for (const roomId of roomIds) {
             const selectedRoom = Game.prototype.getExperimentalRoom.call(this, roomId);
             if (!selectedRoom) continue;
             const selectedWalls = [...selectedRoom.walls];
-            if (roomId !== this.experimentalRooms[0]?.id && door) {
-                selectedWalls.push(...this.experimentalRooms[0].walls.filter(wall =>
-                    wall.start.y === door.boundaryCoordinate && wall.end.y === door.boundaryCoordinate));
+            for (const door of connectedDoors) {
+                const owner = this.experimentalRooms.find(candidate => candidate.walls.some(wall => door.sharedWallIds.includes(wall.id)));
+                if (owner) selectedWalls.push(...owner.walls.filter(wall => door.sharedWallIds.includes(wall.id)));
             }
             for (const wall of selectedWalls) {
                 if (seenWallIds.has(wall.id)) continue;
@@ -2508,7 +2508,7 @@ export class Game {
                 walls.push(wall);
             }
         }
-        for (const door of this.experimentalDoors || []) {
+        for (const door of connectedDoors) {
             if (door.blockedCategories.includes(category)) walls.push(door.blocker);
         }
         return walls;
@@ -2520,20 +2520,33 @@ export class Game {
         const room = Game.prototype.getExperimentalRoom.call(this, entity.roomId) || this.experimentalRooms[0];
         const thickness = room?.wallCollisionThickness || 0;
         const margin = radius + Math.max(0, otherRadius) + thickness / 2 + door.transitionTolerance;
-        return entity.x >= door.openingMin - margin
-            && entity.x <= door.openingMax + margin
-            && Math.abs(entity.y - door.boundaryCoordinate) <= margin;
+        const along = door.orientation === 'HORIZONTAL' ? entity.x : entity.y;
+        const across = door.orientation === 'HORIZONTAL' ? entity.y : entity.x;
+        return along >= door.openingMin - margin && along <= door.openingMax + margin
+            && Math.abs(across - door.boundaryCoordinate) <= margin;
     }
 
     resolveExperimentalPlayerRoomMembership(player) {
         if (!player || player.isNPC) return player?.roomId || null;
-        const door = this.experimentalDoors?.[0];
-        if (!door || player.x < door.openingMin || player.x > door.openingMax) return player.roomId;
-        const [room1Id, room2Id] = door.roomIds;
-        const clearance = Math.max(0, player.radius || 0) + door.transitionTolerance;
         const previousRoomId = player.roomId;
-        if (previousRoomId === room1Id && player.y > door.boundaryCoordinate + clearance) player.roomId = room2Id;
-        else if (previousRoomId === room2Id && player.y < door.boundaryCoordinate - clearance) player.roomId = room1Id;
+        const currentRoom = Game.prototype.getExperimentalRoom.call(this, previousRoomId);
+        for (const door of (this.experimentalDoors || []).filter(candidate => candidate.roomIds.includes(previousRoomId))) {
+            const along = door.orientation === 'HORIZONTAL' ? player.x : player.y;
+            if (along < door.openingMin || along > door.openingMax) continue;
+            const candidateId = door.roomIds.find(roomId => roomId !== previousRoomId);
+            const candidate = Game.prototype.getExperimentalRoom.call(this, candidateId);
+            if (!currentRoom || !candidate) continue;
+            const clearance = Math.max(0, player.radius || 0) + door.transitionTolerance;
+            const across = door.orientation === 'HORIZONTAL' ? player.y : player.x;
+            const direction = door.orientation === 'HORIZONTAL'
+                ? Math.sign(candidate.bounds.top - currentRoom.bounds.top)
+                : Math.sign(candidate.bounds.left - currentRoom.bounds.left);
+            if ((direction > 0 && across > door.boundaryCoordinate + clearance)
+                || (direction < 0 && across < door.boundaryCoordinate - clearance)) {
+                player.roomId = candidateId;
+                break;
+            }
+        }
         if (player.roomId !== previousRoomId
             && Game.prototype.getExperimentalRoom.call(this, previousRoomId)
             && Game.prototype.getExperimentalRoom.call(this, player.roomId)) {
