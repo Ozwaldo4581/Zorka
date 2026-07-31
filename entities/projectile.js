@@ -10,6 +10,8 @@ export class Projectile {
         this.color = color;
         this.radius = 8;
         this.lifeSpan = 1.0; 
+        this.distanceTraveled = 0;
+        this.maxTravelDistance = null;
         this.rotation = Math.atan2(vy, vx) + Math.PI / 2;
         this.canWrap = true;
         this.isLaser = false;
@@ -36,8 +38,17 @@ export class Projectile {
         } else if (this.isOrbital) {
             this.updateOrbital(dt);
         } else {
-            this.x += this.vx * dt;
-            this.y += this.vy * dt;
+            const dx = this.vx * dt;
+            const dy = this.vy * dt;
+            this.x += dx;
+            this.y += dy;
+
+            if (Number.isFinite(this.maxTravelDistance)) {
+                this.distanceTraveled += Math.hypot(dx, dy);
+                if (this.distanceTraveled >= this.maxTravelDistance) {
+                    this.lifeSpan = 0;
+                }
+            }
         }
 
         if (this.canWrap) {
