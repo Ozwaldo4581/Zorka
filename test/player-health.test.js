@@ -1,9 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { Player } from '../entities/player.js';
+import { getHPBlockLayout, Player } from '../entities/player.js';
 import { Game } from '../game.js';
-import { getHPBlockLayout } from '../ui/hud.js';
 
 const makeDamageGame = players => ({
     players,
