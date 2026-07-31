@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 
 import { HUD } from '../ui/hud.js';
 import { WORLD_HEIGHT, WORLD_WIDTH } from '../game.js';
-import { createExperimentalRooms } from '../world/experimental_rooms.js';
+import { createExperimentalAreas, createExperimentalRooms } from '../world/experimental_rooms.js';
 
 function createContext() {
     const arcs = [];
@@ -17,7 +17,7 @@ function createContext() {
 
 function drawMinimap({ owner, players = [owner], asteroids = [], hazards = [], usesRooms = true }) {
     const { ctx, arcs } = createContext();
-    const rooms = createExperimentalRooms(WORLD_WIDTH, WORLD_HEIGHT);
+    const rooms = createExperimentalAreas(WORLD_WIDTH, WORLD_HEIGHT);
     new HUD().drawMinimap(ctx, players, asteroids, null, false, { usesRooms, owner, rooms, hazards });
     return arcs;
 }
@@ -54,6 +54,29 @@ test('Experimental minimap filters all markers by the owning player room and sna
     owner.roomId = room2.id;
     owner.y = 10000;
     assert.equal(drawMinimap({ owner, players, asteroids, hazards }).length, 4);
+});
+
+test('Experimental minimap snaps to a Room 0 hallway and hides both connected rooms', () => {
+    const areas = createExperimentalAreas(WORLD_WIDTH, WORLD_HEIGHT);
+    const hallway = areas.find(area => area.id === 'experimental-hallway-1-2');
+    const owner = {
+        id: 1,
+        roomId: hallway.id,
+        x: (hallway.bounds.left + hallway.bounds.right) / 2,
+        y: (hallway.bounds.top + hallway.bounds.bottom) / 2,
+        color: '#0ff'
+    };
+    const players = [owner,
+        { id: 2, roomId: 'experimental-room-1', x: 8640, y: 9600 },
+        { id: 3, roomId: 'experimental-room-2', x: 8640, y: 13800 }];
+    const asteroids = [
+        { roomId: 'experimental-room-1', x: 8640, y: 9600, radius: 10 },
+        { roomId: 'experimental-room-2', x: 8640, y: 13800, radius: 10 }
+    ];
+
+    const arcs = drawMinimap({ owner, players, asteroids });
+    assert.equal(arcs.length, 1);
+    assert.deepEqual({ x: arcs[0].x, y: arcs[0].y }, { x: 1740, y: 970 });
 });
 
 test('invalid Experimental room membership draws no world markers', () => {

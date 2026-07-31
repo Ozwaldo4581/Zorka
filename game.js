@@ -2547,9 +2547,10 @@ export class Game {
                 break;
             }
         }
+        const nextRoom = Game.prototype.getExperimentalRoom.call(this, player.roomId);
         if (player.roomId !== previousRoomId
-            && Game.prototype.getExperimentalRoom.call(this, previousRoomId)
-            && Game.prototype.getExperimentalRoom.call(this, player.roomId)) {
+            && currentRoom?.roomNumber > 0
+            && nextRoom?.roomNumber === 0) {
             player.clearExperimentalRoomCapsuleBonuses();
         }
         return player.roomId;
