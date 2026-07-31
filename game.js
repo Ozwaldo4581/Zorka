@@ -6,6 +6,7 @@ import { Camera } from './camera.js';
 import { HUD } from './ui/hud.js';
 import { AudioManager } from './audio_manager.js';
 import { checkCollision, nearestWrappedDisplacement } from './physics.js';
+import { createExperimentalRooms } from './world/experimental_rooms.js';
 
 export const DESIGN_WIDTH = 1920;
 export const DESIGN_HEIGHT = 1080;
@@ -1324,8 +1325,13 @@ export class Game {
         this.experimentalCameraState = null;
     }
 
+    initializeExperimentalRooms() {
+        this.experimentalRooms = createExperimentalRooms();
+    }
+
     setupExperimentalMatch() {
         this.clearExperimentalState();
+        this.initializeExperimentalRooms();
         // The shell deliberately reuses standard entity setup until room rules
         // are introduced in the next slices. No shared world constants change.
         this.spawnPlayers(GAME_MODE.SOLO, 2);
