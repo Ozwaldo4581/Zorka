@@ -1230,7 +1230,7 @@ export class Game {
     // Gamepad D-pad/stick navigation for the floating in-game pause menu (Escape/Start menu)
     updatePauseMenuNavigation(dt) {
         const gamepads = navigator.getGamepads ? navigator.getGamepads() : [];
-        const gp = gamepads[0];
+        const gp = Array.from(gamepads).find(gamepad => gamepad !== null) || null;
         if (!gp) return;
 
         if (this.pauseMenuCooldown > 0) {
@@ -1826,7 +1826,7 @@ export class Game {
         }
         
         const gamepads = navigator.getGamepads ? navigator.getGamepads() : [];
-        const gp = gamepads[0];
+        const gp = Array.from(gamepads).find(gamepad => gamepad !== null) || null;
         if (!gp) return;
 
         if (this.menuCooldown > 0) {
@@ -1923,11 +1923,18 @@ export class Game {
         if (statusEl) statusEl.innerText = `${count} GAMEPAD(S) DETECTED`;
 
         if (count === 0) {
-            kbBtn.classList.add('selected');
-            kbBtn.disabled = true;
-            gpBtn.classList.remove('selected');
+            // Chrome can briefly hide gamepads from an embedded itch.io frame until
+            // the frame receives controller interaction. Preserve the player's
+            // selected/default control mode instead of silently switching to keyboard.
+            kbBtn.disabled = false;
             gpBtn.disabled = true;
-            this.p1ControlMode = 'KEYBOARD';
+            if (this.p1ControlMode === 'GAMEPAD') {
+                gpBtn.classList.add('selected');
+                kbBtn.classList.remove('selected');
+            } else {
+                kbBtn.classList.add('selected');
+                gpBtn.classList.remove('selected');
+            }
         } else if (count === 1) {
             if (isPvP) {
                 // Only 1 controller in PVP: force it onto P1, P2 needs a controller of their own
@@ -1981,11 +1988,15 @@ export class Game {
         if (statusEl) statusEl.innerText = `${count} GAMEPAD(S) DETECTED`;
 
         if (count === 0) {
-            kbBtn.classList.add('selected');
-            kbBtn.disabled = true;
-            gpBtn.classList.remove('selected');
+            kbBtn.disabled = false;
             gpBtn.disabled = true;
-            this.p1ControlMode = 'KEYBOARD';
+            if (this.p1ControlMode === 'GAMEPAD') {
+                gpBtn.classList.add('selected');
+                kbBtn.classList.remove('selected');
+            } else {
+                kbBtn.classList.add('selected');
+                gpBtn.classList.remove('selected');
+            }
         } else {
             kbBtn.disabled = false;
             gpBtn.disabled = false;
