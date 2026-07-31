@@ -672,6 +672,13 @@ export class Player {
             setForce({ x: 0, y: 0 });
             return;
         }
+        if (worldRules?.usesRooms && worldRules.hasHumanInArea?.(this.roomId) === false) {
+            this.npcTarget = null;
+            this.shouldFire = false;
+            this.isThrusting = false;
+            setForce({ x: 0, y: 0 });
+            return;
+        }
         this.npcThinkTimer -= dt;
         this.npcBehaviorTimer -= dt;
         if (worldRules?.usesRooms && this.npcTarget?.roomId !== this.roomId) this.npcTarget = null;
