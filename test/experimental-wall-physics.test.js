@@ -36,6 +36,28 @@ const createExperimentalContext = overrides => {
     };
 };
 
+function sweepThroughEntrance(entity, door, source, destination, distance = 160) {
+    const direction = door.orientation === 'HORIZONTAL'
+        ? Math.sign(destination.bounds.top - source.bounds.top)
+        : Math.sign(destination.bounds.left - source.bounds.left);
+    if (door.orientation === 'HORIZONTAL') {
+        entity.previousX = door.openingCenter;
+        entity.x = door.openingCenter;
+        entity.previousY = door.boundaryCoordinate - direction * distance;
+        entity.y = door.boundaryCoordinate + direction * distance;
+        entity.vx = 0;
+        entity.vy = direction * distance;
+    } else {
+        entity.previousY = door.openingCenter;
+        entity.y = door.openingCenter;
+        entity.previousX = door.boundaryCoordinate - direction * distance;
+        entity.x = door.boundaryCoordinate + direction * distance;
+        entity.vx = direction * distance;
+        entity.vy = 0;
+    }
+    return direction;
+}
+
 const verticalWall = { start: { x: 0, y: 100 }, end: { x: 0, y: 0 } };
 
 test('closest-point and thick-segment contact handle faces, endpoints, diagonals, and zero-length walls', () => {
@@ -363,6 +385,92 @@ test('door blocker reflects confined bodies and environmentally replaces a small
     assert.deepEqual([large.rotSpeed, debris.rotSpeed, satellite.rotSpeed], angular);
     assert.equal(small.isDestroyed, true);
     assert.deepEqual(replacements, [{ size: 'small', roomId: 'experimental-room-1' }]);
+});
+
+test('every hallway entrance admits humans and slides NPCs on horizontal, vertical, positive, and negative crossings', () => {
+    const game = createExperimentalContext();
+    for (const door of game.experimentalDoors) {
+        const [first, second] = door.roomIds.map(id => game.experimentalRooms.find(area => area.id === id));
+        const numberedRoom = first.roomNumber > 0 ? first : second;
+        const hallway = first.roomNumber === 0 ? first : second;
+
+        const human = Object.assign(new Player(0, 0, 1), { roomId: numberedRoom.id });
+        sweepThroughEntrance(human, door, numberedRoom, hallway);
+        assert.equal(Game.prototype.resolveExperimentalSlide.call(game, human), false, `${door.id} human`);
+        assert.equal(Game.prototype.resolveExperimentalPlayerRoomMembership.call(game, human), hallway.id, `${door.id} membership`);
+
+        const npc = Object.assign(new Player(0, 0, 3), { roomId: numberedRoom.id, isNPC: true });
+        const direction = sweepThroughEntrance(npc, door, numberedRoom, hallway);
+        assert.equal(Game.prototype.resolveExperimentalSlide.call(game, npc), true, `${door.id} NPC`);
+        const normalVelocity = door.orientation === 'HORIZONTAL' ? npc.vy : npc.vx;
+        assert.ok(normalVelocity * direction <= 0, `${door.id} NPC normal velocity`);
+        assert.equal(npc.roomId, numberedRoom.id);
+    }
+});
+
+test('every hallway entrance terminates all projectile representations at first blocker contact', () => {
+    const game = createExperimentalContext({
+        removeProjectile(projectile) { projectile.isRemoved = true; return true; },
+        detonateMissile(projectile) { projectile.detonations = (projectile.detonations || 0) + 1; },
+        detonateAoEProjectile(projectile) { projectile.detonations = (projectile.detonations || 0) + 1; }
+    });
+    for (const door of game.experimentalDoors) {
+        const [first, second] = door.roomIds.map(id => game.experimentalRooms.find(area => area.id === id));
+        const numberedRoom = first.roomNumber > 0 ? first : second;
+        const hallway = first.roomNumber === 0 ? first : second;
+        for (const kind of ['ordinary', 'missile', 'skinny-missile', 'laser', 'tentacle', 'orbital']) {
+            const projectile = Object.assign(new Projectile(0, 0, 0, 0), { roomId: numberedRoom.id });
+            if (kind === 'missile') projectile.isMissile = true;
+            if (kind === 'skinny-missile') projectile.isSkinnyMissile = true;
+            if (kind === 'laser') projectile.isLaser = true;
+            if (kind === 'tentacle') projectile.isTentacle = true;
+            if (kind === 'orbital') projectile.isOrbital = true;
+            sweepThroughEntrance(projectile, door, numberedRoom, hallway, 1200);
+            assert.equal(Game.prototype.resolveExperimentalProjectileWall.call(game, projectile), true, `${door.id} ${kind}`);
+            assert.equal(projectile.isRemoved, true, `${door.id} ${kind} removed`);
+            assert.equal(projectile.detonations || 0, ['missile', 'skinny-missile'].includes(kind) ? 1 : 0, `${door.id} ${kind} detonation`);
+        }
+    }
+});
+
+test('every hallway entrance reflects large bodies and destroys small asteroids without rewards or children', () => {
+    const areas = createExperimentalAreas(WORLD_WIDTH, WORLD_HEIGHT);
+    const doors = createExperimentalDoors(areas);
+    for (const door of doors) {
+        const [first, second] = door.roomIds.map(id => areas.find(area => area.id === id));
+        const numberedRoom = first.roomNumber > 0 ? first : second;
+        const hallway = first.roomNumber === 0 ? first : second;
+        const large = Object.assign(new Asteroid(0, 0, 'large'), { roomId: numberedRoom.id });
+        const medium = Object.assign(new Asteroid(0, 0, 'medium'), { roomId: numberedRoom.id });
+        const small = Object.assign(new Asteroid(0, 0, 'small'), { roomId: numberedRoom.id });
+        const debris = Object.assign(new SpaceDebris(0, 0), { roomId: numberedRoom.id });
+        const satellite = Object.assign(new Satellite(0, 0), { roomId: numberedRoom.id });
+        const bodies = [large, medium, small, debris, satellite];
+        const directions = bodies.map(body => sweepThroughEntrance(body, door, numberedRoom, hallway));
+        const speeds = bodies.map(body => Math.hypot(body.vx, body.vy));
+        const angular = bodies.map(body => body.rotSpeed);
+        const replacements = [];
+        let environmentalKiller;
+        const game = createExperimentalContext({
+            experimentalRooms: areas,
+            experimentalDoors: doors,
+            asteroids: [large, medium, small], hazards: [debris, satellite],
+            hitTarget(target, killer) { environmentalKiller = killer; target.isDestroyed = true; },
+            spawnAsteroid(size, x, y, roomId) { replacements.push({ size, x, y, roomId }); }
+        });
+
+        Game.prototype.resolveExperimentalEntityWalls.call(game);
+        for (const [index, body] of bodies.entries()) {
+            if (body === small) continue;
+            const normalVelocity = door.orientation === 'HORIZONTAL' ? body.vy : body.vx;
+            assert.ok(normalVelocity * directions[index] < 0, `${door.id} ${body.constructor.name}`);
+            assert.equal(Math.hypot(body.vx, body.vy), speeds[index]);
+            assert.equal(body.rotSpeed, angular[index]);
+        }
+        assert.equal(small.isDestroyed, true);
+        assert.equal(environmentalKiller, null);
+        assert.deepEqual(replacements, [{ size: 'small', x: undefined, y: undefined, roomId: numberedRoom.id }]);
+    }
 });
 
 test('Experimental respawn stays in the human current room', () => {
