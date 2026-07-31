@@ -86,7 +86,7 @@ export class HUD {
         const boxes = this.getLevelUpgradeBoxes(centerX, startY);
         ctx.fillStyle = player.color;
         ctx.fillText('Select a Power Up', centerX, boxes[0].y - 31);
-        const prompts = ['1 / A', '2 / Y', '3 / B'];
+        const prompts = ['1 / X', '2 / Y', '3 / B'];
         boxes.forEach((box, index) => {
             ctx.fillStyle = '#fff';
             ctx.fillText(prompts[index], box.x + box.width / 2, box.y - 8);

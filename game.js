@@ -350,7 +350,7 @@ export class Game {
     }
 
     isHardcoreActive() {
-        return this.gameState === 'ARCADE' || this.hardcoreMode;
+        return this.gameState === 'ARCADE' || this.gameState === GAME_MODE.EXPERIMENTAL || this.hardcoreMode;
     }
 
     refreshControlOptionButtons() {
@@ -1470,6 +1470,14 @@ export class Game {
         return [...new Set(candidates)];
     }
 
+    isHostileTarget(attacker, candidate) {
+        if (!attacker || !candidate || attacker === candidate || candidate.isDead || candidate.isEliminated) return false;
+        if (this.gameState !== GAME_MODE.EXPERIMENTAL) return true;
+        if (attacker.roomId !== candidate.roomId) return false;
+        if (!attacker.isNPC || !candidate.isNPC) return true;
+        return attacker.color !== candidate.color;
+    }
+
     hasHumanInExperimentalArea(roomId) {
         if (this.gameState !== GAME_MODE.EXPERIMENTAL) return true;
         const indexed = this.experimentalAreaIndexes?.has(roomId)
@@ -1609,8 +1617,8 @@ export class Game {
         this.gameState = GAME_MODE.EXPERIMENTAL;
         this.setupExperimentalPopulations();
         const startingRoom = this.experimentalRooms.find(area => area.roomNumber === 1) || this.experimentalRooms[0];
-        this.showExperimentalSectorMessage(startingRoom?.roomNumber || 1);
-        this.showExperimentalObjectiveMessage();
+        Game.prototype.showExperimentalSectorMessage.call(this, startingRoom?.roomNumber || 1);
+        Game.prototype.showExperimentalObjectiveMessage.call(this);
     }
 
 
@@ -1618,6 +1626,14 @@ export class Game {
         const normalizedRoomNumber = Math.max(1, Math.floor(Number(roomNumber) || 1));
         this.experimentalSectorMessage = {
             text: `Sector ${normalizedRoomNumber}`,
+            remaining: EXPERIMENTAL_SECTOR_MESSAGE_DURATION
+        };
+    }
+
+    showExperimentalHallwayMessage() {
+        this.experimentalSectorMessage = {
+            text: 'Sector 0',
+            detail: 'Capsule Bonuses Purged',
             remaining: EXPERIMENTAL_SECTOR_MESSAGE_DURATION
         };
     }
@@ -1640,7 +1656,6 @@ export class Game {
 
     drawExperimentalMessages(ctx) {
         if (this.gameState !== GAME_MODE.EXPERIMENTAL) return;
-        const playerColor = this.players.find(player => !player.isNPC)?.color || '#00ffff';
         ctx.save();
         ctx.textAlign = 'center';
         ctx.textBaseline = 'middle';
@@ -1648,9 +1663,9 @@ export class Game {
         ctx.shadowBlur = 14;
 
         if (this.experimentalObjectiveMessage) {
-            ctx.fillStyle = playerColor;
-            ctx.font = 'bold 72px "Courier New", monospace';
-            const lineHeight = 86;
+            ctx.fillStyle = '#ffffff';
+            ctx.font = 'bold 42px "Courier New", monospace';
+            const lineHeight = 52;
             const startY = DESIGN_HEIGHT / 2 - lineHeight;
             this.experimentalObjectiveMessage.lines.forEach((line, index) => {
                 ctx.fillText(line, DESIGN_WIDTH / 2, startY + index * lineHeight);
@@ -1661,6 +1676,10 @@ export class Game {
             ctx.fillStyle = '#ffffff';
             ctx.font = 'bold 42px "Courier New", monospace';
             ctx.fillText(this.experimentalSectorMessage.text, DESIGN_WIDTH / 2, DESIGN_HEIGHT * 0.36);
+            if (this.experimentalSectorMessage.detail) {
+                ctx.font = 'bold 26px "Courier New", monospace';
+                ctx.fillText(this.experimentalSectorMessage.detail, DESIGN_WIDTH / 2, DESIGN_HEIGHT * 0.36 + 48);
+            }
         }
         ctx.restore();
     }
@@ -1680,23 +1699,14 @@ export class Game {
 
     getExperimentalActiveAreaIds() {
         const currentArea = Game.prototype.getExperimentalRenderArea.call(this);
-        if (!currentArea) return new Set();
-        const active = new Set([currentArea.id]);
-        if (currentArea.roomNumber !== 0) return active;
-        const localPlayer = this.players.find(player => !player.isNPC && !player.isDead && !player.isEliminated);
-        if (!localPlayer) return active;
-        for (const connectedId of currentArea.connectedAreaIds || []) {
-            const connectedArea = Game.prototype.getExperimentalRoom.call(this, connectedId);
-            if (!connectedArea || connectedArea.roomNumber <= 0) continue;
-            const depth = Game.prototype.getExperimentalHallwayDepthFromArea.call(this, localPlayer, currentArea, connectedArea);
-            if (depth <= EXPERIMENTAL_HALLWAY_ACTIVITY_DEPTH) active.add(connectedArea.id);
-        }
-        return active;
+        return currentArea ? new Set([currentArea.id]) : new Set();
     }
 
     startExperimentalMode() {
         this.closePauseMenu();
         this.hideArcadeGameOver();
+        this.arcadeGameOver = false;
+        this.arcadeResult = null;
         this.clearExperimentalState();
         this.players = [];
         this.asteroids = [];
@@ -2551,13 +2561,14 @@ export class Game {
                 } else if (player.isNPC) {
                     const localPlayers = worldRules.usesRooms
                         ? Game.prototype.getExperimentalAreaEntities.call(this, player.roomId, 'players') : this.players;
-                    const localHumans = worldRules.usesRooms
-                        ? localPlayers.filter(candidate => !candidate.isNPC) : localPlayers;
+                    const localTargets = worldRules.usesRooms
+                        ? localPlayers.filter(candidate => Game.prototype.isHostileTarget.call(this, player, candidate))
+                        : localPlayers;
                     const localAsteroids = worldRules.usesRooms
                         ? Game.prototype.getExperimentalAreaEntities.call(this, player.roomId, 'asteroids') : this.asteroids;
                     const localHazards = worldRules.usesRooms
                         ? Game.prototype.getExperimentalAreaEntities.call(this, player.roomId, 'hazards') : this.hazards;
-                    player.update(dt, {}, {}, this.camera, localHumans, localAsteroids, [], false, this.transformationKills, localHazards, null, this.areTransformationsEnabled(), worldRules);
+                    player.update(dt, {}, {}, this.camera, localTargets, localAsteroids, [], false, this.transformationKills, localHazards, null, this.areTransformationsEnabled(), worldRules);
                     player.resolveNPCLevelUps();
                     if (player.justPrestiged) prestigeTriggers.push(player);
                     
@@ -2620,7 +2631,10 @@ export class Game {
                 this.removeProjectile(p);
                 continue;
             }
-            p.update(dt, this.asteroids, this.players, this.hazards, this.projectiles, worldRules);
+            const projectilePlayers = worldRules.usesRooms
+                ? this.players.filter(player => Game.prototype.isHostileTarget.call(this, p.owner, player))
+                : this.players;
+            p.update(dt, this.asteroids, projectilePlayers, this.hazards, this.projectiles, worldRules);
             if (worldRules.usesRooms && this.resolveExperimentalProjectileWall(p)) continue;
             
             // Lasers persist only while on screen (visible in any active camera)
@@ -2761,12 +2775,13 @@ export class Game {
         }
         const nextRoom = Game.prototype.getExperimentalRoom.call(this, player.roomId);
         if (player.roomId !== previousRoomId && nextRoom?.roomNumber > 0) {
-            this.showExperimentalSectorMessage(nextRoom.roomNumber);
+            Game.prototype.showExperimentalSectorMessage.call(this, nextRoom.roomNumber);
         }
         if (player.roomId !== previousRoomId
             && currentRoom?.roomNumber > 0
             && nextRoom?.roomNumber === 0) {
             player.clearExperimentalRoomCapsuleBonuses();
+            Game.prototype.showExperimentalHallwayMessage.call(this);
         }
         return player.roomId;
     }
@@ -2808,7 +2823,6 @@ export class Game {
             }
             if (!passCollision) break;
         }
-        if (collided) Game.prototype.playSpatialEvent.call(this, 'laser_fire', entity.x, entity.y, entity.roomId);
         return collided;
     }
 
@@ -2816,13 +2830,11 @@ export class Game {
         const fallbackRoom = this.experimentalRooms[0];
         if (!fallbackRoom) return;
         const destroyedSmall = [];
-        let confirmedImpact = false;
         for (const asteroid of this.asteroids) {
             const room = Game.prototype.getExperimentalRoom.call(this, asteroid.roomId) || fallbackRoom;
             const walls = Game.prototype.getExperimentalCollisionWalls.call(this, asteroid);
             const swept = Game.prototype.findExperimentalSweptWallHit.call(this, asteroid, walls, room.wallCollisionThickness);
             if (swept) {
-                confirmedImpact = true;
                 if (asteroid.size === 'small') {
                     destroyedSmall.push({ asteroid, replenish: swept.wall.isDoorBlocker === true });
                     continue;
@@ -2835,7 +2847,6 @@ export class Game {
             for (const wall of walls) {
                 const contact = circleThickSegmentContact(asteroid, wall, room.wallCollisionThickness);
                 if (!contact) continue;
-                confirmedImpact = true;
                 if (asteroid.size === 'small') {
                     destroyedSmall.push({ asteroid, replenish: wall.isDoorBlocker === true });
                     break;
@@ -2855,7 +2866,6 @@ export class Game {
             const walls = Game.prototype.getExperimentalCollisionWalls.call(this, hazard);
             const swept = Game.prototype.findExperimentalSweptWallHit.call(this, hazard, walls, room.wallCollisionThickness);
             if (swept) {
-                confirmedImpact = true;
                 hazard.x = swept.hit.x;
                 hazard.y = swept.hit.y;
                 correctWallPenetration(hazard, swept.hit, room.collisionEpsilon);
@@ -2864,14 +2874,9 @@ export class Game {
             for (const wall of walls) {
                 const contact = circleThickSegmentContact(hazard, wall, room.wallCollisionThickness);
                 if (!contact) continue;
-                confirmedImpact = true;
                 correctWallPenetration(hazard, contact, room.collisionEpsilon);
                 reflectVelocity(hazard, contact.normal);
             }
-        }
-        if (confirmedImpact) {
-            const impact = destroyedSmall[0]?.asteroid || this.asteroids[0] || this.hazards[0];
-            if (impact) Game.prototype.playSpatialEvent.call(this, 'laser_fire', impact.x, impact.y, impact.roomId);
         }
     }
 
@@ -2893,9 +2898,6 @@ export class Game {
             else this.detonateMissile(projectile);
         }
         this.removeProjectile(projectile);
-        if (!projectile.isMissile && !projectile.isSkinnyMissile) {
-            Game.prototype.playSpatialEvent.call(this, 'laser_fire', projectile.x, projectile.y, projectile.roomId);
-        }
         return true;
     }
 
@@ -3096,8 +3098,9 @@ export class Game {
             if (killer.killStreak > (killer.highTide || 0)) killer.highTide = killer.killStreak;
         }
 
-        const isArcadeHuman = this.gameState === 'ARCADE' && !player.isNPC;
-        const arcadeResult = isArcadeHuman ? {
+        const isOneLifeHuman = (this.gameState === 'ARCADE' || this.gameState === GAME_MODE.EXPERIMENTAL)
+            && !player.isNPC;
+        const gameOverResult = isOneLifeHuman ? {
             finalLevel: player.level,
             totalXP: player.totalXP,
             totalCapsulesGained: player.totalCapsulesGained
@@ -3132,8 +3135,11 @@ export class Game {
             if (player.isNPC) {
                 player.isEliminated = true;
             } else {
-                this.showArcadeGameOver(arcadeResult);
+                this.showArcadeGameOver(gameOverResult);
             }
+        } else if (this.gameState === GAME_MODE.EXPERIMENTAL && !player.isNPC) {
+            player.respawnTimer = 0;
+            this.showArcadeGameOver(gameOverResult);
         }
 
     }
@@ -3237,6 +3243,7 @@ export class Game {
             if (!p || p.isRemoved || p.hasDetonated) continue;
             for (let player of Game.prototype.getExperimentalCandidates.call(this, p, 'players', this.players)) {
                 if (!player || player.isDead || player.isEliminated || p.owner === player) continue;
+                if (!Game.prototype.isHostileTarget.call(this, p.owner, player)) continue;
                 if (!Game.prototype.areExperimentalEntitiesCoLocated.call(this, p, player)) continue;
                 if (checkCollision(p, player)) {
                     if (p.isDecoy) {
@@ -3276,6 +3283,8 @@ export class Game {
                     if (!p2 || p2.isRemoved || p2.hasDetonated) continue;
                     if (!Game.prototype.areExperimentalEntitiesCoLocated.call(this, p1, p2)) continue;
                     if (p1.owner && p1.owner === p2.owner) continue;
+                    if (p1.owner && p2.owner
+                        && !Game.prototype.isHostileTarget.call(this, p1.owner, p2.owner)) continue;
                     if (!p2.isMissile && !p2.isSkinnyMissile && checkCollision(p1, p2)) {
                         if (p1.isSkinnyMissile) this.detonateAoEProjectile(p1);
                         else this.detonateMissile(p1);
@@ -3338,7 +3347,9 @@ export class Game {
                 const p = this.projectiles[i];
                 if (!p || p.isRemoved || p.hasDetonated) continue;
                 if (!Game.prototype.areExperimentalEntitiesCoLocated.call(this, player, p)) continue;
-                if (p.isDecoy && p.owner !== player && checkCollision(player, p)) {
+                if (p.isDecoy && p.owner !== player
+                    && Game.prototype.isHostileTarget.call(this, p.owner, player)
+                    && checkCollision(player, p)) {
                     this.createExplosion(p.x, p.y, 60, p.roomId);
                     this.removeProjectile(p);
                     this.playerDeath(player, p.owner);
@@ -3402,6 +3413,7 @@ export class Game {
         // Check players
         for (let player of Game.prototype.getExperimentalCandidates.call(this, p, 'players', this.players)) {
             if (player.isDead || player === p.owner) continue;
+            if (!Game.prototype.isHostileTarget.call(this, p.owner, player)) continue;
             if (!Game.prototype.areExperimentalEntitiesCoLocated.call(this, p, player)) continue;
             const dist = Math.hypot(player.x - p.x, player.y - p.y);
             if (dist < radius + player.radius && !this.isExperimentalBlastBlocked(p, player)) {
@@ -3464,6 +3476,7 @@ export class Game {
         // Catch any nearby players in the blast too
         for (let player of Game.prototype.getExperimentalCandidates.call(this, missile, 'players', this.players)) {
             if (player.isDead || player === missile.owner) continue;
+            if (!Game.prototype.isHostileTarget.call(this, missile.owner, player)) continue;
             if (!Game.prototype.areExperimentalEntitiesCoLocated.call(this, missile, player)) continue;
             const dist = Math.hypot(player.x - missile.x, player.y - missile.y);
             if (dist < radius + player.radius && !this.isExperimentalBlastBlocked(missile, player)) {

@@ -78,7 +78,7 @@ test('HUD upgrade prompts and XP bar use the shared order, capsule width, and pl
     hud.drawLevelUpChoices(ctx, player, 960, 980);
     hud.drawXPBar(ctx, player, 960, 980, 5);
     assert.deepEqual(hud.getLevelUpgradeBoxes(960, 980).map(box => box.choice), ['projectile', 'speed', 'shield']);
-    for (const label of ['Select a Power Up', '1 / A', '2 / Y', '3 / B']) assert.ok(texts.includes(label));
+    for (const label of ['Select a Power Up', '1 / X', '2 / Y', '3 / B']) assert.ok(texts.includes(label));
     assert.deepEqual(fills.slice(-2).map(fill => [fill.width, fill.color, fill.blur]), [[482, '#222', 0], [241, '#123456', 0]]);
 });
 
