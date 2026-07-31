@@ -16,8 +16,8 @@ import {
     isLineBlockedByWalls
 } from './physics.js';
 import {
+    createExperimentalAreas,
     createExperimentalDoors,
-    createExperimentalRooms,
     EXPERIMENTAL_COLLISION_CATEGORY
 } from './world/experimental_rooms.js';
 
@@ -1378,14 +1378,14 @@ export class Game {
     }
 
     initializeExperimentalRooms() {
-        this.experimentalRooms = createExperimentalRooms(WORLD_WIDTH, WORLD_HEIGHT);
+        this.experimentalRooms = createExperimentalAreas(WORLD_WIDTH, WORLD_HEIGHT);
         this.experimentalDoors = createExperimentalDoors(this.experimentalRooms);
         const desired = getArenaPopulationTargets(
             this.asteroidDensityLevel,
             this.debrisDensityLevel,
             this.satelliteDensityLevel
         );
-        this.experimentalRoomPopulations = new Map(this.experimentalRooms.map(room => [room.id, {
+        this.experimentalRoomPopulations = new Map(this.experimentalRooms.filter(room => room.isPopulationEligible).map(room => [room.id, {
             density: Object.freeze({
                 asteroidLevel: this.asteroidDensityLevel,
                 debrisLevel: this.debrisDensityLevel,
@@ -1440,7 +1440,7 @@ export class Game {
             placedPlayers.push(player);
         });
         let nextNpcId = Math.max(1, ...this.players.map(player => player.id || 0)) + 1;
-        for (const npcRoom of this.experimentalRooms) {
+        for (const npcRoom of this.experimentalRooms.filter(area => area.isPopulationEligible)) {
             for (let index = 0; index < npcRoom.npcCount; index++) {
                 const spawn = Game.prototype.findExperimentalSpawn.call(this, 25, placedPlayers, npcRoom.id);
                 const npc = new Player(spawn.x, spawn.y, nextNpcId++);
@@ -1461,7 +1461,7 @@ export class Game {
         }
         this.asteroids = [];
         this.hazards = [];
-        for (const populationRoom of this.experimentalRooms) {
+        for (const populationRoom of this.experimentalRooms.filter(area => area.isPopulationEligible)) {
             const targets = this.experimentalRoomPopulations?.get(populationRoom.id)?.desired
                 || getArenaPopulationTargets(this.asteroidDensityLevel, this.debrisDensityLevel, this.satelliteDensityLevel);
             for (let index = 0; index < targets.asteroids; index++) this.spawnAsteroid('large', undefined, undefined, populationRoom.id);
