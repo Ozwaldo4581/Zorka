@@ -350,7 +350,8 @@ export class Game {
     }
 
     isHardcoreActive() {
-        return this.gameState === 'ARCADE' || this.gameState === GAME_MODE.EXPERIMENTAL || this.hardcoreMode;
+        return this.gameState === 'ARCADE'
+            || (this.gameState !== GAME_MODE.EXPERIMENTAL && this.hardcoreMode);
     }
 
     refreshControlOptionButtons() {
@@ -2938,17 +2939,28 @@ export class Game {
         player.restoreShieldCharges(this.startingShieldCharges);
 
         if (this.gameState === GAME_MODE.EXPERIMENTAL) {
-            const room = Game.prototype.getExperimentalRoom.call(this, player.roomId) || this.experimentalRooms[0];
+            const previousRoomId = player.roomId;
+            const room = player.isNPC
+                ? (Game.prototype.getExperimentalRoom.call(this, previousRoomId) || this.experimentalRooms[0])
+                : (this.experimentalRooms.find(area => area.roomNumber === 1) || this.experimentalRooms[0]);
             const roomId = room.id;
             const spawn = this.findExperimentalSpawn(player.radius, this.players, roomId);
+
+            if (previousRoomId !== roomId) {
+                Game.prototype.unindexExperimentalEntity.call(this, 'players', player, previousRoomId);
+            }
             player.x = spawn.x;
             player.y = spawn.y;
             player.roomId = roomId;
+            Game.prototype.indexExperimentalEntity.call(this, 'players', player);
+
             if (player.isNPC) {
                 player.resetLevelProgress();
                 player.initializeNPCLevel(room.npcLevel);
                 player.color = chooseRandomPlayerColor();
                 player.rollAggression();
+            } else {
+                Game.prototype.showExperimentalSectorMessage.call(this, 1);
             }
             return;
         }
@@ -3162,9 +3174,6 @@ export class Game {
             } else {
                 this.showArcadeGameOver(gameOverResult);
             }
-        } else if (this.gameState === GAME_MODE.EXPERIMENTAL && !player.isNPC) {
-            player.respawnTimer = 0;
-            this.showArcadeGameOver(gameOverResult);
         }
 
     }
