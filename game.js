@@ -421,6 +421,20 @@ export class Game {
         return spawned;
     }
 
+    restartCurrentGameMode() {
+        if (this.gameState === GAME_MODE.EXPERIMENTAL) {
+            this.startExperimentalMode();
+            return;
+        }
+
+        if (this.gameState === GAME_MODE.ARCADE || this.gameState === 'ARCADE') {
+            this.startArcadeMode();
+            return;
+        }
+
+        this.startGame(this.gameState, this.players.length || 1);
+    }
+
     startArcadeMode() {
         this.clearExperimentalState();
         this.closePauseMenu();
@@ -783,18 +797,8 @@ export class Game {
             this.updateSoloMockLobby(0);
         });
 
-        document.getElementById('btn-experimental-open').addEventListener('click', () => {
-            document.getElementById('main-menu').classList.add('hidden');
-            document.getElementById('experimental-menu').classList.remove('hidden');
-        });
-
         document.getElementById('btn-experimental-start').addEventListener('click', () => {
             this.startExperimentalMode();
-        });
-
-        document.getElementById('btn-experimental-back').addEventListener('click', () => {
-            document.getElementById('experimental-menu').classList.add('hidden');
-            document.getElementById('main-menu').classList.remove('hidden');
         });
 
         document.getElementById('btn-solo-back').addEventListener('click', () => {
@@ -1150,7 +1154,7 @@ export class Game {
         });
 
         document.getElementById('btn-arcade-replay').addEventListener('click', () => {
-            this.startArcadeMode();
+            this.restartCurrentGameMode();
         });
 
         document.getElementById('btn-arcade-menu').addEventListener('click', () => {
@@ -1666,7 +1670,7 @@ export class Game {
             ctx.fillStyle = '#ffffff';
             ctx.font = 'bold 42px "Courier New", monospace';
             const lineHeight = 52;
-            const startY = DESIGN_HEIGHT / 2 - lineHeight;
+            const startY = DESIGN_HEIGHT * 0.62 - lineHeight;
             this.experimentalObjectiveMessage.lines.forEach((line, index) => {
                 ctx.fillText(line, DESIGN_WIDTH / 2, startY + index * lineHeight);
             });
@@ -1699,7 +1703,28 @@ export class Game {
 
     getExperimentalActiveAreaIds() {
         const currentArea = Game.prototype.getExperimentalRenderArea.call(this);
-        return currentArea ? new Set([currentArea.id]) : new Set();
+        if (!currentArea) return new Set();
+
+        const active = new Set([currentArea.id]);
+        if (currentArea.roomNumber !== 0) return active;
+
+        const localPlayer = this.players.find(player => !player.isNPC && !player.isDead && !player.isEliminated);
+        if (!localPlayer) return active;
+
+        for (const connectedId of currentArea.connectedAreaIds || []) {
+            const connectedArea = Game.prototype.getExperimentalRoom.call(this, connectedId);
+            if (!connectedArea || connectedArea.roomNumber <= 0) continue;
+
+            const depth = Game.prototype.getExperimentalHallwayDepthFromArea.call(
+                this,
+                localPlayer,
+                currentArea,
+                connectedArea
+            );
+            if (depth <= EXPERIMENTAL_HALLWAY_ACTIVITY_DEPTH) active.add(connectedArea.id);
+        }
+
+        return active;
     }
 
     startExperimentalMode() {
