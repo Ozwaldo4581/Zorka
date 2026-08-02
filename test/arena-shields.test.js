@@ -65,7 +65,7 @@ test('large asteroid contact cannot kill an unshielded player', () => {
     player.spawnImmunityTimer = 0;
     const asteroid = new Asteroid(100, 100, 'large');
     runCollisions(collisionGame({ player, asteroids: [asteroid] }));
-    assert.deepEqual([player.shieldCharges, player.currentHP, player.isDead], [0, 5, false]);
+    assert.deepEqual([player.shieldCharges, player.currentHP, player.isDead], [0, 10, false]);
     assert.equal(asteroid.isDestroyed, true);
 });
 
@@ -97,11 +97,11 @@ test('medium asteroid contact routes five damage through shields then HP only on
     const game = collisionGame({ player, asteroids: [asteroid] });
 
     runCollisions(game);
-    assert.deepEqual([player.shieldCharges, player.currentHP, player.hpRechargeTimer, player.isDead], [0, 3, 20, false]);
+    assert.deepEqual([player.shieldCharges, player.currentHP, player.hpRechargeTimer, player.isDead], [0, 8, 20, false]);
     assert.equal(asteroid.isDestroyed, false);
 
     runCollisions(game);
-    assert.deepEqual([player.shieldCharges, player.currentHP], [0, 3]);
+    assert.deepEqual([player.shieldCharges, player.currentHP], [0, 8]);
 });
 
 test('medium asteroid damage can be fully shielded or blocked by spawn immunity', () => {
@@ -110,12 +110,12 @@ test('medium asteroid damage can be fully shielded or blocked by spawn immunity'
     shielded.configureShields(10, 6);
     shielded.hpRechargeTimer = 9;
     runCollisions(collisionGame({ player: shielded, asteroids: [new Asteroid(100, 100, 'medium')] }));
-    assert.deepEqual([shielded.shieldCharges, shielded.currentHP, shielded.hpRechargeTimer], [5, 5, 9]);
+    assert.deepEqual([shielded.shieldCharges, shielded.currentHP, shielded.hpRechargeTimer], [5, 10, 9]);
 
     const immune = new Player(100, 100);
     immune.configureShields(5, 6);
     runCollisions(collisionGame({ player: immune, asteroids: [new Asteroid(100, 100, 'medium')] }));
-    assert.deepEqual([immune.shieldCharges, immune.currentHP, immune.isDead], [5, 5, false]);
+    assert.deepEqual([immune.shieldCharges, immune.currentHP, immune.isDead], [5, 10, false]);
 });
 
 test('small asteroid projectile collision still removes the projectile and hits the asteroid', () => {

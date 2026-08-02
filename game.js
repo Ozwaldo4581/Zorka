@@ -2117,7 +2117,9 @@ export class Game {
             
             // Spatial audio
             const cameras = this.getActiveCameras();
-            Game.prototype.playSpatialEvent.call(this, 'laser_fire', player.x, player.y, player.roomId, cameras);
+            if (!isBurstShot) {
+                Game.prototype.playSpatialEvent.call(this, 'laser_fire', player.x, player.y, player.roomId, cameras);
+            }
             
             if (this.gameState === 'ONLINE' && player.id === 1) {
                 this.network.broadcastFire(projs);
@@ -3273,18 +3275,39 @@ export class Game {
         }
 
         if (result.shieldsConsumed > 0) {
+            player.markShieldLoss();
             Game.prototype.playSpatialEvent.call(this, 'shield_hit', player.x, player.y, player.roomId, cameras);
         }
+        if (result.hpLost > 0) player.markHullLoss();
         return result;
+    }
+
+    getDamageSourceDisplayName(source) {
+        if (!source) return 'the Environment';
+        if (source.owner && source.owner !== source) return Game.prototype.getDamageSourceDisplayName.call(this, source.owner);
+        if (typeof source.name === 'string' && source.name.trim()) return source.name.trim();
+        if (source.isSatellite) return 'Satellite';
+        if (source.isDebris) return 'Space Debris';
+        if (source.size) return `${source.size[0].toUpperCase()}${source.size.slice(1)} Asteroid`;
+        return 'the Environment';
     }
 
     confirmPlayerDeath(player, killer, cameras = this.getActiveCameras()) {
         if (!player || player.isDead || player.currentHP > 0) return;
         player.isDead = true;
+        player.deaths++;
         player.cancelBurstFire();
         player.resetControllerAimLock(true);
         this.clearAimLocksForTarget(player);
         player.respawnTimer = 2;
+
+        if (this.gameState === GAME_MODE.EXPERIMENTAL && !player.isNPC) {
+            this.experimentalSectorMessage = {
+                text: `Destroyed by ${Game.prototype.getDamageSourceDisplayName.call(this, killer)}`,
+                detail: 'Returning to Sector 1',
+                remaining: Math.max(EXPERIMENTAL_SECTOR_MESSAGE_DURATION, player.respawnTimer)
+            };
+        }
 
         // Award the confirmed kill before Hardcore clears the victim's progression.
         if (killer && killer !== player && typeof killer.addCapsule === 'function') {
@@ -3513,13 +3536,13 @@ export class Game {
                         // Preserve the physical impact outcome while exempting only Player damage.
                         this.hitTarget(a);
                     } else if (a.size === 'large') {
-                        player.clearShieldCharges();
+                        if (player.clearShieldCharges() > 0) player.markShieldLoss();
                         a.hits = a.maxHits - 1;
                         this.hitTarget(a);
                     } else if (a.size === 'medium') {
-                        Game.prototype.resolvePlayerDamage.call(this, player, 5);
+                        Game.prototype.resolvePlayerDamage.call(this, player, 5, a);
                     } else {
-                        this.playerDeath(player);
+                        this.playerDeath(player, a);
                     }
                 }
                 break;
@@ -3531,7 +3554,7 @@ export class Game {
                 if (!h || h.isDestroyed) continue;
                 if (!Game.prototype.areExperimentalEntitiesCoLocated.call(this, player, h)) continue;
                 if (checkCollision(player, h)) {
-                    this.playerDeath(player);
+                    this.playerDeath(player, h);
                     break;
                 }
             }
@@ -3763,7 +3786,8 @@ export class Game {
                     usesRooms: this.gameState === GAME_MODE.EXPERIMENTAL,
                     owner: this.players[0],
                     rooms: this.experimentalRooms,
-                    hazards: this.hazards
+                    hazards: this.hazards,
+                    gameMode: this.gameState
                 }
             );
         }
