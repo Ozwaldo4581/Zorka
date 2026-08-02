@@ -174,6 +174,7 @@ export class Player {
             this.applyShieldUpgrade();
         }
         this.pendingLevelUps--;
+        this.onPersistentProgressionChanged?.(this);
         return true;
     }
 
@@ -203,6 +204,58 @@ export class Player {
 
     getEffectiveThrust() {
         return this.thrust * this.getSpeedMultiplier();
+    }
+
+    getPersistentProgressionSnapshot() {
+        return {
+            level: this.level,
+            totalXP: this.totalXP,
+            pendingLevelUps: this.pendingLevelUps,
+            projectileUpgradeCount: this.projectileUpgradeCount,
+            speedUpgradeCount: this.speedUpgradeCount,
+            levelShieldUpgradeCount: this.levelShieldUpgradeCount
+        };
+    }
+
+    applyPersistentProgression(snapshot) {
+        const integer = (value, minimum = 0) => Number.isFinite(Number(value))
+            ? Math.max(minimum, Math.floor(Number(value)))
+            : minimum;
+        const previousLevelShieldCapacity = integer(this.levelShieldUpgradeCount);
+        this.level = integer(snapshot?.level, 1);
+        this.totalXP = integer(snapshot?.totalXP);
+        this.projectileUpgradeCount = Math.min(this.maxProjectileUpgrades, integer(snapshot?.projectileUpgradeCount));
+        this.speedUpgradeCount = Math.min(this.maxSpeedUpgrades, integer(snapshot?.speedUpgradeCount));
+        this.levelShieldUpgradeCount = integer(snapshot?.levelShieldUpgradeCount);
+        const usedChoices = this.projectileUpgradeCount + this.speedUpgradeCount + this.levelShieldUpgradeCount;
+        this.pendingLevelUps = integer(snapshot?.pendingLevelUps, Math.max(0, this.level - usedChoices));
+        this.maxHP = 5 + this.level;
+        this.restoreHP();
+        this.maxShieldCharges = Math.max(0, this.maxShieldCharges - previousLevelShieldCapacity)
+            + this.levelShieldUpgradeCount;
+        this.restoreShieldCharges(this.maxShieldCharges);
+        return this.getPersistentProgressionSnapshot();
+    }
+
+    resetTransientLifeState(startingShieldCharges = 0) {
+        this.cancelBurstFire();
+        this.resetControllerAimLock(true);
+        this.isDead = false;
+        this.respawnTimer = 0;
+        this.vx = 0;
+        this.vy = 0;
+        this.spawnImmunityTimer = 1;
+        this.restoreHP();
+        this.powerUpCapsules = 0;
+        this.activeGun = 'Normal';
+        this.ghosts = [];
+        this.history = [];
+        this.hasMissile = false;
+        this.missileCooldown = 0;
+        this.missileReloadLevel = 0;
+        this.martianParallelGuns = 1;
+        this.bonusSpeed = 0;
+        this.restoreShieldCharges(startingShieldCharges);
     }
 
     getBurstRoundCount() {

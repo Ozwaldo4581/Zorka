@@ -5,6 +5,7 @@ import { Projectile } from './entities/projectile.js';
 import { Camera, DEFAULT_GAMEPLAY_ZOOM } from './camera.js';
 import { HUD } from './ui/hud.js';
 import { AudioManager } from './audio_manager.js';
+import { ExperimentalProfileStore } from './persistence/experimental_profiles.js';
 import {
     checkCollision,
     nearestWrappedDisplacement,
@@ -112,6 +113,9 @@ export class Game {
         // null makes it clear that no Supabase/network code is required to
         // launch or play the local game.
         this.network = null;
+        this.experimentalProfiles = new ExperimentalProfileStore();
+        this.selectedExperimentalProfileSlot = null;
+        this.pendingExperimentalProfileSlot = null;
 
         this.lastTime = 0;
         this.keys = {};
@@ -799,7 +803,24 @@ export class Game {
         });
 
         document.getElementById('btn-experimental-start').addEventListener('click', () => {
-            this.startExperimentalMode();
+            this.showExperimentalProfileSelection();
+        });
+        document.getElementById('btn-experimental-profile-back').addEventListener('click', () => {
+            this.hideExperimentalProfileNameEntry();
+            document.getElementById('experimental-profile-menu').classList.add('hidden');
+            document.getElementById('main-menu').classList.remove('hidden');
+        });
+        document.getElementById('btn-experimental-profile-cancel').addEventListener('click', () => {
+            this.hideExperimentalProfileNameEntry();
+        });
+        document.getElementById('btn-experimental-profile-create').addEventListener('click', () => {
+            this.createSelectedExperimentalProfile();
+        });
+        document.getElementById('experimental-profile-name').addEventListener('keydown', event => {
+            if (event.key === 'Enter') {
+                event.preventDefault();
+                this.createSelectedExperimentalProfile();
+            }
         });
 
         document.getElementById('btn-solo-back').addEventListener('click', () => {
@@ -1641,6 +1662,102 @@ export class Game {
         }, delaySeconds * 1000);
     }
 
+    showExperimentalProfileSelection(message = '') {
+        this.selectedExperimentalProfileSlot = null;
+        this.pendingExperimentalProfileSlot = null;
+        document.getElementById('main-menu').classList.add('hidden');
+        document.getElementById('experimental-profile-menu').classList.remove('hidden');
+        this.hideExperimentalProfileNameEntry();
+        this.renderExperimentalProfileSlots();
+        document.getElementById('experimental-profile-error').textContent = message;
+        this.menuIndex = 0;
+        this.lastActiveMenuId = 'experimental-profile-menu';
+    }
+
+    renderExperimentalProfileSlots() {
+        const container = document.getElementById('experimental-profile-slots');
+        container.replaceChildren();
+        this.experimentalProfiles.getSummaries().forEach((summary, slot) => {
+            const button = document.createElement('button');
+            button.type = 'button';
+            button.className = 'menu-button profile-slot';
+            button.dataset.profileSlot = String(slot);
+            if (summary) {
+                const name = document.createElement('span');
+                name.className = 'profile-slot-name';
+                name.textContent = summary.name;
+                const level = document.createElement('span');
+                level.className = 'profile-slot-level';
+                level.textContent = `Lvl ${summary.level}`;
+                button.append(name, level);
+                button.addEventListener('click', () => this.selectExperimentalProfile(slot));
+            } else {
+                button.textContent = 'New Profile';
+                button.addEventListener('click', () => this.showExperimentalProfileNameEntry(slot));
+            }
+            container.appendChild(button);
+        });
+    }
+
+    showExperimentalProfileNameEntry(slot) {
+        this.pendingExperimentalProfileSlot = slot;
+        document.getElementById('experimental-profile-slots').classList.add('hidden');
+        document.getElementById('btn-experimental-profile-back').classList.add('hidden');
+        document.getElementById('experimental-profile-name-entry').classList.remove('hidden');
+        const input = document.getElementById('experimental-profile-name');
+        input.value = '';
+        document.getElementById('experimental-profile-error').textContent = '';
+        input.focus();
+    }
+
+    hideExperimentalProfileNameEntry() {
+        this.pendingExperimentalProfileSlot = null;
+        document.getElementById('experimental-profile-name-entry').classList.add('hidden');
+        document.getElementById('experimental-profile-slots').classList.remove('hidden');
+        document.getElementById('btn-experimental-profile-back').classList.remove('hidden');
+    }
+
+    createSelectedExperimentalProfile() {
+        const slot = this.pendingExperimentalProfileSlot;
+        const input = document.getElementById('experimental-profile-name');
+        try {
+            this.experimentalProfiles.createProfile(slot, input.value);
+            this.hideExperimentalProfileNameEntry();
+            this.renderExperimentalProfileSlots();
+            this.selectExperimentalProfile(slot);
+        } catch (error) {
+            document.getElementById('experimental-profile-error').textContent = error.message;
+        }
+    }
+
+    selectExperimentalProfile(slot) {
+        const profile = this.experimentalProfiles.getProfile(slot);
+        if (!profile) {
+            console.warn('[Zorka] The selected Experimental profile is no longer available.');
+            this.showExperimentalProfileSelection('Profile unavailable. Select another slot.');
+            return false;
+        }
+        this.selectedExperimentalProfileSlot = slot;
+        return this.startExperimentalMode(profile);
+    }
+
+    saveExperimentalProfile(player) {
+        if (this.gameState !== GAME_MODE.EXPERIMENTAL || player?.isNPC
+            || player !== this.players.find(candidate => !candidate.isNPC)
+            || !Number.isInteger(this.selectedExperimentalProfileSlot)) return false;
+        try {
+            this.experimentalProfiles.updateProfile(
+                this.selectedExperimentalProfileSlot,
+                player.getPersistentProgressionSnapshot()
+            );
+            return true;
+        } catch (error) {
+            console.warn(`[Zorka] Experimental profile save skipped: ${error.message}`);
+            this.selectedExperimentalProfileSlot = null;
+            return false;
+        }
+    }
+
     setupExperimentalMatch() {
         this.clearExperimentalState();
         this.initializeExperimentalRooms();
@@ -1754,7 +1871,14 @@ export class Game {
         return active;
     }
 
-    startExperimentalMode() {
+    startExperimentalMode(profile = null) {
+        const selectedProfile = profile || (Number.isInteger(this.selectedExperimentalProfileSlot)
+            ? this.experimentalProfiles.getProfile(this.selectedExperimentalProfileSlot)
+            : null);
+        if (!selectedProfile) {
+            this.showExperimentalProfileSelection('Select or create a profile to begin.');
+            return false;
+        }
         this.closePauseMenu();
         this.hideArcadeGameOver();
         this.arcadeGameOver = false;
@@ -1766,6 +1890,15 @@ export class Game {
         this.projectiles = [];
         this.vfx = [];
         this.setupExperimentalMatch();
+        const human = this.players.find(player => !player.isNPC);
+        if (!human) {
+            this.showExperimentalProfileSelection('Unable to create the selected pilot.');
+            return false;
+        }
+        human.name = selectedProfile.name;
+        human.applyPersistentProgression(selectedProfile);
+        human.resetTransientLifeState(this.startingShieldCharges);
+        human.onPersistentProgressionChanged = player => this.saveExperimentalProfile(player);
         document.getElementById('menu-overlay').classList.add('hidden');
         this.experimentalCameraState = { previousZoom: this.camera.zoom };
         this.camera.zoom = DEFAULT_GAMEPLAY_ZOOM;
@@ -1773,6 +1906,7 @@ export class Game {
         this.camera.useDirectWorld();
         this.audio.stopBGM();
         this.resetMouseLockInput();
+        return true;
     }
 
     async quickJoinOnlineGame() {
@@ -1939,7 +2073,8 @@ export class Game {
         document.getElementById('main-menu').classList.remove('hidden');
         document.getElementById('solo-menu').classList.add('hidden');
         document.getElementById('online-menu').classList.add('hidden');
-        document.getElementById('experimental-menu').classList.add('hidden');
+        document.getElementById('experimental-menu')?.classList.add('hidden');
+        document.getElementById('experimental-profile-menu').classList.add('hidden');
         document.getElementById('main-options-popup').classList.add('hidden');
         document.getElementById('main-options-popup').querySelectorAll('.focused').forEach(el => el.classList.remove('focused'));
         document.getElementById('help-popup').classList.add('hidden');
@@ -2353,13 +2488,13 @@ export class Game {
             ? ['quit-confirmation']
             : this.arcadeGameOver
                 ? ['arcade-game-over']
-                : ['help-popup', 'main-options-popup', 'botless-popup', 'options-popup', 'solo-menu', 'online-menu', 'experimental-menu', 'main-menu'];
+                : ['help-popup', 'main-options-popup', 'botless-popup', 'options-popup', 'solo-menu', 'online-menu', 'experimental-profile-menu', 'experimental-menu', 'main-menu'];
         for (const id of potentialContainers) {
             const el = document.getElementById(id);
             if (el && !el.classList.contains('hidden')) {
                 activeMenu = el;
                 // If it's a menu-level container, only count it if it's the specific active one
-                if (id === 'solo-menu' || id === 'online-menu' || id === 'experimental-menu' || id === 'main-menu') {
+                if (id === 'solo-menu' || id === 'online-menu' || id === 'experimental-profile-menu' || id === 'experimental-menu' || id === 'main-menu') {
                     // These are siblings in menu-overlay
                 }
                 break;
@@ -2955,15 +3090,7 @@ export class Game {
     }
 
     respawnPlayer(player) {
-        player.resetControllerAimLock(true);
-        player.isDead = false;
-        player.restoreHP();
-        player.vx = 0;
-        player.vy = 0;
-        player.spawnImmunityTimer = 1.0; 
-
-        // Preserve match-local capacity while restoring the Arena's respawn benefit.
-        player.restoreShieldCharges(this.startingShieldCharges);
+        player.resetTransientLifeState(this.startingShieldCharges);
 
         if (this.gameState === GAME_MODE.EXPERIMENTAL) {
             const previousRoomId = player.roomId;
@@ -3222,6 +3349,7 @@ export class Game {
             Game.prototype.createFloatingText.call(this, 'Lvl Up!', killer.x, killer.y - killer.radius - 24, killer.color, killer.roomId);
         }
         if (killer.isNPC) killer.resolveNPCLevelUps();
+        else Game.prototype.saveExperimentalProfile.call(this, killer);
         return levelsGained;
     }
 

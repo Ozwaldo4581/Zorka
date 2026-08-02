@@ -152,6 +152,50 @@
         align-items: center;
         gap: 26px;
       }
+      #experimental-profile-menu {
+        width: min(760px, calc(100% - 2rem));
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+      }
+      .profile-slots {
+        width: 100%;
+        display: grid;
+        grid-template-columns: repeat(5, minmax(0, 1fr));
+        gap: 12px;
+        margin-bottom: 24px;
+      }
+      .profile-slot {
+        box-sizing: border-box;
+        width: 100%;
+        min-height: 130px;
+        padding: 14px 8px;
+        font-size: 1rem;
+        white-space: normal;
+      }
+      .profile-slot-name, .profile-slot-level { display: block; }
+      .profile-slot-level { margin-top: 10px; font-size: 0.8rem; color: #fff; }
+      .profile-name-entry {
+        width: min(430px, 100%);
+        padding: 24px;
+        border: 2px solid #00ffff;
+        background: #050505;
+        text-align: center;
+      }
+      #experimental-profile-name {
+        box-sizing: border-box;
+        width: 100%;
+        padding: 12px;
+        margin: 12px 0;
+        font: 1rem 'Orbitron', sans-serif;
+      }
+      .profile-entry-actions { display: flex; justify-content: center; flex-wrap: wrap; }
+      .profile-entry-actions .menu-button { width: 180px; font-size: 1rem; }
+      #experimental-profile-error { min-height: 1.25em; color: #ff66ff; }
+      @media (max-width: 760px) {
+        .profile-slots { grid-template-columns: 1fr; max-height: 55vh; overflow-y: auto; }
+        .profile-slot { min-height: 72px; }
+      }
       .options-popup {
         position: absolute;
         inset: 0;
@@ -435,6 +479,21 @@
            OPTIONS
            </button>
         </div>
+      </div>
+
+      <div id="experimental-profile-menu" class="hidden">
+        <h1>SELECT PROFILE</h1>
+        <div id="experimental-profile-slots" class="profile-slots"></div>
+        <div id="experimental-profile-name-entry" class="profile-name-entry hidden">
+          <label for="experimental-profile-name">PILOT NAME</label>
+          <input id="experimental-profile-name" type="text" maxlength="20" autocomplete="off" />
+          <div id="experimental-profile-error" role="alert"></div>
+          <div class="profile-entry-actions">
+            <button class="menu-button" id="btn-experimental-profile-create">CREATE</button>
+            <button class="menu-button" id="btn-experimental-profile-cancel" style="border-color: #ff00ff; color: #ff00ff;">CANCEL</button>
+          </div>
+        </div>
+        <button class="menu-button" id="btn-experimental-profile-back" style="border-color: #ff00ff; color: #ff00ff;">BACK</button>
       </div>
 
       <div id="main-options-popup" class="hidden options-popup">
