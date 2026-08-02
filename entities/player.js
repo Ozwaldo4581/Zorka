@@ -671,7 +671,7 @@ export class Player {
     getDamagePulseScale(timer) {
         if (timer <= 0) return 1;
         const progress = 1 - timer / DAMAGE_PULSE_DURATION;
-        return 1 + 0.35 * (1 - progress) ** 2;
+        return 1 + 0.75 * (1 - progress) ** 2;
     }
 
     clearShieldCharges() {
