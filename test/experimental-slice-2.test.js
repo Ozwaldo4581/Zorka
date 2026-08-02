@@ -15,7 +15,7 @@ test('XP progress is derived from cumulative thresholds and final level', () => 
     assert.equal(player.level, 1);
     assert.equal(player.getXPProgressRatio(), 0);
     player.addXP(50);
-    assert.equal(player.getXPProgressRatio(), 0.5);
+    assert.equal(player.getXPProgressRatio(), 0.125);
     player.totalXP = Number.MAX_SAFE_INTEGER;
     assert.equal(player.getXPProgressRatio(), 1);
 });
@@ -78,7 +78,7 @@ test('HUD upgrade prompts and XP bar use the shared order, capsule width, and pl
     hud.drawLevelUpChoices(ctx, player, 960, 980);
     hud.drawXPBar(ctx, player, 960, 980, 5);
     assert.deepEqual(hud.getLevelUpgradeBoxes(960, 980).map(box => box.choice), ['projectile', 'speed', 'shield']);
-    for (const label of ['Select a Power Up', '1 / X', '2 / Y', '3 / B']) assert.ok(texts.includes(label));
+    for (const label of ['Select a Level Up Bonus', '1 / X', '2 / Y', '3 / B']) assert.ok(texts.includes(label));
     assert.deepEqual(fills.slice(-2).map(fill => [fill.width, fill.color, fill.blur]), [[482, '#222', 0], [241, '#123456', 0]]);
 });
 
@@ -143,11 +143,11 @@ test('the shared reward schema creates one event pair in every active mode', () 
         const game = { players: [killer, npc], vfx: [], gameState };
         const reward = Game.prototype.getNPCXPReward.call(game, npc);
         assert.equal(reward, 200);
-        assert.equal(Game.prototype.awardXP.call(game, killer, reward, npc), 2);
+        assert.equal(Game.prototype.awardXP.call(game, killer, reward, npc), 1);
         assert.equal(killer.totalXP, 200);
-        assert.equal(killer.level, 2);
-        assert.equal(killer.pendingLevelUps, 2);
-        assert.equal(killer.getXPProgressRatio(), 0);
+        assert.equal(killer.level, 1);
+        assert.equal(killer.pendingLevelUps, 1);
+        assert.equal(killer.getXPProgressRatio(), 0.25);
         assert.deepEqual(game.vfx.map(effect => effect.text), ['+200 XP', 'Lvl Up!']);
     }
 });

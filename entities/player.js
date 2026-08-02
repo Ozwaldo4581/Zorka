@@ -7,6 +7,8 @@ const BURST_INTERVAL = 0.05;
 const BASE_PROJECTILE_SPEED = 1200;
 const MARTIAN_PARALLEL_OFFSET = 30;
 const MAX_PROJECTILE_UPGRADES = 5;
+export const BASE_PLAYER_HP = 10;
+export const DAMAGE_PULSE_DURATION = 0.35;
 
 export function getHPBlockLayout(maxHP, totalWidth = 120, normalGap = 2, minimumBlockWidth = 0.5) {
     const blockCount = Math.max(1, Math.floor(Number(maxHP) || 1));
@@ -47,8 +49,8 @@ export class Player {
         this.maxShieldCharges = 0;
         this.shieldRechargeDelay = 6;
         this.shieldRechargeTimer = 0;
-        this.maxHP = 5;
-        this.currentHP = 5;
+        this.maxHP = BASE_PLAYER_HP;
+        this.currentHP = BASE_PLAYER_HP;
         this.hpRechargeDelay = 20;
         this.hpRechargeTimer = 0;
         this.hasMissile = false;
@@ -86,6 +88,9 @@ export class Player {
         // highest kill streak this ship has ever reached in the current session.
         this.killStreak = 0;
         this.highTide = 0;
+        this.deaths = 0;
+        this.shieldLossPulseTimer = 0;
+        this.hullLossPulseTimer = 0;
 
         // Arena-local progression. Score remains the independent evolution currency.
         this.totalXP = 0;
@@ -115,23 +120,13 @@ export class Player {
     }
 
     getXPRequirement(level = this.level) {
-        const safeLevel = Math.max(1, Math.floor(Number(level) || 1));
-        return 100 * safeLevel * safeLevel;
+        const safeLevel = Math.max(0, Math.floor(Number(level) || 0));
+        return 100 * (safeLevel + 1) ** 2;
     }
 
     getLevelThreshold(level) {
         const safeLevel = Math.max(0, Math.floor(Number(level) || 0));
-        if (safeLevel === 0) return 0;
-        const completedPositiveLevel = safeLevel - 1;
-        return 100 + 100 * completedPositiveLevel * safeLevel * (2 * safeLevel - 1) / 6;
-    }
-
-    getXPProgressRatio() {
-        const levelStart = this.getLevelThreshold(this.level);
-        const levelEnd = this.getLevelThreshold(this.level + 1);
-        const required = levelEnd - levelStart;
-        if (required <= 0) return 0;
-        return Math.max(0, Math.min(1, (this.totalXP - levelStart) / required));
+        return 100 * safeLevel * (safeLevel + 1) * (2 * safeLevel + 1) / 6;
     }
 
     getXPProgressRatio() {
@@ -217,19 +212,31 @@ export class Player {
         };
     }
 
+    getLeaderboardStats() {
+        return {
+            name: this.name,
+            level: this.level,
+            hullStrength: this.maxHP,
+            shields: this.maxShieldCharges,
+            projectile: 3 + this.projectileUpgradeCount,
+            speed: 1 + this.speedUpgradeCount,
+            deaths: this.deaths
+        };
+    }
+
     applyPersistentProgression(snapshot) {
         const integer = (value, minimum = 0) => Number.isFinite(Number(value))
             ? Math.max(minimum, Math.floor(Number(value)))
             : minimum;
         const previousLevelShieldCapacity = integer(this.levelShieldUpgradeCount);
-        this.level = integer(snapshot?.level, 1);
+        this.level = integer(snapshot?.level);
         this.totalXP = integer(snapshot?.totalXP);
         this.projectileUpgradeCount = Math.min(this.maxProjectileUpgrades, integer(snapshot?.projectileUpgradeCount));
         this.speedUpgradeCount = Math.min(this.maxSpeedUpgrades, integer(snapshot?.speedUpgradeCount));
         this.levelShieldUpgradeCount = integer(snapshot?.levelShieldUpgradeCount);
         const usedChoices = this.projectileUpgradeCount + this.speedUpgradeCount + this.levelShieldUpgradeCount;
         this.pendingLevelUps = integer(snapshot?.pendingLevelUps, Math.max(0, this.level - usedChoices));
-        this.maxHP = 5 + this.level;
+        this.maxHP = BASE_PLAYER_HP + this.level;
         this.restoreHP();
         this.maxShieldCharges = Math.max(0, this.maxShieldCharges - previousLevelShieldCapacity)
             + this.levelShieldUpgradeCount;
@@ -274,7 +281,7 @@ export class Player {
         this.pendingLevelUps = 0;
         this.projectileUpgradeCount = 0;
         this.speedUpgradeCount = 0;
-        this.maxHP = 5;
+        this.maxHP = BASE_PLAYER_HP;
         this.restoreHP();
 
         const levelShieldCapacity = Math.max(0, this.levelShieldUpgradeCount || 0);
@@ -420,6 +427,7 @@ export class Player {
     }
 
     update(dt, keys, mouse, camera, others = [], asteroids = [], gamepads = [], isSplitScreen = false, transformationKills = 20, hazards = [], isAimTargetValid = null, allowTransformations = true, worldRules = null) {
+        this.updateDamagePulses(dt);
         if (this.isDead) {
             this.resetControllerAimLock(true);
             return;
@@ -644,6 +652,26 @@ export class Player {
         this.hasForcefield = this.shieldCharges > 0;
         this.shieldRechargeTimer = 0;
         return true;
+    }
+
+    markShieldLoss() {
+        this.shieldLossPulseTimer = DAMAGE_PULSE_DURATION;
+    }
+
+    markHullLoss() {
+        this.hullLossPulseTimer = DAMAGE_PULSE_DURATION;
+    }
+
+    updateDamagePulses(dt) {
+        const elapsed = Math.max(0, Number(dt) || 0);
+        this.shieldLossPulseTimer = Math.max(0, this.shieldLossPulseTimer - elapsed);
+        this.hullLossPulseTimer = Math.max(0, this.hullLossPulseTimer - elapsed);
+    }
+
+    getDamagePulseScale(timer) {
+        if (timer <= 0) return 1;
+        const progress = 1 - timer / DAMAGE_PULSE_DURATION;
+        return 1 + 0.35 * (1 - progress) ** 2;
     }
 
     clearShieldCharges() {
@@ -1448,7 +1476,15 @@ export class Player {
             const blockX = hpBarX + index * (blockWidth + gap);
             const renderedWidth = index === maxHP - 1 ? hpBarRight - blockX : blockWidth;
             ctx.fillStyle = index < currentHP ? '#248cff' : 'rgba(36, 140, 255, 0.18)';
-            ctx.fillRect(blockX, hpBarY, renderedWidth, hpBarHeight);
+            const pulseScale = index === currentHP - 1 ? this.getDamagePulseScale(this.hullLossPulseTimer) : 1;
+            const pulseWidth = renderedWidth * pulseScale;
+            const pulseHeight = hpBarHeight * pulseScale;
+            ctx.fillRect(
+                blockX - (pulseWidth - renderedWidth) / 2,
+                hpBarY - (pulseHeight - hpBarHeight) / 2,
+                pulseWidth,
+                pulseHeight
+            );
             if (index >= currentHP && renderedWidth >= 1) {
                 ctx.strokeStyle = 'rgba(36, 140, 255, 0.7)';
                 ctx.lineWidth = Math.min(1, renderedWidth);
@@ -1462,7 +1498,14 @@ export class Player {
         ctx.textAlign = 'right';
         ctx.fillText(`${this.level}`, hpBarX - 8, hpBarY + hpBarHeight / 2);
         ctx.textAlign = 'left';
-        ctx.fillText(`${this.shieldCharges}/${this.maxShieldCharges}`, hpBarRight + 8, hpBarY + hpBarHeight / 2);
+        const shieldTextX = hpBarRight + 8;
+        const shieldTextY = hpBarY + hpBarHeight / 2;
+        ctx.save();
+        ctx.translate(shieldTextX, shieldTextY);
+        const shieldPulseScale = this.getDamagePulseScale(this.shieldLossPulseTimer);
+        ctx.scale(shieldPulseScale, shieldPulseScale);
+        ctx.fillText(`${this.shieldCharges}/${this.maxShieldCharges}`, 0, 0);
+        ctx.restore();
         ctx.restore();
 
         // Spawn Immunity Flashing

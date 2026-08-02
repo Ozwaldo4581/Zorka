@@ -18,16 +18,16 @@ const makeDamageGame = players => ({
 
 test('Player owns HP damage, resettable recharge, and instant full restoration', () => {
     const player = new Player(0, 0);
-    assert.deepEqual([player.currentHP, player.maxHP, player.hpRechargeTimer], [5, 5, 0]);
+    assert.deepEqual([player.currentHP, player.maxHP, player.hpRechargeTimer], [10, 10, 0]);
 
     assert.equal(player.takeHPDamage(), true);
-    assert.deepEqual([player.currentHP, player.hpRechargeTimer], [4, 20]);
+    assert.deepEqual([player.currentHP, player.hpRechargeTimer], [9, 20]);
     player.updateHPRecharge(19);
-    assert.deepEqual([player.currentHP, player.hpRechargeTimer], [4, 1]);
+    assert.deepEqual([player.currentHP, player.hpRechargeTimer], [9, 1]);
     player.takeHPDamage();
-    assert.deepEqual([player.currentHP, player.hpRechargeTimer], [3, 20]);
+    assert.deepEqual([player.currentHP, player.hpRechargeTimer], [8, 20]);
     player.updateHPRecharge(20);
-    assert.deepEqual([player.currentHP, player.hpRechargeTimer], [5, 0]);
+    assert.deepEqual([player.currentHP, player.hpRechargeTimer], [10, 0]);
 });
 
 test('level gains grant only the newly earned current and maximum HP', () => {
@@ -35,11 +35,11 @@ test('level gains grant only the newly earned current and maximum HP', () => {
     player.currentHP = 2;
     player.hpRechargeTimer = 12;
     assert.equal(player.addXP(500), 2);
-    assert.deepEqual([player.level, player.currentHP, player.maxHP], [2, 4, 7]);
+    assert.deepEqual([player.level, player.currentHP, player.maxHP], [2, 4, 12]);
     assert.equal(player.hpRechargeTimer, 12);
 
     player.resetLevelProgress();
-    assert.deepEqual([player.level, player.currentHP, player.maxHP, player.hpRechargeTimer], [0, 5, 5, 0]);
+    assert.deepEqual([player.level, player.currentHP, player.maxHP, player.hpRechargeTimer], [0, 10, 10, 0]);
 });
 
 test('Game resolves immunity, shields, HP, death, and respawn in order', () => {
@@ -50,13 +50,13 @@ test('Game resolves immunity, shields, HP, death, and respawn in order', () => {
     const game = makeDamageGame([killer, victim]);
 
     Game.prototype.playerDeath.call(game, victim, killer);
-    assert.deepEqual([victim.shieldCharges, victim.currentHP], [1, 5]);
+    assert.deepEqual([victim.shieldCharges, victim.currentHP], [1, 10]);
 
     victim.spawnImmunityTimer = 0;
     Game.prototype.playerDeath.call(game, victim, killer);
-    assert.deepEqual([victim.shieldCharges, victim.currentHP, victim.hpRechargeTimer], [0, 5, 0]);
+    assert.deepEqual([victim.shieldCharges, victim.currentHP, victim.hpRechargeTimer], [0, 10, 0]);
 
-    for (let hit = 0; hit < 4; hit++) Game.prototype.playerDeath.call(game, victim, killer);
+    for (let hit = 0; hit < 9; hit++) Game.prototype.playerDeath.call(game, victim, killer);
     assert.deepEqual([victim.isDead, victim.currentHP, killer.score], [false, 1, 0]);
     Game.prototype.playerDeath.call(game, victim, killer);
     assert.deepEqual([victim.isDead, victim.currentHP, killer.score], [true, 0, 1]);
@@ -89,6 +89,31 @@ test('Game resolves a multi-point hit as one shield-first damage event', () => {
         assert.equal(result.shieldsConsumed + result.hpLost, Math.min(5, shields + hp));
         assert.equal(result.died, expected[2]);
     }
+});
+
+test('damage starts and refreshes Player-owned shield and hull pulses that expire with updates', () => {
+    const player = new Player(0, 0);
+    player.spawnImmunityTimer = 0;
+    player.configureShields(2, 6);
+    const game = makeDamageGame([player]);
+
+    Game.prototype.resolvePlayerDamage.call(game, player, 3);
+    assert.equal(player.shieldCharges, 0);
+    assert.equal(player.currentHP, 9);
+    assert.ok(player.shieldLossPulseTimer > 0);
+    assert.ok(player.hullLossPulseTimer > 0);
+
+    const firstHullPulse = player.hullLossPulseTimer;
+    player.updateDamagePulses(0.2);
+    assert.ok(player.hullLossPulseTimer < firstHullPulse);
+    Game.prototype.resolvePlayerDamage.call(game, player, 1);
+    assert.equal(player.hullLossPulseTimer, firstHullPulse);
+    player.updateDamagePulses(1);
+    assert.deepEqual([player.shieldLossPulseTimer, player.hullLossPulseTimer], [0, 0]);
+
+    player.spawnImmunityTimer = 1;
+    Game.prototype.resolvePlayerDamage.call(game, player, 1);
+    assert.deepEqual([player.shieldLossPulseTimer, player.hullLossPulseTimer], [0, 0]);
 });
 
 test('fixed-width HP layout compresses blocks without overflowing', () => {

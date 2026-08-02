@@ -31,7 +31,7 @@ test('Player restores permanent profile counters and derived stats exactly once'
     assert.equal(player.getSpeedMultiplier(), 1.1);
     assert.equal(player.getBurstRoundCount(), 4);
     assert.equal(player.maxShieldCharges, 4);
-    assert.equal(player.maxHP, 9);
+    assert.equal(player.maxHP, 14);
 
     player.applyPersistentProgression(player.getPersistentProgressionSnapshot());
     assert.equal(player.maxShieldCharges, 4, 'reapplying a snapshot does not duplicate Shield capacity');

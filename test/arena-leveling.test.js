@@ -9,15 +9,15 @@ import { Game } from '../game.js';
 test('XP uses cumulative quadratic per-level requirements and queues every crossed level', () => {
     const player = new Player(0, 0);
     assert.equal(player.level, 0);
-    assert.deepEqual([0, 1, 2, 3, 4].map(level => player.getLevelThreshold(level)), [0, 100, 200, 600, 1500]);
-    assert.deepEqual([0, 1, 2, 3, 4, 10].map(level => player.getXPRequirement(level)), [100, 100, 400, 900, 1600, 10000]);
+    assert.deepEqual([0, 1, 2, 3, 4].map(level => player.getLevelThreshold(level)), [0, 100, 500, 1400, 3000]);
+    assert.deepEqual([0, 1, 2, 3, 4, 10].map(level => player.getXPRequirement(level)), [100, 400, 900, 1600, 2500, 12100]);
     assert.equal(player.addXP(99), 0);
     assert.equal(player.level, 0);
     assert.equal(player.addXP(1), 1);
-    assert.equal(player.addXP(500), 2);
-    assert.equal(player.totalXP, 600);
-    assert.equal(player.level, 3);
-    assert.equal(player.pendingLevelUps, 3);
+    assert.equal(player.addXP(400), 1);
+    assert.equal(player.totalXP, 500);
+    assert.equal(player.level, 2);
+    assert.equal(player.pendingLevelUps, 2);
     assert.equal(player.score, 0);
     assert.equal(player.addXP(-1), 0);
     assert.equal(player.addXP(Number.NaN), 0);
@@ -332,7 +332,7 @@ test('confirmed NPC death awards level-scaled XP once and shield absorption awar
         createExplosion() {},
         awardXP: Game.prototype.awardXP
     };
-    for (let hit = 0; hit < 5; hit++) Game.prototype.playerDeath.call(game, victim, killer);
+    for (let hit = 0; hit < 11; hit++) Game.prototype.playerDeath.call(game, victim, killer);
     Game.prototype.playerDeath.call(game, victim, killer);
     assert.equal(killer.totalXP, 100);
 
@@ -373,7 +373,7 @@ test('Hardcore resets victim level progress only after a confirmed unshielded de
     hardcoreVictim.level = 1;
     hardcoreVictim.pendingLevelUps = 1;
     const hardcoreGame = makeGame([hardcoreVictim], true);
-    for (let hit = 0; hit < 5; hit++) Game.prototype.playerDeath.call(hardcoreGame, hardcoreVictim);
+    for (let hit = 0; hit < 10; hit++) Game.prototype.playerDeath.call(hardcoreGame, hardcoreVictim);
     assert.equal(hardcoreVictim.level, 0);
     assert.equal(hardcoreVictim.totalXP, 0);
 
@@ -384,7 +384,7 @@ test('Hardcore resets victim level progress only after a confirmed unshielded de
     standardVictim.pendingLevelUps = 1;
     standardVictim.burstCount = 4;
     const standardGame = makeGame([standardVictim], false);
-    for (let hit = 0; hit < 5; hit++) Game.prototype.playerDeath.call(standardGame, standardVictim);
+    for (let hit = 0; hit < 10; hit++) Game.prototype.playerDeath.call(standardGame, standardVictim);
     assert.equal(standardVictim.level, 1);
     assert.equal(standardVictim.totalXP, 100);
     assert.equal(standardVictim.pendingLevelUps, 1);

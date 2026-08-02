@@ -1,5 +1,5 @@
 export const EXPERIMENTAL_PROFILE_STORAGE_KEY = 'zorka.experimentalProfiles.v1';
-export const EXPERIMENTAL_PROFILE_SCHEMA_VERSION = 1;
+export const EXPERIMENTAL_PROFILE_SCHEMA_VERSION = 2;
 export const EXPERIMENTAL_PROFILE_SLOT_COUNT = 5;
 export const EXPERIMENTAL_PROFILE_NAME_MAX_LENGTH = 20;
 
@@ -12,7 +12,7 @@ export function normalizeExperimentalProfile(profile, slot) {
     if (!profile || typeof profile !== 'object') return null;
     const name = String(profile.name ?? '').trim().slice(0, EXPERIMENTAL_PROFILE_NAME_MAX_LENGTH);
     if (!name) return null;
-    const level = integer(profile.level, 1);
+    const level = integer(profile.level);
     const projectileUpgradeCount = Math.min(5, integer(profile.projectileUpgradeCount));
     const speedUpgradeCount = Math.min(10, integer(profile.speedUpgradeCount));
     const levelShieldUpgradeCount = integer(profile.levelShieldUpgradeCount);
@@ -33,8 +33,13 @@ export function normalizeExperimentalProfile(profile, slot) {
 function migratePayload(payload) {
     if (Array.isArray(payload)) return { version: 0, slots: payload };
     if (!payload || typeof payload !== 'object') return { version: EXPERIMENTAL_PROFILE_SCHEMA_VERSION, slots: [] };
-    // Future migrations remain centralized here rather than leaking into gameplay.
-    return { version: integer(payload.version), slots: Array.isArray(payload.slots) ? payload.slots : [] };
+    const version = integer(payload.version);
+    const slots = Array.isArray(payload.slots) ? payload.slots : [];
+    // Version 1 profiles used Level 1 as their creation baseline. Their stored
+    // level, XP, and choices already describe equivalent cumulative progress,
+    // so migration deliberately preserves those values rather than shifting them.
+    if (version <= 1) return { version: EXPERIMENTAL_PROFILE_SCHEMA_VERSION, slots };
+    return { version, slots };
 }
 
 export class ExperimentalProfileStore {
@@ -92,7 +97,7 @@ export class ExperimentalProfileStore {
         this.assertSlot(slot);
         const slots = this.loadSlots();
         if (slots[slot]) throw new Error('That profile slot is already occupied.');
-        const profile = normalizeExperimentalProfile({ name, level: 1, totalXP: 100, pendingLevelUps: 1 }, slot);
+        const profile = normalizeExperimentalProfile({ name, level: 0, totalXP: 0, pendingLevelUps: 0 }, slot);
         if (!profile) throw new Error('Enter a profile name.');
         slots[slot] = profile;
         this.persist(slots);

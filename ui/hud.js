@@ -13,7 +13,7 @@ export class HUD {
         const activePlayers = players.filter(p => !p.isDead);
 
         this.drawMinimap(ctx, players, asteroids, camera, swapUI, minimapContext);
-        this.drawScoreboard(ctx, players, swapUI);
+        this.drawScoreboard(ctx, players, swapUI, minimapContext?.gameMode);
         
         if (isSplitScreen) {
             // Local PVP: Two meters, centered between boxes and center line
@@ -41,7 +41,7 @@ export class HUD {
 
     drawLevelDisplay(ctx, player, x, y) {
         if (!player || player.isNPC || player.id > 2) return;
-        const panelWidth = 300;
+        const panelWidth = 100;
         const panelHeight = 46;
         ctx.save();
         ctx.font = 'bold 14px Orbitron';
@@ -54,12 +54,6 @@ export class HUD {
         ctx.fillText('LEVEL', x + 10, y + 22);
         ctx.fillStyle = '#fff';
         ctx.fillText(String(player.level), x + 67, y + 22);
-        ctx.fillStyle = player.color;
-        ctx.fillText('SHIELD', x + 220, y + 22);
-        ctx.textAlign = 'right';
-        ctx.fillStyle = '#fff';
-        ctx.fillText(String(player.shieldCharges), x + 290, y + 22);
-
         ctx.restore();
     }
 
@@ -136,7 +130,7 @@ export class HUD {
         return box ? { player, choice: box.choice } : null;
     }
 
-    drawScoreboard(ctx, players, swapUI = false) {
+    drawScoreboard(ctx, players, swapUI = false, gameMode = '') {
         const DESIGN_WIDTH = 1920;
         const DESIGN_HEIGHT = 1080;
         const WORLD_WIDTH = DESIGN_WIDTH * 9;
@@ -149,6 +143,11 @@ export class HUD {
         // Swapped Logic: Scoreboard at bottom-right if swapUI is true
         const x = swapUI ? (DESIGN_WIDTH - mapWidth - padding) : padding;
         const y = DESIGN_HEIGHT - mapHeight - padding;
+
+        if (gameMode === 'SOLO' || gameMode === 'EXPERIMENTAL') {
+            this.drawProgressionScoreboard(ctx, players, x, y, mapWidth, mapHeight);
+            return;
+        }
 
         // Background
         ctx.fillStyle = 'rgba(0, 0, 0, 0.7)';
@@ -195,6 +194,52 @@ export class HUD {
             ctx.fillText(p.highTide || 0, x + mapWidth - 110, rowY);
             ctx.textAlign = 'right';
             ctx.fillText(p.score || 0, x + mapWidth - 10, rowY);
+        });
+    }
+
+    drawProgressionScoreboard(ctx, players, x, y, width, height) {
+        ctx.fillStyle = 'rgba(0, 0, 0, 0.7)';
+        ctx.fillRect(x, y, width, height);
+        ctx.strokeStyle = '#00ffff';
+        ctx.lineWidth = 1;
+        ctx.strokeRect(x, y, width, height);
+
+        const columns = [
+            { label: 'Name', key: 'name', width: 72, align: 'left' },
+            { label: 'Level', key: 'level', width: 32 },
+            { label: 'Hull Strength', key: 'hullStrength', width: 58 },
+            { label: 'Shields', key: 'shields', width: 40 },
+            { label: 'Projectile', key: 'projectile', width: 50 },
+            { label: 'Speed', key: 'speed', width: 32 },
+            { label: 'Deaths', key: 'deaths', width: 36 }
+        ];
+        let columnX = x;
+        ctx.font = 'bold 7px Orbitron';
+        ctx.fillStyle = '#fff';
+        columns.forEach(column => {
+            ctx.textAlign = column.align || 'center';
+            ctx.fillText(column.label, columnX + (column.align === 'left' ? 5 : column.width / 2), y + 20);
+            columnX += column.width;
+        });
+
+        ctx.strokeStyle = 'rgba(0, 255, 255, 0.3)';
+        ctx.beginPath();
+        ctx.moveTo(x + 5, y + 29);
+        ctx.lineTo(x + width - 5, y + 29);
+        ctx.stroke();
+
+        ctx.font = '8px Orbitron';
+        [...players].sort((a, b) => (b.level || 0) - (a.level || 0)).slice(0, 9).forEach((player, row) => {
+            const stats = player.getLeaderboardStats();
+            let valueX = x;
+            ctx.fillStyle = player.color || '#fff';
+            columns.forEach(column => {
+                ctx.textAlign = column.align || 'center';
+                let value = String(stats[column.key]);
+                if (column.key === 'name' && value.length > 11) value = `${value.slice(0, 10)}…`;
+                ctx.fillText(value, valueX + (column.align === 'left' ? 5 : column.width / 2), y + 45 + row * 14);
+                valueX += column.width;
+            });
         });
     }
 
