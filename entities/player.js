@@ -928,10 +928,28 @@ export class Player {
         }
     }
 
+    canActivateCapsuleSlot(slot) {
+        const normalizedSlot = Math.floor(Number(slot) || 0);
+        if (normalizedSlot < 1 || normalizedSlot > this.maxPowerUpSlots) return false;
+        if (normalizedSlot === 1 && this.slot1Type === 'Antigun' && this.activeGun === 'Antigun') return false;
+        if (normalizedSlot === 3) {
+            if (this.isMartian) return this.martianParallelGuns < 2;
+            if (this.activeGun === 'Laser') return false;
+        }
+        if (normalizedSlot === 4 && this.ghosts.length >= 2) return false;
+        return true;
+    }
+
     activatePowerUp() {
         if (this.powerUpCapsules === 0) return false;
 
         const slot = this.powerUpCapsules;
+        if (!this.canActivateCapsuleSlot(slot)) {
+            if (slot === 1) this.powerUpError = 'ANTIGUN ALREADY ACTIVE';
+            else if (slot === 3) this.powerUpError = 'LASER ALREADY ACTIVE';
+            else if (slot === 4) this.powerUpError = 'GHOST MAXED';
+            return false;
+        }
         let success = true;
 
         switch (slot) {
@@ -970,6 +988,25 @@ export class Player {
             this.powerUpError = null;
         }
         return success;
+    }
+
+    applyRandomCapsulePowerUps(count, random = Math.random) {
+        const targetCount = Math.max(0, Math.floor(Number(count) || 0));
+        let applied = 0;
+        while (applied < targetCount) {
+            const availableSlots = [];
+            for (let slot = 1; slot <= this.maxPowerUpSlots; slot++) {
+                if (this.canActivateCapsuleSlot(slot)) availableSlots.push(slot);
+            }
+            if (availableSlots.length === 0) break;
+            const index = Math.min(availableSlots.length - 1, Math.floor(random() * availableSlots.length));
+            this.powerUpCapsules = availableSlots[index];
+            if (!this.activatePowerUp()) break;
+            applied++;
+        }
+        this.powerUpCapsules = 0;
+        this.powerUpError = null;
+        return applied;
     }
 
     clearExperimentalRoomCapsuleBonuses() {

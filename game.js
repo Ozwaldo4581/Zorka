@@ -870,6 +870,29 @@ export class Game {
             this.lastActiveMenuId = null;
         });
 
+
+        document.getElementById('btn-help-open').addEventListener('click', () => {
+            const optionsPopup = document.getElementById('main-options-popup');
+            const helpPopup = document.getElementById('help-popup');
+            optionsPopup.classList.add('hidden');
+            optionsPopup.querySelectorAll('.focused').forEach(el => el.classList.remove('focused'));
+            helpPopup.classList.remove('hidden');
+            this.setInitialMenuFocus(helpPopup, document.getElementById('btn-help-back'));
+            this.menuCooldown = 0.3;
+            this.lastActiveMenuId = helpPopup.id;
+        });
+
+        document.getElementById('btn-help-back').addEventListener('click', () => {
+            const helpPopup = document.getElementById('help-popup');
+            const optionsPopup = document.getElementById('main-options-popup');
+            helpPopup.classList.add('hidden');
+            helpPopup.querySelectorAll('.focused').forEach(el => el.classList.remove('focused'));
+            optionsPopup.classList.remove('hidden');
+            this.setInitialMenuFocus(optionsPopup, document.getElementById('btn-help-open'));
+            this.menuCooldown = 0.3;
+            this.lastActiveMenuId = optionsPopup.id;
+        });
+
         document.querySelectorAll('.music-volume-btn').forEach(btn => {
             btn.addEventListener('click', () => {
                 this.audio.setMusicVolumeLevel(parseInt(btn.dataset.musicLevel));
@@ -1540,7 +1563,10 @@ export class Game {
         const placedPlayers = [];
         this.players = this.players.filter(player => !player.isNPC);
         this.players.forEach(player => {
-            const spawn = this.findExperimentalSpawn(player.radius, placedPlayers);
+            const spawn = {
+                x: (room.bounds.left + room.bounds.right) / 2,
+                y: (room.bounds.top + room.bounds.bottom) / 2
+            };
             player.x = spawn.x;
             player.y = spawn.y;
             player.roomId = room.id;
@@ -1563,6 +1589,7 @@ export class Game {
                     npc.rollAggression();
                 }
                 npc.initializeNPCLevel(npcRoom.npcLevel);
+                npc.applyRandomCapsulePowerUps(Math.floor(npc.level * 0.75));
                 this.players.push(npc);
                 Game.prototype.indexExperimentalEntity.call(this, 'players', npc);
                 placedPlayers.push(npc);
@@ -1638,7 +1665,6 @@ export class Game {
     showExperimentalHallwayMessage() {
         this.experimentalSectorMessage = {
             text: 'Sector 0',
-            detail: 'Capsule Bonuses Purged',
             remaining: EXPERIMENTAL_SECTOR_MESSAGE_DURATION
         };
     }
@@ -1916,6 +1942,8 @@ export class Game {
         document.getElementById('experimental-menu').classList.add('hidden');
         document.getElementById('main-options-popup').classList.add('hidden');
         document.getElementById('main-options-popup').querySelectorAll('.focused').forEach(el => el.classList.remove('focused'));
+        document.getElementById('help-popup').classList.add('hidden');
+        document.getElementById('help-popup').querySelectorAll('.focused').forEach(el => el.classList.remove('focused'));
         document.getElementById('controls-selection').classList.add('hidden');
         this.menuIndex = 0;
         this.lastActiveMenuId = 'main-menu';
@@ -2325,7 +2353,7 @@ export class Game {
             ? ['quit-confirmation']
             : this.arcadeGameOver
                 ? ['arcade-game-over']
-                : ['main-options-popup', 'botless-popup', 'options-popup', 'solo-menu', 'online-menu', 'experimental-menu', 'main-menu'];
+                : ['help-popup', 'main-options-popup', 'botless-popup', 'options-popup', 'solo-menu', 'online-menu', 'experimental-menu', 'main-menu'];
         for (const id of potentialContainers) {
             const el = document.getElementById(id);
             if (el && !el.classList.contains('hidden')) {
@@ -2806,7 +2834,6 @@ export class Game {
         if (player.roomId !== previousRoomId
             && currentRoom?.roomNumber > 0
             && nextRoom?.roomNumber === 0) {
-            player.clearExperimentalRoomCapsuleBonuses();
             Game.prototype.showExperimentalHallwayMessage.call(this);
         }
         return player.roomId;
@@ -2944,7 +2971,12 @@ export class Game {
                 ? (Game.prototype.getExperimentalRoom.call(this, previousRoomId) || this.experimentalRooms[0])
                 : (this.experimentalRooms.find(area => area.roomNumber === 1) || this.experimentalRooms[0]);
             const roomId = room.id;
-            const spawn = this.findExperimentalSpawn(player.radius, this.players, roomId);
+            const spawn = player.isNPC
+                ? this.findExperimentalSpawn(player.radius, this.players, roomId)
+                : {
+                    x: (room.bounds.left + room.bounds.right) / 2,
+                    y: (room.bounds.top + room.bounds.bottom) / 2
+                };
 
             if (previousRoomId !== roomId) {
                 Game.prototype.unindexExperimentalEntity.call(this, 'players', player, previousRoomId);
@@ -2957,6 +2989,7 @@ export class Game {
             if (player.isNPC) {
                 player.resetLevelProgress();
                 player.initializeNPCLevel(room.npcLevel);
+                player.applyRandomCapsulePowerUps(Math.floor(player.level * 0.75));
                 player.color = chooseRandomPlayerColor();
                 player.rollAggression();
             } else {

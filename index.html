@@ -365,6 +365,38 @@
         width: 270px !important;
         font-size: 1.15rem;
       }
+      .help-panel {
+        width: min(760px, 82vw);
+        max-height: 82vh;
+        padding: 2rem 2.5rem;
+        border: 2px solid #00ffff;
+        background: rgba(0, 0, 0, 0.94);
+        box-shadow: 0 0 30px rgba(0, 255, 255, 0.25);
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 1.25rem;
+      }
+      .help-panel h2 {
+        margin: 0;
+        color: #fff;
+        letter-spacing: 0.2rem;
+      }
+      .help-list {
+        width: 100%;
+        margin: 0;
+        padding-left: 1.7rem;
+        color: #fff;
+        font-family: 'Orbitron', sans-serif;
+        font-size: 1rem;
+        line-height: 1.65;
+        text-align: left;
+      }
+      .help-back-button {
+        border-color: #ff00ff !important;
+        color: #ff00ff !important;
+        margin-top: 0.5rem;
+      }
       @media (max-height: 760px) {
         .arena-setup { gap: 0.95rem; }
         .arena-play-button { min-height: 90px; }
@@ -483,7 +515,24 @@
               </button>
             </div>
           </div>
+          <button class="menu-button" id="btn-help-open">HELP</button>
           <button class="menu-button" id="btn-main-options-back" style="border-color: #ff00ff; color: #ff00ff;">BACK</button>
+        </div>
+      </div>
+
+      <div id="help-popup" class="hidden options-popup">
+        <div class="help-panel">
+          <h2>HELP</h2>
+          <ul class="help-list">
+            <li>Gain experience to level up</li>
+            <li>Select a level up bonus to become permanently stronger</li>
+            <li>Defeat enemies to earn Power Up Capsules</li>
+            <li>Lose all Power Up Capsules on death</li>
+            <li>Use Right Click/M2/LT to Lock On to a target</li>
+            <li>All missiles seek the Locked On target</li>
+            <li>Find your way to Sector 9 to save the Princess!</li>
+          </ul>
+          <button class="menu-button help-back-button" id="btn-help-back">BACK</button>
         </div>
       </div>
 

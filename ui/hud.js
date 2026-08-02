@@ -23,8 +23,8 @@ export class HUD {
             this.drawPowerUpMeter(ctx, players[1], 1270, 980, 3);
             this.drawXPBar(ctx, players[0], 650, 980, 3);
             this.drawXPBar(ctx, players[1], 1270, 980, 3);
-            this.drawLevelUpChoices(ctx, players[0], 650, 980);
-            this.drawLevelUpChoices(ctx, players[1], 1270, 980);
+            this.drawLevelUpChoices(ctx, players[0], 650, 74);
+            this.drawLevelUpChoices(ctx, players[1], 1270, 74);
             this.drawSpeedMeter(ctx, players[0], 650, 980, 3);
             this.drawSpeedMeter(ctx, players[1], 1270, 980, 3);
             this.drawLevelDisplay(ctx, players[0], 20, 850);
@@ -33,7 +33,7 @@ export class HUD {
             // Solo/Online: One meter, centered, laid out in a single row of 5
             this.drawPowerUpMeter(ctx, players[0], 1920 / 2, 980, 5);
             this.drawXPBar(ctx, players[0], 1920 / 2, 980, 5);
-            this.drawLevelUpChoices(ctx, players[0], 1920 / 2, 980);
+            this.drawLevelUpChoices(ctx, players[0], 1920 / 2, 74);
             this.drawSpeedMeter(ctx, players[0], 1920 / 2, 980, 5);
             this.drawLevelDisplay(ctx, players[0], 20, 850);
         }
@@ -63,42 +63,44 @@ export class HUD {
         ctx.restore();
     }
 
-    getLevelUpgradeBoxes(centerX, startY) {
-        const width = 100;
-        const height = 36;
-        const gap = 10;
+    getLevelUpgradeBoxes(centerX, topY) {
+        const width = 132;
+        const height = 52;
+        const gap = 16;
         const choices = ['projectile', 'speed', 'shield'];
         const rowWidth = choices.length * width + (choices.length - 1) * gap;
         return choices.map((choice, index) => ({
             choice,
             x: centerX - rowWidth / 2 + index * (width + gap),
-            y: startY - 82,
+            y: topY,
             width,
             height
         }));
     }
 
-    drawLevelUpChoices(ctx, player, centerX, startY) {
+    drawLevelUpChoices(ctx, player, centerX, topY) {
         if (!player || player.isNPC || player.isDead || player.pendingLevelUps <= 0) return;
         ctx.save();
-        ctx.font = 'bold 10px Orbitron';
         ctx.textAlign = 'center';
-        const boxes = this.getLevelUpgradeBoxes(centerX, startY);
-        ctx.fillStyle = player.color;
-        ctx.fillText('Select a Power Up', centerX, boxes[0].y - 31);
+        const boxes = this.getLevelUpgradeBoxes(centerX, topY);
         const prompts = ['1 / X', '2 / Y', '3 / B'];
         boxes.forEach((box, index) => {
+            ctx.font = 'bold 12px Orbitron';
             ctx.fillStyle = '#fff';
-            ctx.fillText(prompts[index], box.x + box.width / 2, box.y - 8);
+            ctx.fillText(prompts[index], box.x + box.width / 2, box.y - 10);
             const selectable = player.canSelectLevelUpgrade(box.choice);
-            ctx.fillStyle = selectable ? 'rgba(0, 0, 0, 0.8)' : 'rgba(70, 70, 70, 0.8)';
+            ctx.fillStyle = selectable ? 'rgba(0, 0, 0, 0.82)' : 'rgba(70, 70, 70, 0.82)';
             ctx.strokeStyle = selectable ? player.color : '#777';
-            ctx.lineWidth = 1;
+            ctx.lineWidth = 2;
             ctx.fillRect(box.x, box.y, box.width, box.height);
             ctx.strokeRect(box.x, box.y, box.width, box.height);
+            ctx.font = 'bold 13px Orbitron';
             ctx.fillStyle = selectable ? '#fff' : '#999';
-            ctx.fillText(box.choice.toUpperCase(), box.x + box.width / 2, box.y + 23);
+            ctx.fillText(box.choice.toUpperCase(), box.x + box.width / 2, box.y + 32);
         });
+        ctx.font = 'bold 15px Orbitron';
+        ctx.fillStyle = '#fff';
+        ctx.fillText('Select a Level Up Bonus', centerX, boxes[0].y + boxes[0].height + 30);
         ctx.restore();
     }
 
@@ -126,7 +128,7 @@ export class HUD {
         const player = players?.find(candidate => candidate.id === 1 && !candidate.isNPC && candidate.controlMode !== 'GAMEPAD');
         if (!player || player.isDead || player.pendingLevelUps <= 0) return null;
         const centerX = isSplitScreen ? 650 : 1920 / 2;
-        const box = this.getLevelUpgradeBoxes(centerX, 980).find(candidate =>
+        const box = this.getLevelUpgradeBoxes(centerX, 74).find(candidate =>
             x >= candidate.x && x <= candidate.x + candidate.width
             && y >= candidate.y && y <= candidate.y + candidate.height
         );
@@ -227,17 +229,22 @@ export class HUD {
             const x = startX + col * (slotWidth + gap);
             const y = startY + row * (slotHeight + gap);
 
-            const isCurrent = (i + 1) === player.powerUpCapsules;
+            const slotNumber = i + 1;
+            const isCurrent = slotNumber === player.powerUpCapsules;
+            const isSelectable = typeof player.canActivateCapsuleSlot !== 'function'
+                || player.canActivateCapsuleSlot(slotNumber);
 
             // Box
-            ctx.strokeStyle = isCurrent ? player.color : '#333';
-            ctx.lineWidth = isCurrent ? 3 : 1;
-            ctx.fillStyle = isCurrent ? (player.color + '33') : 'rgba(0,0,0,0.5)';
+            ctx.strokeStyle = isSelectable ? (isCurrent ? player.color : '#333') : '#555';
+            ctx.lineWidth = isCurrent && isSelectable ? 3 : 1;
+            ctx.fillStyle = !isSelectable
+                ? 'rgba(55,55,55,0.72)'
+                : (isCurrent ? (player.color + '33') : 'rgba(0,0,0,0.5)');
             ctx.strokeRect(x, y, slotWidth, slotHeight);
             ctx.fillRect(x, y, slotWidth, slotHeight);
 
             // Glow if current
-            if (isCurrent) {
+            if (isCurrent && isSelectable) {
                 ctx.shadowBlur = 15;
                 ctx.shadowColor = player.color;
                 ctx.strokeRect(x, y, slotWidth, slotHeight);
@@ -246,22 +253,26 @@ export class HUD {
 
             // Text
             ctx.font = '9px Orbitron';
-            ctx.fillStyle = isCurrent ? '#fff' : '#666';
+            ctx.fillStyle = !isSelectable ? '#777' : (isCurrent ? '#fff' : '#666');
             ctx.textAlign = 'center';
             ctx.fillText(`${i+1} ${slot.name}`, x + slotWidth / 2, y + 22);
             
             ctx.font = '7px Orbitron';
-            ctx.fillStyle = isCurrent ? player.color : '#444';
+            ctx.fillStyle = !isSelectable ? '#555' : (isCurrent ? player.color : '#444');
             ctx.fillText(slot.type, x + slotWidth / 2, y + 10);
         });
 
-        // Contextual Text
+        // Static capsule-selection helper appears only while a capsule bonus is available.
         const capsules = player.powerUpCapsules;
-        ctx.font = '14px Orbitron';
-        ctx.fillStyle = player.color;
-        ctx.textAlign = 'center';
-        const msg = player.powerUpError || (capsules > 0 ? 'A Consume Capsules  |  X Projectile  |  Y Speed  |  B Shield' : `${capsules} / 5 CAPSULES`);
-        ctx.fillText(msg, centerX, startY - 15);
+        const msg = player.powerUpError || (capsules > 0
+            ? 'Press Spacebar / A to select a Capsule Bonus'
+            : '');
+        if (msg) {
+            ctx.font = '14px Orbitron';
+            ctx.fillStyle = '#fff';
+            ctx.textAlign = 'center';
+            ctx.fillText(msg, centerX, startY - 15);
+        }
     }
 
     // Draws a single player's speed meter directly beneath their power-up capsule grid.

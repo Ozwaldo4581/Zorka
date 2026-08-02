@@ -25,7 +25,11 @@ const ROUTE = Object.freeze([
 
 export function createExperimentalRoomProgression(roomNumber) {
     const normalizedRoomNumber = Math.max(1, Math.floor(Number(roomNumber) || 1));
-    return Object.freeze({ roomNumber: normalizedRoomNumber, npcCount: normalizedRoomNumber, npcLevel: normalizedRoomNumber });
+    return Object.freeze({
+        roomNumber: normalizedRoomNumber,
+        npcCount: 1 + 2 * (normalizedRoomNumber - 1),
+        npcLevel: normalizedRoomNumber
+    });
 }
 
 export function createExperimentalArea({
