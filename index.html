@@ -192,6 +192,47 @@
       .profile-entry-actions { display: flex; justify-content: center; flex-wrap: wrap; }
       .profile-entry-actions .menu-button { width: 180px; font-size: 1rem; }
       #experimental-profile-error { min-height: 1.25em; color: #ff66ff; }
+      .profile-slot.selected {
+        border-color: #00ffff;
+        color: #00ffff;
+        box-shadow: 0 0 18px rgba(0, 255, 255, 0.45);
+      }
+      .profile-menu-actions {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 0.75rem;
+      }
+      .profile-action-panel {
+        width: min(520px, 85vw);
+        padding: 2rem;
+        border: 2px solid #00ffff;
+        background: rgba(0, 0, 0, 0.96);
+        text-align: center;
+      }
+      .profile-action-buttons {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 0.75rem;
+      }
+      .arcade-info-list {
+        width: min(680px, 85vw);
+        margin: 0 auto 2rem;
+        padding-left: 1.7rem;
+        color: #fff;
+        font-family: 'Orbitron', sans-serif;
+        font-size: 1rem;
+        line-height: 1.75;
+        text-align: left;
+      }
+      .profile-delete-panel {
+        width: min(520px, 85vw);
+        padding: 2rem;
+        border: 2px solid #ff00ff;
+        background: rgba(0, 0, 0, 0.96);
+        text-align: center;
+      }
       @media (max-width: 760px) {
         .profile-slots { grid-template-columns: 1fr; max-height: 55vh; overflow-y: auto; }
         .profile-slot { min-height: 72px; }
@@ -231,6 +272,31 @@
       }
       #arcade-game-over dd { margin: 0; color: #00ffff; }
       #arcade-game-over.hidden { display: none; }
+
+      .gamepad-toggle-label {
+        width: min(360px, 100%);
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 20px;
+        margin: 0 auto;
+        padding: 1rem 1.25rem;
+        border: 2px solid #00ffff;
+        color: #00ffff;
+        box-sizing: border-box;
+        font-size: 1.1rem;
+      }
+      .gamepad-toggle-label:hover,
+      .gamepad-toggle-label:focus-within {
+        background: rgba(0, 255, 255, 0.12);
+        box-shadow: 0 0 15px #00ffff;
+      }
+      .gamepad-toggle-checkbox {
+        width: 28px;
+        height: 28px;
+        margin: 0;
+        accent-color: #00ffff;
+      }
       .control-mode-button {
         box-sizing: border-box;
         width: 170px;
@@ -467,9 +533,9 @@
         <h2 style="color: #00ffff; font-size: 1.2rem; margin-top: -1.5rem; margin-bottom: 2rem; letter-spacing: 0.5rem;">BATTLE FOR THE SOLAR TIDES</h2>
         
         <div class="main-menu-actions">
-          <button class="menu-button" id="btn-experimental-start">START A NEW ADVENTURE</button>
-          <button class="menu-button" id="btn-arcade">ARCADE MODE</button>
-          <button class="menu-button" id="btn-solo-open">SOLO ARENA</button>
+          <button class="menu-button" id="btn-arcade">ARCADE</button>
+          <button class="menu-button" id="btn-experimental-start">ADVENTURE</button>
+          <button class="menu-button" id="btn-solo-open">ARENA</button>
 
           <button class="menu-button" id="btn-pvp">
           LOCAL PVP<br>ARENA
@@ -479,6 +545,19 @@
            OPTIONS
            </button>
         </div>
+      </div>
+
+      <div id="arcade-menu" class="hidden">
+        <h1>ARCADE</h1>
+        <ul class="arcade-info-list">
+          <li>Face off against endless waves of progressively more challenging enemies.</li>
+          <li>Defeating enemies awards capsules and experience.</li>
+          <li>Consume capsules for power-ups.</li>
+          <li>Choose permanent bonuses every level.</li>
+          <li>1 life, make it count!</li>
+        </ul>
+        <button class="menu-button" id="btn-arcade-play">PLAY</button>
+        <button class="menu-button" id="btn-arcade-back" style="border-color: #ff00ff; color: #ff00ff;">BACK</button>
       </div>
 
       <div id="experimental-profile-menu" class="hidden">
@@ -493,7 +572,9 @@
             <button class="menu-button" id="btn-experimental-profile-cancel" style="border-color: #ff00ff; color: #ff00ff;">CANCEL</button>
           </div>
         </div>
-        <button class="menu-button" id="btn-experimental-profile-back" style="border-color: #ff00ff; color: #ff00ff;">BACK</button>
+        <div class="profile-menu-actions">
+          <button class="menu-button" id="btn-experimental-profile-back" style="border-color: #ff00ff; color: #ff00ff;">BACK</button>
+        </div>
       </div>
 
       <div id="main-options-popup" class="hidden options-popup">
@@ -522,11 +603,11 @@
           </div>
           <div class="options-group">
             <h2>CONTROLS</h2>
-            <div class="options-button-row">
-              <button class="count-btn control-mode-button selected" id="main-keyboard-btn" aria-pressed="true">M&amp;KB</button>
-              <button class="count-btn control-mode-button" id="main-gamepad-btn" aria-pressed="false">GAMEPAD</button>
-            </div>
-            <p class="control-change-notice">Controls can not be changes in game</p>
+            <label class="gamepad-toggle-label" for="main-gamepad-enabled">
+              <span>ENABLE GAMEPAD</span>
+              <input class="gamepad-toggle-checkbox" id="main-gamepad-enabled" type="checkbox" aria-checked="false" />
+            </label>
+            <p class="control-change-notice">Gamepad use can only be changed from the main menu</p>
           </div>
           <div class="options-group">
             <h2>CROSSHAIR STYLE</h2>
@@ -734,6 +815,28 @@
         <div style="display: flex; flex-direction: column; align-items: center; gap: 15px;">
           <button class="menu-button" id="btn-arcade-replay">PLAY AGAIN</button>
           <button class="menu-button" id="btn-arcade-menu">RETURN TO MENU</button>
+        </div>
+      </div>
+    </div>
+
+
+    <div id="experimental-profile-actions" class="hidden options-popup" role="dialog" aria-modal="true" aria-labelledby="experimental-profile-actions-title">
+      <div class="profile-action-panel">
+        <h2 id="experimental-profile-actions-title">PROFILE</h2>
+        <div class="profile-action-buttons">
+          <button class="menu-button" id="btn-experimental-profile-play">PLAY</button>
+          <button class="menu-button" id="btn-experimental-profile-change" style="border-color: #ff00ff; color: #ff00ff;">CHANGE PROFILE</button>
+          <button class="menu-button" id="btn-experimental-profile-delete" style="border-color: #ff00ff; color: #ff00ff;">DELETE PROFILE</button>
+        </div>
+      </div>
+    </div>
+
+    <div id="profile-delete-confirmation" class="hidden options-popup" role="dialog" aria-modal="true" aria-labelledby="profile-delete-confirmation-message">
+      <div class="profile-delete-panel">
+        <p id="profile-delete-confirmation-message" style="font-size: 1.35rem; margin: 0 0 2rem;">Are you sure?</p>
+        <div class="quit-confirmation-actions">
+          <button class="menu-button" id="btn-profile-delete-confirm">DELETE PROFILE</button>
+          <button class="menu-button" id="btn-profile-delete-cancel" style="border-color: #ff00ff; color: #ff00ff;">BACK</button>
         </div>
       </div>
     </div>

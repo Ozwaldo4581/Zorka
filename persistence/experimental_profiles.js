@@ -26,7 +26,8 @@ export function normalizeExperimentalProfile(profile, slot) {
         pendingLevelUps: integer(profile.pendingLevelUps, Math.max(0, level - usedLevelUps)),
         projectileUpgradeCount,
         speedUpgradeCount,
-        levelShieldUpgradeCount
+        levelShieldUpgradeCount,
+        deaths: integer(profile.deaths)
     });
 }
 
@@ -97,7 +98,13 @@ export class ExperimentalProfileStore {
         this.assertSlot(slot);
         const slots = this.loadSlots();
         if (slots[slot]) throw new Error('That profile slot is already occupied.');
-        const profile = normalizeExperimentalProfile({ name, level: 0, totalXP: 0, pendingLevelUps: 0 }, slot);
+        const profile = normalizeExperimentalProfile({
+            name,
+            level: 0,
+            totalXP: 0,
+            pendingLevelUps: 0,
+            deaths: 0
+        }, slot);
         if (!profile) throw new Error('Enter a profile name.');
         slots[slot] = profile;
         this.persist(slots);
@@ -113,6 +120,15 @@ export class ExperimentalProfileStore {
         slots[slot] = profile;
         this.persist(slots);
         return { ...profile };
+    }
+
+
+    deleteProfile(slot) {
+        this.assertSlot(slot);
+        const slots = this.loadSlots();
+        slots[slot] = null;
+        this.persist(slots);
+        return true;
     }
 
     getProfile(slot) {

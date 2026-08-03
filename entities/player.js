@@ -7,7 +7,8 @@ const BURST_INTERVAL = 0.05;
 const BASE_PROJECTILE_SPEED = 1200;
 const MARTIAN_PARALLEL_OFFSET = 30;
 const MAX_PROJECTILE_UPGRADES = 5;
-export const BASE_PLAYER_HP = 10;
+export const BASE_PLAYER_HP = 5;
+const HUMAN_STARTING_HP_BONUS = 5;
 export const DAMAGE_PULSE_DURATION = 0.35;
 
 export function getHPBlockLayout(maxHP, totalWidth = 120, normalGap = 2, minimumBlockWidth = 0.5) {
@@ -49,8 +50,8 @@ export class Player {
         this.maxShieldCharges = 0;
         this.shieldRechargeDelay = 6;
         this.shieldRechargeTimer = 0;
-        this.maxHP = BASE_PLAYER_HP;
-        this.currentHP = BASE_PLAYER_HP;
+        this.maxHP = BASE_PLAYER_HP + HUMAN_STARTING_HP_BONUS;
+        this.currentHP = this.maxHP;
         this.hpRechargeDelay = 20;
         this.hpRechargeTimer = 0;
         this.hasMissile = false;
@@ -188,6 +189,8 @@ export class Player {
     initializeNPCLevel(targetLevel, random = Math.random) {
         if (!this.isNPC || this.level !== 0 || this.totalXP !== 0 || this.pendingLevelUps !== 0) return false;
         const normalizedLevel = Math.max(1, Math.floor(Number(targetLevel) || 1));
+        this.maxHP = BASE_PLAYER_HP + (this.isNPC ? 0 : HUMAN_STARTING_HP_BONUS);
+        this.restoreHP();
         this.addXP(this.getLevelThreshold(normalizedLevel));
         this.resolveNPCLevelUps(random);
         return this.level === normalizedLevel && this.pendingLevelUps === 0;
@@ -208,7 +211,8 @@ export class Player {
             pendingLevelUps: this.pendingLevelUps,
             projectileUpgradeCount: this.projectileUpgradeCount,
             speedUpgradeCount: this.speedUpgradeCount,
-            levelShieldUpgradeCount: this.levelShieldUpgradeCount
+            levelShieldUpgradeCount: this.levelShieldUpgradeCount,
+            deaths: this.deaths
         };
     }
 
@@ -234,9 +238,10 @@ export class Player {
         this.projectileUpgradeCount = Math.min(this.maxProjectileUpgrades, integer(snapshot?.projectileUpgradeCount));
         this.speedUpgradeCount = Math.min(this.maxSpeedUpgrades, integer(snapshot?.speedUpgradeCount));
         this.levelShieldUpgradeCount = integer(snapshot?.levelShieldUpgradeCount);
+        this.deaths = integer(snapshot?.deaths);
         const usedChoices = this.projectileUpgradeCount + this.speedUpgradeCount + this.levelShieldUpgradeCount;
         this.pendingLevelUps = integer(snapshot?.pendingLevelUps, Math.max(0, this.level - usedChoices));
-        this.maxHP = BASE_PLAYER_HP + this.level;
+        this.maxHP = BASE_PLAYER_HP + HUMAN_STARTING_HP_BONUS + this.level;
         this.restoreHP();
         this.maxShieldCharges = Math.max(0, this.maxShieldCharges - previousLevelShieldCapacity)
             + this.levelShieldUpgradeCount;
@@ -671,7 +676,7 @@ export class Player {
     getDamagePulseScale(timer) {
         if (timer <= 0) return 1;
         const progress = 1 - timer / DAMAGE_PULSE_DURATION;
-        return 1 + 0.75 * (1 - progress) ** 2;
+        return 1 + 3 * (1 - progress) ** 2;
     }
 
     clearShieldCharges() {

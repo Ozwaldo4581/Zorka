@@ -135,7 +135,8 @@ export class Game {
         this.activeModal = null;
         this.focusBeforeModal = null;
         
-        // P1 defaults to keyboard and mouse until the player explicitly assigns a gamepad.
+        // Gamepad input is opt-in from the main Options screen.
+        this.gamepadEnabled = false;
         this.p1ControlMode = DEFAULT_P1_CONTROL_MODE;
         this.swapUI = false;
         this.transformationKills = 20;
@@ -359,18 +360,16 @@ export class Game {
     }
 
     refreshControlOptionButtons() {
-        const keyboardButton = document.getElementById('main-keyboard-btn');
-        const gamepadButton = document.getElementById('main-gamepad-btn');
-        const keyboardSelected = this.p1ControlMode === 'KEYBOARD';
+        const gamepadCheckbox = document.getElementById('main-gamepad-enabled');
+        if (gamepadCheckbox) {
+            gamepadCheckbox.checked = this.gamepadEnabled;
+            gamepadCheckbox.setAttribute('aria-checked', String(this.gamepadEnabled));
+        }
+    }
 
-        if (keyboardButton) {
-            keyboardButton.classList.toggle('selected', keyboardSelected);
-            keyboardButton.setAttribute('aria-pressed', String(keyboardSelected));
-        }
-        if (gamepadButton) {
-            gamepadButton.classList.toggle('selected', !keyboardSelected);
-            gamepadButton.setAttribute('aria-pressed', String(!keyboardSelected));
-        }
+    getGamepads() {
+        if (!this.gamepadEnabled || !navigator.getGamepads) return [];
+        return navigator.getGamepads();
     }
 
     areTransformationsEnabled() {
@@ -743,7 +742,20 @@ export class Game {
 
         // Menu buttons
         document.getElementById('btn-arcade').addEventListener('click', () => {
+            document.getElementById('main-menu').classList.add('hidden');
+            document.getElementById('arcade-menu').classList.remove('hidden');
+            this.menuIndex = 0;
+            this.lastActiveMenuId = 'arcade-menu';
+        });
+        document.getElementById('btn-arcade-play').addEventListener('click', () => {
+            document.getElementById('arcade-menu').classList.add('hidden');
             this.startArcadeMode();
+        });
+        document.getElementById('btn-arcade-back').addEventListener('click', () => {
+            document.getElementById('arcade-menu').classList.add('hidden');
+            document.getElementById('main-menu').classList.remove('hidden');
+            this.menuIndex = 0;
+            this.lastActiveMenuId = 'main-menu';
         });
 
         document.getElementById('btn-solo-open').addEventListener('click', () => {
@@ -805,9 +817,26 @@ export class Game {
         document.getElementById('btn-experimental-start').addEventListener('click', () => {
             this.showExperimentalProfileSelection();
         });
+        document.getElementById('btn-experimental-profile-play').addEventListener('click', () => {
+            this.playSelectedExperimentalProfile();
+        });
+        document.getElementById('btn-experimental-profile-change').addEventListener('click', () => {
+            this.closeExperimentalProfileActions();
+        });
+        document.getElementById('btn-experimental-profile-delete').addEventListener('click', () => {
+            this.openExperimentalProfileDeleteConfirmation();
+        });
+        document.getElementById('btn-profile-delete-confirm').addEventListener('click', () => {
+            this.deleteSelectedExperimentalProfile();
+        });
+        document.getElementById('btn-profile-delete-cancel').addEventListener('click', () => {
+            this.closeExperimentalProfileDeleteConfirmation();
+        });
         document.getElementById('btn-experimental-profile-back').addEventListener('click', () => {
             this.hideExperimentalProfileNameEntry();
             document.getElementById('experimental-profile-menu').classList.add('hidden');
+            document.getElementById('experimental-profile-actions').classList.add('hidden');
+            document.getElementById('profile-delete-confirmation').classList.add('hidden');
             document.getElementById('main-menu').classList.remove('hidden');
         });
         document.getElementById('btn-experimental-profile-cancel').addEventListener('click', () => {
@@ -928,17 +957,12 @@ export class Game {
             });
         });
 
-        const mainKeyboardButton = document.getElementById('main-keyboard-btn');
-        const mainGamepadButton = document.getElementById('main-gamepad-btn');
+        const mainGamepadCheckbox = document.getElementById('main-gamepad-enabled');
 
-        mainKeyboardButton?.addEventListener('click', (event) => {
-            this.p1ControlMode = 'KEYBOARD';
-            this.refreshControlOptionButtons();
-            event.stopPropagation();
-        });
-
-        mainGamepadButton?.addEventListener('click', (event) => {
-            this.p1ControlMode = 'GAMEPAD';
+        mainGamepadCheckbox?.addEventListener('change', (event) => {
+            this.gamepadEnabled = event.currentTarget.checked;
+            this.p1ControlMode = this.gamepadEnabled ? 'GAMEPAD' : 'KEYBOARD';
+            this.startBtnWasPressed = false;
             this.refreshControlOptionButtons();
             event.stopPropagation();
         });
@@ -1362,7 +1386,7 @@ export class Game {
 
     // Gamepad D-pad/stick navigation for the floating in-game pause menu (Escape/Start menu)
     updatePauseMenuNavigation(dt) {
-        const gamepads = navigator.getGamepads ? navigator.getGamepads() : [];
+        const gamepads = this.getGamepads();
         const gp = Array.from(gamepads).find(gamepad => gamepad !== null) || null;
         if (!gp) return;
 
@@ -1669,6 +1693,7 @@ export class Game {
         document.getElementById('experimental-profile-menu').classList.remove('hidden');
         this.hideExperimentalProfileNameEntry();
         this.renderExperimentalProfileSlots();
+        this.closeExperimentalProfileActions();
         document.getElementById('experimental-profile-error').textContent = message;
         this.menuIndex = 0;
         this.lastActiveMenuId = 'experimental-profile-menu';
@@ -1682,6 +1707,7 @@ export class Game {
             button.type = 'button';
             button.className = 'menu-button profile-slot';
             button.dataset.profileSlot = String(slot);
+            button.classList.toggle('selected', slot === this.selectedExperimentalProfileSlot);
             if (summary) {
                 const name = document.createElement('span');
                 name.className = 'profile-slot-name';
@@ -1702,7 +1728,7 @@ export class Game {
     showExperimentalProfileNameEntry(slot) {
         this.pendingExperimentalProfileSlot = slot;
         document.getElementById('experimental-profile-slots').classList.add('hidden');
-        document.getElementById('btn-experimental-profile-back').classList.add('hidden');
+        document.querySelector('.profile-menu-actions').classList.add('hidden');
         document.getElementById('experimental-profile-name-entry').classList.remove('hidden');
         const input = document.getElementById('experimental-profile-name');
         input.value = '';
@@ -1714,7 +1740,7 @@ export class Game {
         this.pendingExperimentalProfileSlot = null;
         document.getElementById('experimental-profile-name-entry').classList.add('hidden');
         document.getElementById('experimental-profile-slots').classList.remove('hidden');
-        document.getElementById('btn-experimental-profile-back').classList.remove('hidden');
+        document.querySelector('.profile-menu-actions').classList.remove('hidden');
     }
 
     createSelectedExperimentalProfile() {
@@ -1723,8 +1749,9 @@ export class Game {
         try {
             this.experimentalProfiles.createProfile(slot, input.value);
             this.hideExperimentalProfileNameEntry();
+            this.selectedExperimentalProfileSlot = slot;
             this.renderExperimentalProfileSlots();
-            this.selectExperimentalProfile(slot);
+            this.openExperimentalProfileActions();
         } catch (error) {
             document.getElementById('experimental-profile-error').textContent = error.message;
         }
@@ -1738,7 +1765,67 @@ export class Game {
             return false;
         }
         this.selectedExperimentalProfileSlot = slot;
+        this.renderExperimentalProfileSlots();
+        document.getElementById('experimental-profile-error').textContent = '';
+        this.openExperimentalProfileActions();
+        return true;
+    }
+
+    openExperimentalProfileActions() {
+        const slot = this.selectedExperimentalProfileSlot;
+        const profile = Number.isInteger(slot) ? this.experimentalProfiles.getProfile(slot) : null;
+        if (!profile) return false;
+        document.getElementById('experimental-profile-actions-title').textContent = profile.name;
+        document.getElementById('experimental-profile-actions').classList.remove('hidden');
+        return true;
+    }
+
+    closeExperimentalProfileActions() {
+        document.getElementById('experimental-profile-actions').classList.add('hidden');
+    }
+
+    playSelectedExperimentalProfile() {
+        const slot = this.selectedExperimentalProfileSlot;
+        const profile = Number.isInteger(slot) ? this.experimentalProfiles.getProfile(slot) : null;
+        if (!profile) {
+            this.showExperimentalProfileSelection('Select a profile to begin.');
+            return false;
+        }
+        this.closeExperimentalProfileActions();
         return this.startExperimentalMode(profile);
+    }
+
+    openExperimentalProfileDeleteConfirmation() {
+        const slot = this.selectedExperimentalProfileSlot;
+        const profile = Number.isInteger(slot) ? this.experimentalProfiles.getProfile(slot) : null;
+        if (!profile) return false;
+        document.getElementById('profile-delete-confirmation-message').textContent = 'Are you sure?';
+        document.getElementById('experimental-profile-actions').classList.add('hidden');
+        document.getElementById('profile-delete-confirmation').classList.remove('hidden');
+        return true;
+    }
+
+    closeExperimentalProfileDeleteConfirmation() {
+        document.getElementById('profile-delete-confirmation').classList.add('hidden');
+        this.openExperimentalProfileActions();
+    }
+
+    deleteSelectedExperimentalProfile() {
+        const slot = this.selectedExperimentalProfileSlot;
+        if (!Number.isInteger(slot)) return false;
+        try {
+            this.experimentalProfiles.deleteProfile(slot);
+            this.selectedExperimentalProfileSlot = null;
+            this.closeExperimentalProfileDeleteConfirmation();
+            this.renderExperimentalProfileSlots();
+            document.getElementById('experimental-profile-actions').classList.add('hidden');
+            document.getElementById('experimental-profile-error').textContent = 'Profile deleted.';
+            return true;
+        } catch (error) {
+            this.closeExperimentalProfileDeleteConfirmation();
+            document.getElementById('experimental-profile-error').textContent = error.message;
+            return false;
+        }
     }
 
     saveExperimentalProfile(player) {
@@ -2071,6 +2158,7 @@ export class Game {
         this.gameState = 'MENU';
         document.getElementById('menu-overlay').classList.remove('hidden');
         document.getElementById('main-menu').classList.remove('hidden');
+        document.getElementById('arcade-menu').classList.add('hidden');
         document.getElementById('solo-menu').classList.add('hidden');
         document.getElementById('online-menu').classList.add('hidden');
         document.getElementById('experimental-menu')?.classList.add('hidden');
@@ -2383,7 +2471,7 @@ export class Game {
     updateGamepadVisibilityDetection() {
         if (this.isInGameplayState() && this.getMouseControlledPlayer()) return;
 
-        const gamepads = navigator.getGamepads ? navigator.getGamepads() : [];
+        const gamepads = this.getGamepads();
         for (const gp of gamepads) {
             if (!gp) continue;
             
@@ -2413,7 +2501,7 @@ export class Game {
             this.startBtnWasPressed = false;
             return;
         }
-        const gamepads = navigator.getGamepads ? navigator.getGamepads() : [];
+        const gamepads = this.getGamepads();
         let anyStartPressed = false;
         for (const gp of gamepads) {
             if (gp && gp.buttons[9] && gp.buttons[9].pressed) {
@@ -2431,7 +2519,7 @@ export class Game {
         this.splashTimer += dt;
         
         // Handle Gamepad Advance
-        const gamepads = navigator.getGamepads ? navigator.getGamepads() : [];
+        const gamepads = this.getGamepads();
         for (const gp of gamepads) {
             if (gp) {
                 for (const btn of gp.buttons) {
@@ -2474,7 +2562,7 @@ export class Game {
             this.updateOnlineGamepadStatus();
         }
         
-        const gamepads = navigator.getGamepads ? navigator.getGamepads() : [];
+        const gamepads = this.getGamepads();
         const gp = Array.from(gamepads).find(gamepad => gamepad !== null) || null;
         if (!gp) return;
 
@@ -2490,13 +2578,13 @@ export class Game {
             ? ['quit-confirmation']
             : this.arcadeGameOver
                 ? ['arcade-game-over']
-                : ['help-popup', 'main-options-popup', 'botless-popup', 'options-popup', 'solo-menu', 'online-menu', 'experimental-profile-menu', 'experimental-menu', 'main-menu'];
+                : ['profile-delete-confirmation', 'experimental-profile-actions', 'help-popup', 'main-options-popup', 'botless-popup', 'options-popup', 'solo-menu', 'online-menu', 'experimental-profile-menu', 'experimental-menu', 'arcade-menu', 'main-menu'];
         for (const id of potentialContainers) {
             const el = document.getElementById(id);
             if (el && !el.classList.contains('hidden')) {
                 activeMenu = el;
                 // If it's a menu-level container, only count it if it's the specific active one
-                if (id === 'solo-menu' || id === 'online-menu' || id === 'experimental-profile-menu' || id === 'experimental-menu' || id === 'main-menu') {
+                if (id === 'solo-menu' || id === 'online-menu' || id === 'experimental-profile-menu' || id === 'experimental-menu' || id === 'arcade-menu' || id === 'main-menu') {
                     // These are siblings in menu-overlay
                 }
                 break;
@@ -2562,12 +2650,26 @@ export class Game {
     }
 
     updateGamepadStatus() {
-        const gamepads = Array.from(navigator.getGamepads ? navigator.getGamepads() : []).filter(g => g !== null);
+        const gamepads = Array.from(this.getGamepads()).filter(g => g !== null);
         const count = gamepads.length;
         const statusEl = document.getElementById('gamepad-status');
         const kbBtn = document.getElementById('p1-keyboard-btn');
         const gpBtn = document.getElementById('p1-gamepad-btn');
         const isPvP = this.pendingMode === 'PVP';
+
+        if (!this.gamepadEnabled) {
+            if (statusEl) statusEl.innerText = 'GAMEPAD DISABLED IN OPTIONS';
+            if (kbBtn) {
+                kbBtn.disabled = false;
+                kbBtn.classList.add('selected');
+            }
+            if (gpBtn) {
+                gpBtn.disabled = true;
+                gpBtn.classList.remove('selected');
+            }
+            this.p1ControlMode = 'KEYBOARD';
+            return;
+        }
 
         if (statusEl) statusEl.innerText = `${count} GAMEPAD(S) DETECTED`;
 
@@ -2621,7 +2723,7 @@ export class Game {
     }
 
     updateOnlineGamepadStatus() {
-        const gamepads = Array.from(navigator.getGamepads ? navigator.getGamepads() : []).filter(g => g !== null);
+        const gamepads = Array.from(this.getGamepads()).filter(g => g !== null);
         const count = gamepads.length;
         const statusEl = document.getElementById('online-gamepad-status');
         const kbBtn = document.getElementById('online-keyboard-btn');
@@ -2661,7 +2763,7 @@ export class Game {
 
     update(dt) {
         if (this.gameState === GAME_MODE.EXPERIMENTAL) this.updateExperimentalMessages(dt);
-        const gamepads = navigator.getGamepads ? navigator.getGamepads() : [];
+        const gamepads = this.getGamepads();
         const prestigeTriggers = [];
         const worldRules = this.getWorldRules();
 
@@ -3292,6 +3394,14 @@ export class Game {
         return 'the Environment';
     }
 
+    isNPCDamageSource(source) {
+        if (!source) return false;
+        if (source.owner && source.owner !== source) {
+            return Game.prototype.isNPCDamageSource.call(this, source.owner);
+        }
+        return source.isNPC === true;
+    }
+
     confirmPlayerDeath(player, killer, cameras = this.getActiveCameras()) {
         if (!player || player.isDead || player.currentHP > 0) return;
         player.isDead = true;
@@ -3302,8 +3412,12 @@ export class Game {
         player.respawnTimer = 2;
 
         if (this.gameState === GAME_MODE.EXPERIMENTAL && !player.isNPC) {
+            this.saveExperimentalProfile(player);
+            const deathCause = Game.prototype.isNPCDamageSource.call(this, killer)
+                ? "Defeated by Zorka's Enemies"
+                : `Destroyed by ${Game.prototype.getDamageSourceDisplayName.call(this, killer)}`;
             this.experimentalSectorMessage = {
-                text: `Destroyed by ${Game.prototype.getDamageSourceDisplayName.call(this, killer)}`,
+                text: deathCause,
                 detail: 'Returning to Sector 1',
                 remaining: Math.max(EXPERIMENTAL_SECTOR_MESSAGE_DURATION, player.respawnTimer)
             };
@@ -3787,7 +3901,11 @@ export class Game {
                     owner: this.players[0],
                     rooms: this.experimentalRooms,
                     hazards: this.hazards,
-                    gameMode: this.gameState
+                    gameMode: this.gameState,
+                    profileName: this.gameState === GAME_MODE.EXPERIMENTAL
+                        && Number.isInteger(this.selectedExperimentalProfileSlot)
+                        ? this.experimentalProfiles.getProfile(this.selectedExperimentalProfileSlot)?.name || null
+                        : null
                 }
             );
         }

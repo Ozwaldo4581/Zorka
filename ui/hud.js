@@ -27,15 +27,12 @@ export class HUD {
             this.drawLevelUpChoices(ctx, players[1], 1270, 74);
             this.drawSpeedMeter(ctx, players[0], 650, 980, 3);
             this.drawSpeedMeter(ctx, players[1], 1270, 980, 3);
-            this.drawLevelDisplay(ctx, players[0], 20, 850);
-            this.drawLevelDisplay(ctx, players[1], 980, 850);
         } else {
             // Solo/Online: One meter, centered, laid out in a single row of 5
             this.drawPowerUpMeter(ctx, players[0], 1920 / 2, 980, 5);
             this.drawXPBar(ctx, players[0], 1920 / 2, 980, 5);
             this.drawLevelUpChoices(ctx, players[0], 1920 / 2, 74);
             this.drawSpeedMeter(ctx, players[0], 1920 / 2, 980, 5);
-            this.drawLevelDisplay(ctx, players[0], 20, 850);
         }
     }
 
@@ -144,7 +141,12 @@ export class HUD {
         const x = swapUI ? (DESIGN_WIDTH - mapWidth - padding) : padding;
         const y = DESIGN_HEIGHT - mapHeight - padding;
 
-        if (gameMode === 'SOLO' || gameMode === 'EXPERIMENTAL') {
+        if (gameMode === 'EXPERIMENTAL' || gameMode === 'SOLO' || gameMode === 'ARENA') {
+            this.drawPlayerStatsBox(ctx, players, x, y, mapWidth, mapHeight);
+            return;
+        }
+
+        if (gameMode === 'ARCADE') {
             this.drawProgressionScoreboard(ctx, players, x, y, mapWidth, mapHeight);
             return;
         }
@@ -197,6 +199,61 @@ export class HUD {
         });
     }
 
+    getPlayerFacingName(player, stats = null) {
+        const rawName = String(stats?.name || player?.name || 'PLAYER');
+        return rawName.replace(/\s+\d+$/, '');
+    }
+
+    drawPlayerStatsBox(ctx, players, x, y, width, height) {
+        const player = players.find(candidate => !candidate.isNPC) || players[0];
+        if (!player) return;
+
+        const stats = player.getLeaderboardStats();
+        const rows = [
+            ['Level', stats.level],
+            ['Hull Strength', stats.hullStrength],
+            ['Shields', stats.shields],
+            ['Projectile', stats.projectile],
+            ['Speed', stats.speed],
+            ['Deaths', stats.deaths]
+        ];
+
+        ctx.save();
+        ctx.fillStyle = 'rgba(0, 0, 0, 0.7)';
+        ctx.fillRect(x, y, width, height);
+        ctx.strokeStyle = player.color || '#00ffff';
+        ctx.lineWidth = 1;
+        ctx.strokeRect(x, y, width, height);
+
+        ctx.font = 'bold 14px Orbitron';
+        ctx.fillStyle = player.color || '#fff';
+        ctx.textAlign = 'center';
+        ctx.fillText(this.getPlayerFacingName(player, stats), x + width / 2, y + 24);
+
+        ctx.strokeStyle = 'rgba(0, 255, 255, 0.3)';
+        ctx.beginPath();
+        ctx.moveTo(x + 10, y + 34);
+        ctx.lineTo(x + width - 10, y + 34);
+        ctx.stroke();
+
+        const labelX = x + 24;
+        const valueX = x + width - 24;
+        const firstRowY = y + 55;
+        const rowGap = 17;
+        ctx.font = '11px Orbitron';
+
+        rows.forEach(([label, value], index) => {
+            const rowY = firstRowY + index * rowGap;
+            ctx.fillStyle = '#fff';
+            ctx.textAlign = 'left';
+            ctx.fillText(label, labelX, rowY);
+            ctx.fillStyle = player.color || '#fff';
+            ctx.textAlign = 'right';
+            ctx.fillText(String(value), valueX, rowY);
+        });
+        ctx.restore();
+    }
+
     drawProgressionScoreboard(ctx, players, x, y, width, height) {
         ctx.fillStyle = 'rgba(0, 0, 0, 0.7)';
         ctx.fillRect(x, y, width, height);
@@ -235,7 +292,9 @@ export class HUD {
             ctx.fillStyle = player.color || '#fff';
             columns.forEach(column => {
                 ctx.textAlign = column.align || 'center';
-                let value = String(stats[column.key]);
+                let value = column.key === 'name'
+                    ? this.getPlayerFacingName(player, stats)
+                    : String(stats[column.key]);
                 if (column.key === 'name' && value.length > 11) value = `${value.slice(0, 10)}…`;
                 ctx.fillText(value, valueX + (column.align === 'left' ? 5 : column.width / 2), y + 45 + row * 14);
                 valueX += column.width;
