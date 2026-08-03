@@ -6,6 +6,9 @@ const COMBAT_DRUM_GAIN = 0.55;
 const COMBAT_FADE_IN_SECONDS = 0.45;
 const COMBAT_TIER_FADE_SECONDS = 0.35;
 const COMBAT_FADE_OUT_SECONDS = 1.75;
+const CRITICAL_HEALTH_FADE_SECONDS = 0.5;
+const CRITICAL_HEALTH_GAIN = 0.5;
+const CRITICAL_HEALTH_PLAYBACK_RATE = 1.25;
 
 export class AudioManager {
     constructor() {
@@ -29,7 +32,8 @@ export class AudioManager {
             'nes_music_intro': 'assets/audio/nes_music_intro.mp3', // Authentic retro NES-style intro/title theme
             'nes_music_epic': 'assets/audio/epic-sci-fi-nes-theme.mp3', // Serious, epic space-themed intro theme
             'gameplay_music': 'assets/audio/audio [music].mp3',
-            'gameplay_drums': 'assets/audio/audio [drums].mp3'
+            'gameplay_drums': 'assets/audio/audio [drums].mp3',
+            'tabla_critical': 'assets/audio/TablaCritical.mp3'
         };
     }
 
@@ -48,7 +52,12 @@ export class AudioManager {
         if (this.bgm) this.bgm.volume = this.volumeLevelToGain(this.musicVolumeLevel);
         if (this.gameplayMusic?.masterGain) {
             this.gameplayMusic.masterGain.gain.value = this.volumeLevelToGain(this.musicVolumeLevel);
-            this.setGameplayMusicMix(this.gameplayMusic.intensity, this.gameplayMusic.drumsActive, true);
+            this.setGameplayMusicMix(
+                this.gameplayMusic.intensity,
+                this.gameplayMusic.drumsActive,
+                this.gameplayMusic.criticalHealthActive,
+                true
+            );
         }
     }
 
@@ -97,6 +106,7 @@ export class AudioManager {
             const response = await fetch(path);
             const arrayBuffer = await response.arrayBuffer();
             this.buffers[name] = await this.ctx.decodeAudioData(arrayBuffer);
+            if (name === 'tabla_critical') this.ensureCriticalHealthLayer();
             this.tryStartGameplayMusic();
         } catch (e) {
             console.warn(`Failed to load sound: ${name}`, e);
@@ -175,7 +185,7 @@ export class AudioManager {
         drumSource.buffer = this.buffers.gameplay_drums;
         mainSource.loop = true;
         drumSource.loop = true;
-        mainGain.gain.value = 1;
+        mainGain.gain.value = 0.85;
         drumGain.gain.value = 0;
         masterGain.gain.value = this.volumeLevelToGain(this.musicVolumeLevel);
         mainSource.connect(mainGain);
@@ -186,19 +196,47 @@ export class AudioManager {
 
         this.gameplayMusic = {
             mainSource, drumSource, mainGain, drumGain, masterGain,
-            intensity: 1, drumsActive: false
+            intensity: 0.85, drumsActive: false, criticalHealthActive: false,
+            criticalSource: null, criticalGain: null
         };
         this.pendingGameplayMusic = false;
         const startTime = this.ctx.currentTime + 0.05;
         mainSource.start(startTime);
         drumSource.start(startTime);
+        this.ensureCriticalHealthLayer(startTime);
     }
 
-    setGameplayMusicMix(intensity = 1, drumsActive = false, immediate = false) {
+    ensureCriticalHealthLayer(startTime = this.ctx?.currentTime) {
+        const music = this.gameplayMusic;
+        if (!music || music.criticalSource || !this.buffers.tabla_critical) return;
+        const criticalSource = this.ctx.createBufferSource();
+        const criticalGain = this.ctx.createGain();
+        criticalSource.buffer = this.buffers.tabla_critical;
+        criticalSource.loop = true;
+        criticalSource.playbackRate.value = CRITICAL_HEALTH_PLAYBACK_RATE;
+        criticalGain.gain.value = 0;
+        criticalSource.connect(criticalGain);
+        criticalGain.connect(music.masterGain);
+        music.criticalSource = criticalSource;
+        music.criticalGain = criticalGain;
+        criticalSource.start(startTime);
+        if (music.criticalHealthActive) {
+            this.rampGain(criticalGain.gain, CRITICAL_HEALTH_GAIN, CRITICAL_HEALTH_FADE_SECONDS);
+        }
+    }
+
+    rampGain(gainParam, target, fadeSeconds) {
+        const now = this.ctx.currentTime;
+        gainParam.cancelScheduledValues(now);
+        gainParam.setValueAtTime(gainParam.value, now);
+        gainParam.linearRampToValueAtTime(target, now + fadeSeconds);
+    }
+
+    setGameplayMusicMix(intensity = 0.85, drumsActive = false, criticalHealthActive = false, immediate = false) {
         const music = this.gameplayMusic;
         if (!music) return;
         const previousDrumsActive = music.drumsActive;
-        const safeIntensity = Math.max(1, Math.min(1.45, Number(intensity) || 1));
+        const safeIntensity = Math.max(0.85, Math.min(1.5, Number(intensity) || 0.85));
         const masterGain = this.volumeLevelToGain(this.musicVolumeLevel);
         const mainTarget = masterGain > 0
             ? Math.min(safeIntensity, MUSIC_GAIN_LIMIT / masterGain)
@@ -207,14 +245,18 @@ export class AudioManager {
         const fadeSeconds = immediate ? 0
             : !drumsActive ? COMBAT_FADE_OUT_SECONDS
                 : previousDrumsActive ? COMBAT_TIER_FADE_SECONDS : COMBAT_FADE_IN_SECONDS;
-        const now = this.ctx.currentTime;
         for (const [gainParam, target] of [[music.mainGain.gain, mainTarget], [music.drumGain.gain, drumTarget]]) {
-            gainParam.cancelScheduledValues(now);
-            gainParam.setValueAtTime(gainParam.value, now);
-            gainParam.linearRampToValueAtTime(target, now + fadeSeconds);
+            this.rampGain(gainParam, target, fadeSeconds);
         }
+        this.ensureCriticalHealthLayer();
+        if (music.criticalGain) this.rampGain(
+            music.criticalGain.gain,
+            criticalHealthActive ? CRITICAL_HEALTH_GAIN : 0,
+            immediate ? 0 : CRITICAL_HEALTH_FADE_SECONDS
+        );
         music.intensity = safeIntensity;
         music.drumsActive = Boolean(drumsActive);
+        music.criticalHealthActive = Boolean(criticalHealthActive);
     }
 
     stopGameplayMusic() {
@@ -222,11 +264,11 @@ export class AudioManager {
         const music = this.gameplayMusic;
         this.gameplayMusic = null;
         if (!music) return;
-        for (const source of [music.mainSource, music.drumSource]) {
+        for (const source of [music.mainSource, music.drumSource, music.criticalSource].filter(Boolean)) {
             try { source.stop(); } catch (e) { /* ignore */ }
             try { source.disconnect(); } catch (e) { /* ignore */ }
         }
-        for (const node of [music.mainGain, music.drumGain, music.masterGain]) {
+        for (const node of [music.mainGain, music.drumGain, music.criticalGain, music.masterGain].filter(Boolean)) {
             try { node.disconnect(); } catch (e) { /* ignore */ }
         }
     }

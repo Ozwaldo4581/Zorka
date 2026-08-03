@@ -1488,23 +1488,25 @@ export class Game {
     }
 
     getCombatMusicMix(player = Game.prototype.getPrimaryMusicPlayer.call(this)) {
+        const criticalHealthActive = Boolean(player?.maxHP > 0 && player.currentHP / player.maxHP <= 0.25);
         const inCombat = this.combatMusicTimer > 0 && player && !player.isDead && !player.isEliminated;
-        if (!inCombat) return { intensity: 1, drumsActive: false };
+        if (!inCombat) return { intensity: 0.85, drumsActive: false, criticalHealthActive };
         const noShields = player.shieldCharges <= 0;
         const halfHP = player.maxHP > 0 && player.currentHP / player.maxHP <= 0.5;
         return {
-            intensity: Number((1.15 + (noShields ? 0.15 : 0) + (halfHP ? 0.15 : 0)).toFixed(2)),
-            drumsActive: true
+            intensity: noShields && halfHP ? 1.5 : noShields || halfHP ? 1.25 : 1,
+            drumsActive: true,
+            criticalHealthActive
         };
     }
 
     updateCombatMusic(dt) {
         this.combatMusicTimer = Math.max(0, (this.combatMusicTimer || 0) - Math.max(0, dt || 0));
         const mix = Game.prototype.getCombatMusicMix.call(this);
-        const tier = `${mix.intensity}:${mix.drumsActive}`;
+        const tier = `${mix.intensity}:${mix.drumsActive}:${mix.criticalHealthActive}`;
         if (tier === this.lastCombatMusicTier) return;
         this.lastCombatMusicTier = tier;
-        this.audio.setGameplayMusicMix(mix.intensity, mix.drumsActive);
+        this.audio.setGameplayMusicMix(mix.intensity, mix.drumsActive, mix.criticalHealthActive);
     }
 
     clearExperimentalState() {

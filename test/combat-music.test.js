@@ -10,7 +10,9 @@ const makeGame = (players) => ({
     players,
     combatMusicTimer: 0,
     lastCombatMusicTier: null,
-    audio: { mixes: [], setGameplayMusicMix(intensity, drumsActive) { this.mixes.push({ intensity, drumsActive }); } },
+    audio: { mixes: [], setGameplayMusicMix(intensity, drumsActive, criticalHealthActive) {
+        this.mixes.push({ intensity, drumsActive, criticalHealthActive });
+    } },
     getActiveCameras: () => [],
     playSpatialEvent() {},
     clearAimLocksForTarget() {},
@@ -75,21 +77,33 @@ test('combat timer expires, a later hit resets it, and intensity tiers derive fr
     human.configureShields(1, 4);
     const game = makeGame([human, npc]);
 
-    assert.deepEqual(Game.prototype.getCombatMusicMix.call(game), { intensity: 1, drumsActive: false });
+    assert.deepEqual(Game.prototype.getCombatMusicMix.call(game), {
+        intensity: 0.85, drumsActive: false, criticalHealthActive: false
+    });
     Game.prototype.refreshCombatMusicForDamage.call(game, human, npc);
-    assert.deepEqual(Game.prototype.getCombatMusicMix.call(game), { intensity: 1.15, drumsActive: true });
+    assert.deepEqual(Game.prototype.getCombatMusicMix.call(game), {
+        intensity: 1, drumsActive: true, criticalHealthActive: false
+    });
 
     human.shieldCharges = 0;
-    assert.deepEqual(Game.prototype.getCombatMusicMix.call(game), { intensity: 1.3, drumsActive: true });
+    assert.deepEqual(Game.prototype.getCombatMusicMix.call(game), {
+        intensity: 1.25, drumsActive: true, criticalHealthActive: false
+    });
     human.shieldCharges = 1;
     human.currentHP = human.maxHP / 2;
-    assert.deepEqual(Game.prototype.getCombatMusicMix.call(game), { intensity: 1.3, drumsActive: true });
+    assert.deepEqual(Game.prototype.getCombatMusicMix.call(game), {
+        intensity: 1.25, drumsActive: true, criticalHealthActive: false
+    });
     human.shieldCharges = 0;
-    assert.deepEqual(Game.prototype.getCombatMusicMix.call(game), { intensity: 1.45, drumsActive: true });
+    assert.deepEqual(Game.prototype.getCombatMusicMix.call(game), {
+        intensity: 1.5, drumsActive: true, criticalHealthActive: false
+    });
 
     Game.prototype.updateCombatMusic.call(game, COMBAT_MUSIC_HOLD_DURATION);
     assert.equal(game.combatMusicTimer, 0);
-    assert.deepEqual(game.audio.mixes.at(-1), { intensity: 1, drumsActive: false });
+    assert.deepEqual(game.audio.mixes.at(-1), {
+        intensity: 0.85, drumsActive: false, criticalHealthActive: false
+    });
     Game.prototype.refreshCombatMusicForDamage.call(game, { owner: npc }, human);
     assert.equal(game.combatMusicTimer, COMBAT_MUSIC_HOLD_DURATION);
 });
@@ -102,7 +116,27 @@ test('low shields and HP remain baseline outside combat and Player 2 does not dr
     player1.currentHP = 1;
     const game = makeGame([player1, player2, npc]);
 
-    assert.deepEqual(Game.prototype.getCombatMusicMix.call(game), { intensity: 1, drumsActive: false });
+    assert.deepEqual(Game.prototype.getCombatMusicMix.call(game), {
+        intensity: 0.85, drumsActive: false, criticalHealthActive: true
+    });
     assert.equal(Game.prototype.refreshCombatMusicForDamage.call(game, player2, npc), false);
     assert.equal(game.combatMusicTimer, 0);
+});
+
+test('critical health follows authoritative HP at the 25% threshold without combat', () => {
+    const human = readyPlayer(1);
+    human.configureShields(1, 4);
+    const game = makeGame([human]);
+
+    human.currentHP = human.maxHP * 0.26;
+    assert.equal(Game.prototype.getCombatMusicMix.call(game).criticalHealthActive, false);
+    human.currentHP = human.maxHP * 0.25;
+    assert.deepEqual(Game.prototype.getCombatMusicMix.call(game), {
+        intensity: 0.85, drumsActive: false, criticalHealthActive: true
+    });
+    Game.prototype.updateCombatMusic.call(game, 0);
+    assert.equal(game.audio.mixes.at(-1).criticalHealthActive, true);
+    human.currentHP = human.maxHP * 0.26;
+    Game.prototype.updateCombatMusic.call(game, 0);
+    assert.equal(game.audio.mixes.at(-1).criticalHealthActive, false);
 });
