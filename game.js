@@ -60,6 +60,7 @@ const EXPERIMENTAL_SECTOR_MESSAGE_DURATION = 2.25;
 const EXPERIMENTAL_OBJECTIVE_MESSAGE_DURATION = 4.5;
 const CONTROLLER_AIM_DEADZONE = 0.15;
 const RAY_DISTANCE_TIE_EPSILON = 0.001;
+export const COMBAT_MUSIC_HOLD_DURATION = 5;
 export const SHIELD_RECHARGE_DELAYS = Object.freeze({
     0: null,
     1: 10,
@@ -155,6 +156,8 @@ export class Game {
         this.nextArcadeReplacementLevel = 9;
         this.arcadeGameOver = false;
         this.arcadeResult = null;
+        this.combatMusicTimer = 0;
+        this.lastCombatMusicTier = null;
         this.nextArcadeNpcId = 2;
         this.selectedCursorStyle = 0; // Default crosshair
         this.optionsOpenedFromPause = false;
@@ -465,7 +468,7 @@ export class Game {
         this.spawnArcadeWave(1, 1);
         this.camera.zoom = DEFAULT_GAMEPLAY_ZOOM;
         this.camera.follow(player);
-        this.audio.stopBGM();
+        this.beginGameplayMusic();
         this.resetMouseLockInput();
     }
 
@@ -1442,8 +1445,66 @@ export class Game {
         this.spawnPlayers(mode, customShipCount);
         this.spawnInitialAsteroids();
 
-        // Stop BGM when entering gameplay
-        this.audio.stopBGM();
+        this.beginGameplayMusic();
+    }
+
+    beginGameplayMusic() {
+        this.resetCombatMusicState();
+        this.audio.startGameplayMusic();
+    }
+
+    resetCombatMusicState() {
+        this.combatMusicTimer = 0;
+        this.lastCombatMusicTier = null;
+    }
+
+    getPrimaryMusicPlayer() {
+        // Local PvP intentionally uses Player 1 as its single music listener.
+        return this.players.find(player => !player.isNPC && player.id === 1)
+            || this.players.find(player => !player.isNPC)
+            || null;
+    }
+
+    resolveCombatParticipant(source) {
+        let participant = source;
+        const visited = new Set();
+        while (participant?.owner && participant.owner !== participant && !visited.has(participant)) {
+            visited.add(participant);
+            participant = participant.owner;
+        }
+        return participant instanceof Player ? participant : null;
+    }
+
+    refreshCombatMusicForDamage(attacker, target) {
+        const resolvedAttacker = Game.prototype.resolveCombatParticipant.call(this, attacker);
+        const resolvedTarget = Game.prototype.resolveCombatParticipant.call(this, target);
+        const listener = Game.prototype.getPrimaryMusicPlayer.call(this);
+        if (!listener || !resolvedAttacker || !resolvedTarget) return false;
+        const qualifies = (resolvedAttacker === listener && resolvedTarget.isNPC)
+            || (resolvedTarget === listener && resolvedAttacker.isNPC);
+        if (!qualifies) return false;
+        this.combatMusicTimer = COMBAT_MUSIC_HOLD_DURATION;
+        return true;
+    }
+
+    getCombatMusicMix(player = Game.prototype.getPrimaryMusicPlayer.call(this)) {
+        const inCombat = this.combatMusicTimer > 0 && player && !player.isDead && !player.isEliminated;
+        if (!inCombat) return { intensity: 1, drumsActive: false };
+        const noShields = player.shieldCharges <= 0;
+        const halfHP = player.maxHP > 0 && player.currentHP / player.maxHP <= 0.5;
+        return {
+            intensity: Number((1.15 + (noShields ? 0.15 : 0) + (halfHP ? 0.15 : 0)).toFixed(2)),
+            drumsActive: true
+        };
+    }
+
+    updateCombatMusic(dt) {
+        this.combatMusicTimer = Math.max(0, (this.combatMusicTimer || 0) - Math.max(0, dt || 0));
+        const mix = Game.prototype.getCombatMusicMix.call(this);
+        const tier = `${mix.intensity}:${mix.drumsActive}`;
+        if (tier === this.lastCombatMusicTier) return;
+        this.lastCombatMusicTier = tier;
+        this.audio.setGameplayMusicMix(mix.intensity, mix.drumsActive);
     }
 
     clearExperimentalState() {
@@ -1991,7 +2052,7 @@ export class Game {
         this.camera.zoom = DEFAULT_GAMEPLAY_ZOOM;
         this.camera.follow(this.players[0]);
         this.camera.useDirectWorld();
-        this.audio.stopBGM();
+        this.beginGameplayMusic();
         this.resetMouseLockInput();
         return true;
     }
@@ -2156,6 +2217,7 @@ export class Game {
         this.arcadeResult = null;
         this.optionsOpenedFromPause = false;
         this.gameState = 'MENU';
+        this.resetCombatMusicState();
         document.getElementById('menu-overlay').classList.remove('hidden');
         document.getElementById('main-menu').classList.remove('hidden');
         document.getElementById('arcade-menu').classList.add('hidden');
@@ -2970,6 +3032,7 @@ export class Game {
         }
 
         this.reconcileArcadeNPCs();
+        Game.prototype.updateCombatMusic.call(this, dt);
         
         if (this.players[0]) {
             if (worldRules.usesRooms) this.camera.useDirectWorld();
@@ -3381,6 +3444,9 @@ export class Game {
             Game.prototype.playSpatialEvent.call(this, 'shield_hit', player.x, player.y, player.roomId, cameras);
         }
         if (result.hpLost > 0) player.markHullLoss();
+        if (result.shieldsConsumed > 0 || result.hpLost > 0 || result.died) {
+            Game.prototype.refreshCombatMusicForDamage.call(this, killer, player);
+        }
         return result;
     }
 
