@@ -7,8 +7,8 @@ const COMBAT_FADE_IN_SECONDS = 0.45;
 const COMBAT_TIER_FADE_SECONDS = 0.35;
 const COMBAT_FADE_OUT_SECONDS = 1.75;
 const CRITICAL_HEALTH_FADE_SECONDS = 0.5;
-const CRITICAL_HEALTH_GAIN = 0.5;
-const CRITICAL_HEALTH_PLAYBACK_RATE = 1.25;
+const CRITICAL_HEALTH_GAIN = 1.5;
+const CRITICAL_HEALTH_PLAYBACK_RATE = 1.8;
 
 export class AudioManager {
     constructor() {
@@ -25,7 +25,9 @@ export class AudioManager {
             'laser_fire': 'assets/audio/laser_fire.mp3',
             'explosion': 'assets/audio/explosion.mp3',
             'space_ambient': 'assets/audio/space_ambient.mp3',
-            'shield_hit': 'assets/audio/explosion.mp3', // Fallback for shield hit
+            'shield_hit': 'assets/audio/explosion.mp3', // Generic/non-player shield effect
+            'player_shield_hit': 'assets/audio/ShieldHit.mp3',
+            'player_hull_hit': 'assets/audio/HullHit.mp3',
             'thrust': 'assets/audio/laser_fire.mp3', // Placeholder, choosing a short action sound for thrust pulse
             'nes_music': 'assets/audio/nes_space_music.mp3',
             'nes_music_dark': 'assets/audio/nes_space_music_dark.mp3', // Darker, more serious title screen variant
@@ -33,7 +35,8 @@ export class AudioManager {
             'nes_music_epic': 'assets/audio/epic-sci-fi-nes-theme.mp3', // Serious, epic space-themed intro theme
             'gameplay_music': 'assets/audio/audio [music].mp3',
             'gameplay_drums': 'assets/audio/audio [drums].mp3',
-            'tabla_critical': 'assets/audio/TablaCritical.mp3'
+            'tabla_critical': 'assets/audio/TablaCritical.mp3',
+            'death': 'assets/audio/death.mp3'
         };
     }
 
@@ -284,6 +287,9 @@ export class AudioManager {
         if (name === 'laser_fire') volume = 0.15;
         if (name === 'explosion') volume = 0.5;
         if (name === 'thrust') volume = 0.05; // Very subtle for recurring thruster noise
+        if (name === 'player_shield_hit') volume = 0.65;
+        if (name === 'player_hull_hit') volume = 0.65;
+        if (name === 'death') volume = 0.8;
         
         gainNode.gain.value = Math.max(0, Math.min(1, volume * volumeScale * this.volumeLevelToGain(this.sfxVolumeLevel)));
         
@@ -325,6 +331,9 @@ export class AudioManager {
         if (name === 'laser_fire') volume = 0.15;
         if (name === 'explosion') volume = 0.5;
         if (name === 'thrust') volume = 0.05;
+        if (name === 'player_shield_hit') volume = 0.65;
+        if (name === 'player_hull_hit') volume = 0.65;
+        if (name === 'death') volume = 0.8;
         gainNode.gain.value = volume * this.volumeLevelToGain(this.sfxVolumeLevel);
 
         const panner = this.ctx.createStereoPanner();

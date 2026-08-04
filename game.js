@@ -207,7 +207,9 @@ export class Game {
             satellite: await this.loadImage('assets/broken_satellite.webp'),
             projectile: await this.loadImage('assets/projectile.webp'),
             background: await this.loadImage('assets/space_background.webp'),
-            explosion: await this.loadImage('assets/explosion_vfx.webp')
+            explosion: await this.loadImage('assets/explosion_vfx.webp'),
+            squidScenery: await this.loadImage('assets/Squid.png'),
+            cranioidScenery: await this.loadImage('assets/Cranioid.png')
         };
     }
 
@@ -1530,6 +1532,11 @@ export class Game {
         this.experimentalCameraState = null;
         this.experimentalSectorMessage = null;
         this.experimentalObjectiveMessage = null;
+        this.experimentalDialogueState = {
+            completedSequenceIds: new Set(),
+            activeSequenceId: null,
+            activeElapsed: 0
+        };
     }
 
     initializeExperimentalRooms() {
@@ -2826,7 +2833,10 @@ export class Game {
     }
 
     update(dt) {
-        if (this.gameState === GAME_MODE.EXPERIMENTAL) this.updateExperimentalMessages(dt);
+        if (this.gameState === GAME_MODE.EXPERIMENTAL) {
+            this.updateExperimentalMessages(dt);
+            this.updateExperimentalDialogue(dt);
+        }
         const gamepads = this.getGamepads();
         const prestigeTriggers = [];
         const worldRules = this.getWorldRules();
@@ -3261,6 +3271,11 @@ export class Game {
     respawnPlayer(player) {
         player.resetTransientLifeState(this.startingShieldCharges);
 
+        const primaryMusicPlayer = Game.prototype.getPrimaryMusicPlayer.call(this);
+        if (!player.isNPC && player === primaryMusicPlayer && this.gameState !== GAME_MODE.ARCADE) {
+            this.beginGameplayMusic();
+        }
+
         if (this.gameState === GAME_MODE.EXPERIMENTAL) {
             const previousRoomId = player.roomId;
             const room = player.isNPC
@@ -3441,11 +3456,43 @@ export class Game {
             result.died = player.isDead;
         }
 
+        const primaryPlayer = Game.prototype.getPrimaryMusicPlayer.call(this);
+        const isPrimaryHuman = !player.isNPC && player === primaryPlayer;
+        const isNPCShipHit = player.isNPC
+            && Game.prototype.isShipDamageSource.call(this, killer);
+
         if (result.shieldsConsumed > 0) {
             player.markShieldLoss();
-            Game.prototype.playSpatialEvent.call(this, 'shield_hit', player.x, player.y, player.roomId, cameras);
+            if (isPrimaryHuman) {
+                this.audio.play('player_shield_hit');
+            } else if (isNPCShipHit) {
+                Game.prototype.playSpatialEvent.call(
+                    this,
+                    'player_shield_hit',
+                    player.x,
+                    player.y,
+                    player.roomId,
+                    cameras
+                );
+            } else {
+                Game.prototype.playSpatialEvent.call(this, 'shield_hit', player.x, player.y, player.roomId, cameras);
+            }
         }
-        if (result.hpLost > 0) player.markHullLoss();
+        if (result.hpLost > 0) {
+            player.markHullLoss();
+            if (isPrimaryHuman) {
+                this.audio.play('player_hull_hit');
+            } else if (isNPCShipHit) {
+                Game.prototype.playSpatialEvent.call(
+                    this,
+                    'player_hull_hit',
+                    player.x,
+                    player.y,
+                    player.roomId,
+                    cameras
+                );
+            }
+        }
         if (result.shieldsConsumed > 0 || result.hpLost > 0 || result.died) {
             Game.prototype.refreshCombatMusicForDamage.call(this, killer, player);
         }
@@ -3470,6 +3517,14 @@ export class Game {
         return source.isNPC === true;
     }
 
+    isShipDamageSource(source) {
+        if (!source) return false;
+        if (source.owner && source.owner !== source) {
+            return Game.prototype.isShipDamageSource.call(this, source.owner);
+        }
+        return this.players.includes(source);
+    }
+
     confirmPlayerDeath(player, killer, cameras = this.getActiveCameras()) {
         if (!player || player.isDead || player.currentHP > 0) return;
         player.isDead = true;
@@ -3478,6 +3533,13 @@ export class Game {
         player.resetControllerAimLock(true);
         this.clearAimLocksForTarget(player);
         player.respawnTimer = 2;
+
+        const primaryMusicPlayer = Game.prototype.getPrimaryMusicPlayer.call(this);
+        if (!player.isNPC && player === primaryMusicPlayer) {
+            this.audio.play('death');
+            this.audio.stopGameplayMusic();
+            this.resetCombatMusicState();
+        }
 
         if (this.gameState === GAME_MODE.EXPERIMENTAL && !player.isNPC) {
             this.saveExperimentalProfile(player);
@@ -4151,7 +4213,10 @@ export class Game {
 
     drawWorld(ctx, camera) {
         this.drawBackground(ctx, camera);
-        if (this.gameState === GAME_MODE.EXPERIMENTAL) this.drawExperimentalWalls(ctx, camera);
+        if (this.gameState === GAME_MODE.EXPERIMENTAL) {
+            this.drawExperimentalScenery(ctx, camera);
+            this.drawExperimentalWalls(ctx, camera);
+        }
 
         const currentArea = Game.prototype.getExperimentalRenderArea.call(this);
         const activeAreaIds = Game.prototype.getExperimentalActiveAreaIds.call(this);
@@ -4166,6 +4231,7 @@ export class Game {
             if (!p.isDead && !p.isEliminated) p.draw(ctx, this.assets, camera);
         });
         visible(source('vfx', this.vfx)).forEach(v => v.draw(ctx, this.assets, camera));
+        if (this.gameState === GAME_MODE.EXPERIMENTAL) this.drawExperimentalDialogue(ctx, camera);
     }
 
     getExperimentalRenderArea() {
@@ -4235,6 +4301,255 @@ export class Game {
             };
         }
         return bounds;
+    }
+
+    getExperimentalSceneryLayout() {
+        const currentArea = Game.prototype.getExperimentalRenderArea.call(this);
+        if (!currentArea || currentArea.id !== 'experimental-hallway-1-2') return null;
+
+        const bounds = currentArea.bounds;
+        const areaHeight = bounds.bottom - bounds.top;
+        const outsideMargin = 40;
+
+        return {
+            areaId: currentArea.id,
+            squid: {
+                image: this.assets.squidScenery,
+                x: bounds.left - 1180 / 2 - outsideMargin,
+                y: bounds.top + areaHeight * 0.55,
+                width: 1180,
+                height: 1180,
+                alpha: 0.9
+            },
+            upperCranioid: {
+                image: this.assets.cranioidScenery,
+                x: bounds.right + 390 / 2 + outsideMargin,
+                y: bounds.top + areaHeight * 0.22,
+                width: 390,
+                height: 390,
+                alpha: 0.9
+            },
+            lowerCranioid: {
+                image: this.assets.cranioidScenery,
+                x: bounds.right + 330 / 2 + outsideMargin,
+                y: bounds.top + areaHeight * 0.76,
+                width: 330,
+                height: 330,
+                alpha: 0.9
+            }
+        };
+    }
+
+    getExperimentalDialogueSequences() {
+        return [
+            {
+                id: 'squid-greeting',
+                order: 2,
+                speaker: 'squid',
+                triggerRadius: 1200,
+                holdAfterLastLine: 8,
+                lines: [
+                    {
+                        text: 'Yo whats up, Earthling? Going after Princess Zorka? Thats mighty awesome of you! Good luck on your quest!',
+                        revealAt: 0,
+                        textOffsetX: -200,
+                        textOffsetY: -800,
+                        pointerOffsetX: 0,
+                        pointerOffsetY: 0,
+                        maxTextWidth: 560
+                    }
+                ]
+            },
+            {
+                id: 'squid-direction',
+                order: 3,
+                speaker: 'squid',
+                triggerRadius: 1200,
+                holdAfterLastLine: 4,
+                lines: [
+                    {
+                        text: 'All roads lead to Sector 9, my dude.',
+                        revealAt: 0,
+                        textOffsetX: -200,
+                        textOffsetY: 630,
+                        pointerOffsetX: 0,
+                        pointerOffsetY: 0,
+                        maxTextWidth: 620
+                    }
+                ]
+            },
+            {
+                id: 'upper-cranioid-cheer',
+                order: 1,
+                speaker: 'upperCranioid',
+                triggerRadius: 1450,
+                holdAfterLastLine: 4,
+                lines: [
+                    { text: 'Are they going for Zorka?!', revealAt: 0.0, textOffsetX: -520, textOffsetY: -360, maxTextWidth: 410 },
+                    { text: 'No way!', revealAt: 0.25, textOffsetX: 220, textOffsetY: -180, maxTextWidth: 280 },
+                    { text: 'Cool!', revealAt: 0.45, textOffsetX: 180, textOffsetY: 80, maxTextWidth: 240 },
+                    { text: 'Get Zorka!', revealAt: 0.65, textOffsetX: 230, textOffsetY: 155, maxTextWidth: 320 },
+                    { text: 'Rad!', revealAt: 0.85, textOffsetX: -420, textOffsetY: 180, maxTextWidth: 240 },
+                    { text: 'Save the Princess!', revealAt: 1.05, textOffsetX: -270, textOffsetY: 300, maxTextWidth: 500 },
+                    { text: 'Rad!', revealAt: 1.35, textOffsetX: -360, textOffsetY: 400, maxTextWidth: 240 }
+                ]
+            },
+            {
+                id: 'lower-cranioid-apology',
+                order: 4,
+                speaker: 'lowerCranioid',
+                triggerRadius: 1450,
+                holdAfterLastLine: 1,
+                lines: [
+                    { text: 'what smells?', revealAt: 0.0, textOffsetX: -250, textOffsetY: -340, maxTextWidth: 330 },
+                    { text: 'sorry', revealAt: 0.95, textOffsetX: -360, textOffsetY: -90, maxTextWidth: 240 },
+                    { text: 'sorry', revealAt: 1.25, textOffsetX: 220, textOffsetY: -40, maxTextWidth: 240 },
+                    { text: 'sorry', revealAt: 1.65, textOffsetX: -390, textOffsetY: 150, maxTextWidth: 240 },
+                    { text: 'sorry', revealAt: 1.85, textOffsetX: 230, textOffsetY: 120, maxTextWidth: 240 },
+                    { text: 'sorry', revealAt: 2.05, textOffsetX: -350, textOffsetY: 280, maxTextWidth: 240 },
+                    { text: 'sorry', revealAt: 2.1, textOffsetX: 220, textOffsetY: 255, maxTextWidth: 240 },
+                    { text: 'sorry', revealAt: 3.10, textOffsetX: -100, textOffsetY: 390, maxTextWidth: 240 },
+                    { text: 'sorry', revealAt: 5.8, textOffsetX: 80, textOffsetY: 450, maxTextWidth: 240 }
+                ]
+            }
+        ];
+    }
+
+    updateExperimentalDialogue(dt) {
+        const state = this.experimentalDialogueState;
+        if (!state) return;
+
+        const sequences = Game.prototype.getExperimentalDialogueSequences.call(this)
+            .slice()
+            .sort((a, b) => a.order - b.order);
+
+        if (state.activeSequenceId) {
+            const activeSequence = sequences.find(sequence => sequence.id === state.activeSequenceId);
+            if (!activeSequence) {
+                state.activeSequenceId = null;
+                state.activeElapsed = 0;
+                return;
+            }
+
+            state.activeElapsed += Math.max(0, dt || 0);
+            const lastRevealAt = Math.max(0, ...activeSequence.lines.map(line => line.revealAt || 0));
+            if (state.activeElapsed >= lastRevealAt + activeSequence.holdAfterLastLine) {
+                state.completedSequenceIds.add(activeSequence.id);
+                state.activeSequenceId = null;
+                state.activeElapsed = 0;
+            }
+            return;
+        }
+
+        const layout = Game.prototype.getExperimentalSceneryLayout.call(this);
+        if (!layout) return;
+
+        const player = this.players.find(candidate => !candidate.isNPC && !candidate.isDead && !candidate.isEliminated);
+        if (!player || player.roomId !== layout.areaId) return;
+
+        const nextSequence = sequences.find(sequence => !state.completedSequenceIds.has(sequence.id));
+        if (!nextSequence) return;
+
+        const speaker = layout[nextSequence.speaker];
+        if (!speaker) return;
+        const distance = Math.hypot(player.x - speaker.x, player.y - speaker.y);
+        if (distance > nextSequence.triggerRadius) return;
+
+        state.activeSequenceId = nextSequence.id;
+        state.activeElapsed = 0;
+    }
+
+    drawExperimentalScenery(ctx, camera) {
+        if (this.gameState !== GAME_MODE.EXPERIMENTAL) return;
+        const layout = Game.prototype.getExperimentalSceneryLayout.call(this);
+        if (!layout) return;
+
+        for (const item of [layout.squid, layout.upperCranioid, layout.lowerCranioid]) {
+            if (!item.image) continue;
+
+            const halfWidth = item.width / 2;
+            const halfHeight = item.height / 2;
+            const visibleHalfWidth = DESIGN_WIDTH / (2 * camera.zoom) + halfWidth;
+            const visibleHalfHeight = DESIGN_HEIGHT / (2 * camera.zoom) + halfHeight;
+
+            if (
+                Math.abs(item.x - camera.x) > visibleHalfWidth
+                || Math.abs(item.y - camera.y) > visibleHalfHeight
+            ) continue;
+
+            ctx.save();
+            camera.apply(ctx, item.x, item.y);
+            ctx.globalAlpha = item.alpha;
+            ctx.drawImage(item.image, -halfWidth, -halfHeight, item.width, item.height);
+            ctx.restore();
+        }
+    }
+
+    drawExperimentalDialogue(ctx, camera) {
+        const state = this.experimentalDialogueState;
+        if (!state?.activeSequenceId) return;
+
+        const layout = Game.prototype.getExperimentalSceneryLayout.call(this);
+        if (!layout) return;
+        const sequence = Game.prototype.getExperimentalDialogueSequences.call(this)
+            .find(candidate => candidate.id === state.activeSequenceId);
+        if (!sequence) return;
+
+        const speaker = layout[sequence.speaker];
+        if (!speaker) return;
+
+        const visibleLines = sequence.lines.filter(line => state.activeElapsed >= (line.revealAt || 0));
+        for (const line of visibleLines) {
+            const textX = speaker.x + line.textOffsetX;
+            const textY = speaker.y + line.textOffsetY;
+
+            // Pointer lines remain available per line, but are temporarily disabled.
+            if (line.showPointer) {
+                ctx.save();
+                camera.apply(ctx, speaker.x, speaker.y);
+                ctx.strokeStyle = '#ffffff';
+                ctx.lineWidth = 6;
+                ctx.lineCap = 'round';
+                ctx.shadowColor = '#000000';
+                ctx.shadowBlur = 10;
+                ctx.beginPath();
+                ctx.moveTo(line.pointerOffsetX || 0, line.pointerOffsetY || 0);
+                ctx.lineTo(
+                    line.textOffsetX > 0 ? line.textOffsetX - 24 : line.textOffsetX + line.maxTextWidth + 24,
+                    line.textOffsetY + 18
+                );
+                ctx.stroke();
+                ctx.restore();
+            }
+
+            ctx.save();
+            camera.apply(ctx, textX, textY);
+            ctx.fillStyle = '#ffffff';
+            ctx.font = 'bold 42px "Courier New", monospace';
+            ctx.textAlign = 'left';
+            ctx.textBaseline = 'top';
+            ctx.shadowColor = '#000000';
+            ctx.shadowBlur = 12;
+            Game.prototype.drawWrappedWorldText.call(this, ctx, line.text, line.maxTextWidth, 50);
+            ctx.restore();
+        }
+    }
+
+    drawWrappedWorldText(ctx, text, maxWidth, lineHeight) {
+        const words = String(text).split(/\s+/);
+        let line = '';
+        let y = 0;
+        for (const word of words) {
+            const testLine = line ? `${line} ${word}` : word;
+            if (line && ctx.measureText(testLine).width > maxWidth) {
+                ctx.fillText(line, 0, y);
+                line = word;
+                y += lineHeight;
+            } else {
+                line = testLine;
+            }
+        }
+        if (line) ctx.fillText(line, 0, y);
     }
 
     drawExperimentalWalls(ctx, camera) {
