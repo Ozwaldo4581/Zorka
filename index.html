@@ -142,9 +142,25 @@
         color: #00ffff;
       }
       #main-menu {
+        position: relative;
         display: flex;
-          flex-direction: column;
-          align-items: center;
+        flex-direction: column;
+        align-items: center;
+        isolation: isolate;
+      }
+      .notebook-menu-background {
+        position: absolute;
+        left: 41%;
+        top: 50%;
+        height: min(94vh, 122vw);
+        width: auto;
+        max-width: 94vw;
+        transform: translate(-50%, -50%);
+        object-fit: contain;
+        pointer-events: none;
+        user-select: none;
+        -webkit-user-drag: none;
+        z-index: -1;
       }
       .main-menu-actions {
         display: flex;
@@ -529,6 +545,7 @@
     <div id="custom-cursor"></div>
     <div id="menu-overlay">
       <div id="main-menu">
+        <img class="notebook-menu-background" src="assets/NotebookMenu.png" alt="" aria-hidden="true" draggable="false">
         <h1>ZORKA</h1>
         <h2 style="color: #00ffff; font-size: 1.2rem; margin-top: -1.5rem; margin-bottom: 2rem; letter-spacing: 0.5rem;">BATTLE FOR THE SOLAR TIDES</h2>
         

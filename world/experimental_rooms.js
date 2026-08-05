@@ -28,7 +28,7 @@ export const SECTOR_9_BBG_ENCOUNTER = Object.freeze({
     nativeWidth: 1024,
     nativeHeight: 1536,
     scale: 2,
-    baseNpcLevel: 30,
+    baseNpcLevel: 20,
     anchors: Object.freeze([
         Object.freeze({ id: 'bbg-node-top', sourceX: 514, sourceY: 193, label: 'Top' }),
         Object.freeze({ id: 'bbg-node-left-upper', sourceX: 210, sourceY: 622, label: 'Left Upper' }),
