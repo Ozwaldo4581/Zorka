@@ -1854,10 +1854,20 @@ export class Game {
     }
 
     isHostileTarget(attacker, candidate) {
-        if (!attacker || !candidate || attacker === candidate || candidate.isDead || candidate.isEliminated) return false;
-        if (candidate.isSector9BBGEncounterNPC && !Game.prototype.isHumanPlayerEntity.call(this, attacker)) return false;
-        if (attacker.isSector9BBGEncounterNPC && candidate.isNPC) return false;
-        if (!attacker.isSector9BBGEncounterNPC && candidate.isSector9BBGEncounterNPC) return false;
+        if (!attacker || !candidate || attacker === candidate || candidate.isDead || candidate.isEliminated) {
+            return false;
+        }
+
+        // BBG defenders can only be targeted by a living human player.
+        if (candidate.isSector9BBGEncounterNPC) {
+            return Game.prototype.isHumanPlayerEntity.call(this, attacker);
+        }
+
+        // BBG defenders target human players only, never other NPCs.
+        if (attacker.isSector9BBGEncounterNPC && candidate.isNPC) {
+            return false;
+        }
+
         if (this.gameState !== GAME_MODE.EXPERIMENTAL) return true;
         if (attacker.roomId !== candidate.roomId) return false;
         if (!attacker.isNPC || !candidate.isNPC) return true;
