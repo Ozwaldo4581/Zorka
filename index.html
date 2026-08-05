@@ -851,6 +851,25 @@
       </div>
     </div>
 
+    <div id="victory-screen" class="hidden" role="dialog" aria-modal="true" aria-labelledby="victory-title" style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; z-index: 35; background: rgba(0,0,0,0.94); display: flex; align-items: center; justify-content: center;">
+      <div style="background: #050505; border: 2px solid #00ffff; padding: 42px 54px; border-radius: 10px; width: 560px; text-align: center; box-shadow: 0 0 42px rgba(0,255,255,0.45); display: flex; flex-direction: column; gap: 22px; align-items: center;">
+        <h1 id="victory-title" style="margin: 0; color: #00ffff; font-size: 2.4rem; letter-spacing: 0.16rem;">Congradulations!</h1>
+        <h2 style="margin: 0 0 10px; color: #ffffff; font-size: 1.7rem; letter-spacing: 0.1rem;">The Princess is Saved!</h2>
+        <button class="menu-button" id="btn-victory-continue" style="width: 260px;">Continue</button>
+        <button class="menu-button" id="btn-victory-new-game-plus" style="width: 260px;">NewGame+</button>
+      </div>
+    </div>
+
+    <div id="victory-continue-confirmation" class="hidden" role="dialog" aria-modal="true" aria-labelledby="victory-continue-confirmation-message" style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; z-index: 40; background: rgba(0,0,0,0.82); display: flex; align-items: center; justify-content: center;">
+      <div style="background: #050505; border: 2px solid #00ffff; padding: 30px; border-radius: 8px; width: 600px; text-align: center; box-shadow: 0 0 30px rgba(0,255,255,0.3);">
+        <p id="victory-continue-confirmation-message" style="font-size: 1.25rem; color: #fff; margin: 0 0 2rem; line-height: 1.6;">Return to current world? Zorka must be saved again to enter NewGame+</p>
+        <div class="quit-confirmation-actions">
+          <button class="menu-button" id="btn-victory-continue-confirm">CONFIRM</button>
+          <button class="menu-button" id="btn-victory-continue-cancel" style="border-color: #ff00ff; color: #ff00ff;">CANCEL</button>
+        </div>
+      </div>
+    </div>
+
     <!-- Floating in-game pause menu: overlays gameplay without pausing the simulation -->
     <div id="pause-menu" class="hidden" style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; z-index: 20; pointer-events: none; display: flex; align-items: center; justify-content: center;">
       <div style="pointer-events: auto; background: rgba(0, 0, 0, 0.92); border: 2px solid #00ffff; border-radius: 10px; padding: 30px 40px; box-shadow: 0 0 30px rgba(0, 255, 255, 0.5); display: flex; flex-direction: column; align-items: center; gap: 15px;">

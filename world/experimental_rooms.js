@@ -16,6 +16,55 @@ const FULL_ARENA_POPULATION = Object.freeze({
     densitySource: 'ARENA_OPTIONS', scale: 'FULL_ARENA', independentlyResolved: true
 });
 
+
+export const SECTOR_9_BBG_ENCOUNTER = Object.freeze({
+    id: 'sector-9-bbg',
+    roomNumber: 9,
+    imageAssetKey: 'bbgScenery',
+    imagePath: 'assets/BSG5.png',
+    nativeWidth: 1024,
+    nativeHeight: 1536,
+    scale: 2,
+    baseNpcLevel: 30,
+    anchors: Object.freeze([
+        Object.freeze({ id: 'bbg-node-top', sourceX: 514, sourceY: 193, label: 'Top' }),
+        Object.freeze({ id: 'bbg-node-left-upper', sourceX: 210, sourceY: 622, label: 'Left Upper' }),
+        Object.freeze({ id: 'bbg-node-right-upper', sourceX: 818, sourceY: 623, label: 'Right Upper' }),
+        Object.freeze({ id: 'bbg-node-center', sourceX: 515, sourceY: 800, label: 'Center' }),
+        Object.freeze({ id: 'bbg-node-left-lower', sourceX: 202, sourceY: 984, label: 'Left Lower' }),
+        Object.freeze({ id: 'bbg-node-right-lower', sourceX: 825, sourceY: 984, label: 'Right Lower' }),
+        Object.freeze({ id: 'bbg-node-bottom', sourceX: 513, sourceY: 1212, label: 'Bottom' })
+    ])
+});
+
+export function getSector9BBGImageRect(room) {
+    if (!room?.bounds) return null;
+    const width = SECTOR_9_BBG_ENCOUNTER.nativeWidth * SECTOR_9_BBG_ENCOUNTER.scale;
+    const height = SECTOR_9_BBG_ENCOUNTER.nativeHeight * SECTOR_9_BBG_ENCOUNTER.scale;
+    const centerX = (room.bounds.left + room.bounds.right) / 2;
+    const centerY = (room.bounds.top + room.bounds.bottom) / 2;
+    return Object.freeze({
+        left: centerX - width / 2,
+        top: centerY - height / 2,
+        width,
+        height,
+        right: centerX + width / 2,
+        bottom: centerY + height / 2,
+        centerX,
+        centerY,
+        scale: SECTOR_9_BBG_ENCOUNTER.scale
+    });
+}
+
+export function getSector9BBGAnchorWorldPosition(room, anchor) {
+    const rect = getSector9BBGImageRect(room);
+    if (!rect || !anchor) return null;
+    return Object.freeze({
+        x: rect.left + anchor.sourceX * rect.scale,
+        y: rect.top + anchor.sourceY * rect.scale
+    });
+}
+
 export const EXPERIMENTAL_AREA_TYPE = Object.freeze({ ROOM: 'ROOM', HALLWAY: 'HALLWAY' });
 
 const ROUTE = Object.freeze([

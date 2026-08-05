@@ -19,7 +19,10 @@ import {
 import {
     createExperimentalAreas,
     createExperimentalDoors,
-    EXPERIMENTAL_COLLISION_CATEGORY
+    EXPERIMENTAL_COLLISION_CATEGORY,
+    SECTOR_9_BBG_ENCOUNTER,
+    getSector9BBGImageRect,
+    getSector9BBGAnchorWorldPosition
 } from './world/experimental_rooms.js';
 
 export const DESIGN_WIDTH = 1920;
@@ -71,6 +74,8 @@ export const SHIELD_RECHARGE_DELAYS = Object.freeze({
 });
 const DEBRIS_DENSITY_COUNTS = Object.freeze([0, 3, 7, 10, 16, 21]);
 const SATELLITE_DENSITY_COUNTS = Object.freeze([0, 3, 5, 6, 9, 14]);
+const VICTORY_FADE_DURATION_SECONDS = 4;
+const EXPERIMENTAL_NEW_GAME_PLUS_LEVEL_STEP = 10;
 
 export function getArenaPopulationTargets(asteroidLevel, debrisLevel, satelliteLevel) {
     return {
@@ -159,6 +164,12 @@ export class Game {
         this.combatMusicTimer = 0;
         this.lastCombatMusicTier = null;
         this.nextArcadeNpcId = 2;
+        this.experimentalNewGamePlusCycle = 0;
+        this.sector9BBGEncounter = this.createSector9BBGEncounterState();
+        this.victoryFadeTimer = 0;
+        this.victoryFadeActive = false;
+        this.victoryScreenActive = false;
+        this.victoryContinueConfirmationActive = false;
         this.selectedCursorStyle = 0; // Default crosshair
         this.optionsOpenedFromPause = false;
 
@@ -211,7 +222,8 @@ export class Game {
             squidScenery: await this.loadImage('assets/Squid.png'),
             cranioidScenery: await this.loadImage('assets/Cranioid.png'),
             schoolDeskBackground: await this.loadImage('assets/SchoolDeskZorka5.png'),
-            schoolDeskVisor: await this.loadImage('assets/SchoolDeskZorkaVisor2.png')
+            schoolDeskVisor: await this.loadImage('assets/SchoolDeskZorkaVisor2.png'),
+            bbgScenery: await this.loadImage(SECTOR_9_BBG_ENCOUNTER.imagePath)
         };
     }
 
@@ -434,7 +446,7 @@ export class Game {
 
     restartCurrentGameMode() {
         if (this.gameState === GAME_MODE.EXPERIMENTAL) {
-            this.startExperimentalMode();
+            this.startExperimentalMode(null, { preserveNewGamePlusCycle: true });
             return;
         }
 
@@ -447,6 +459,7 @@ export class Game {
     }
 
     startArcadeMode() {
+        this.experimentalNewGamePlusCycle = 0;
         this.clearExperimentalState();
         this.closePauseMenu();
         this.hideArcadeGameOver();
@@ -472,7 +485,7 @@ export class Game {
         this.spawnArcadeWave(1, 1);
         this.camera.zoom = DEFAULT_GAMEPLAY_ZOOM;
         this.camera.follow(player);
-        this.beginGameplayMusic();
+        Game.prototype.beginGameplayMusic.call(this);
         this.resetMouseLockInput();
     }
 
@@ -1239,6 +1252,10 @@ export class Game {
 
         document.getElementById('btn-quit-yes').addEventListener('click', () => this.confirmQuit());
         document.getElementById('btn-quit-no').addEventListener('click', () => this.closeQuitConfirmation());
+        document.getElementById('btn-victory-continue')?.addEventListener('click', () => this.openVictoryContinueConfirmation());
+        document.getElementById('btn-victory-new-game-plus')?.addEventListener('click', () => this.startExperimentalNewGamePlus());
+        document.getElementById('btn-victory-continue-confirm')?.addEventListener('click', () => this.confirmVictoryContinue());
+        document.getElementById('btn-victory-continue-cancel')?.addEventListener('click', () => this.closeVictoryContinueConfirmation());
 
         // Transformation Kills Logic
         const transValueEl = document.getElementById('trans-value');
@@ -1440,7 +1457,10 @@ export class Game {
     }
 
     startGame(mode, customShipCount) {
-        if (mode !== GAME_MODE.EXPERIMENTAL) this.clearExperimentalState();
+        if (mode !== GAME_MODE.EXPERIMENTAL) {
+            this.experimentalNewGamePlusCycle = 0;
+            this.clearExperimentalState();
+        }
         this.gameState = mode;
         document.getElementById('menu-overlay').classList.add('hidden');
         this.closePauseMenu();
@@ -1449,11 +1469,11 @@ export class Game {
         this.spawnPlayers(mode, customShipCount);
         this.spawnInitialAsteroids();
 
-        this.beginGameplayMusic();
+        Game.prototype.beginGameplayMusic.call(this);
     }
 
     beginGameplayMusic() {
-        this.resetCombatMusicState();
+        Game.prototype.resetCombatMusicState.call(this);
         this.audio.startGameplayMusic();
     }
 
@@ -1513,6 +1533,195 @@ export class Game {
         this.audio.setGameplayMusicMix(mix.intensity, mix.drumsActive, mix.criticalHealthActive);
     }
 
+
+    createSector9BBGEncounterState() {
+        return {
+            initialized: false,
+            completed: false,
+            victoryTransitionStarted: false,
+            memberIds: new Set(),
+            anchorIds: new Set(SECTOR_9_BBG_ENCOUNTER.anchors.map(anchor => anchor.id))
+        };
+    }
+
+    getExperimentalEnemyLevel(baseLevel) {
+        return Math.max(1, Math.floor(Number(baseLevel) || 1))
+            + this.experimentalNewGamePlusCycle * EXPERIMENTAL_NEW_GAME_PLUS_LEVEL_STEP;
+    }
+
+    isHumanPlayerEntity(entity) {
+        return entity instanceof Player && !entity.isNPC && !entity.isDead && !entity.isEliminated;
+    }
+
+    isSector9BBGDefender(entity) {
+        return entity instanceof Player && entity.isSector9BBGEncounterNPC === true;
+    }
+
+    getSector9BBGRoom() {
+        return (this.experimentalRooms || []).find(room => room.roomNumber === SECTOR_9_BBG_ENCOUNTER.roomNumber) || null;
+    }
+
+    getSector9BBGAnchorWorldPosition(anchor) {
+        return getSector9BBGAnchorWorldPosition(Game.prototype.getSector9BBGRoom.call(this), anchor);
+    }
+
+    spawnSector9BBGEncounter() {
+        if (this.gameState !== GAME_MODE.EXPERIMENTAL) return false;
+        const state = this.sector9BBGEncounter || Game.prototype.createSector9BBGEncounterState.call(this);
+        this.sector9BBGEncounter = state;
+        if (state.initialized) return false;
+        const room = Game.prototype.getSector9BBGRoom.call(this);
+        if (!room) return false;
+        let nextNpcId = Math.max(1, ...this.players.map(player => player.id || 0)) + 1;
+        for (const anchor of SECTOR_9_BBG_ENCOUNTER.anchors) {
+            const position = getSector9BBGAnchorWorldPosition(room, anchor);
+            if (!position) continue;
+            const npc = new Player(position.x, position.y, nextNpcId++, chooseRandomPlayerColor());
+            if (typeof this.configurePlayerShields === 'function') this.configurePlayerShields(npc);
+            npc.isNPC = true;
+            npc.name = `BBG DEFENDER ${anchor.label || anchor.id}`;
+            npc.roomId = room.id;
+            npc.isSector9BBGEncounterNPC = true;
+            npc.sector9BBGEncounterId = SECTOR_9_BBG_ENCOUNTER.id;
+            npc.sector9BBGAnchorId = anchor.id;
+            npc.isFixedPositionNPC = true;
+            npc.playerOnlyDamageTarget = true;
+            npc.noRespawn = true;
+            npc.fixedAnchorX = position.x;
+            npc.fixedAnchorY = position.y;
+            if (this.botAggressionLevel > 0) {
+                npc.aggressionLevel = this.botAggressionLevel;
+                npc.rollAccuracy();
+            } else {
+                npc.rollAggression();
+            }
+            npc.initializeNPCLevel(Game.prototype.getExperimentalEnemyLevel.call(this, SECTOR_9_BBG_ENCOUNTER.baseNpcLevel));
+            npc.applyRandomCapsulePowerUps(Math.floor(npc.level * 0.75));
+            this.players.push(npc);
+            Game.prototype.indexExperimentalEntity.call(this, 'players', npc);
+            state.memberIds.add(npc.id);
+        }
+        state.initialized = true;
+        state.completed = false;
+        state.victoryTransitionStarted = false;
+        return true;
+    }
+
+    resetSector9BBGEncounterForCurrentWorld() {
+        for (const player of [...this.players]) {
+            if (!Game.prototype.isSector9BBGDefender.call(this, player)) continue;
+            Game.prototype.unindexExperimentalEntity.call(this, 'players', player);
+            const index = this.players.indexOf(player);
+            if (index !== -1) this.players.splice(index, 1);
+        }
+        this.sector9BBGEncounter = Game.prototype.createSector9BBGEncounterState.call(this);
+        return Game.prototype.spawnSector9BBGEncounter.call(this);
+    }
+
+    resolveDamageOwner(source) {
+        if (!source) return null;
+        if (source.owner && source.owner !== source) return Game.prototype.resolveDamageOwner.call(this, source.owner);
+        return source;
+    }
+
+    canDamagePlayerTarget(target, source) {
+        if (!Game.prototype.isSector9BBGDefender.call(this, target)) return true;
+        return Game.prototype.isHumanPlayerEntity.call(this, Game.prototype.resolveDamageOwner.call(this, source));
+    }
+
+    checkSector9BBGEncounterCompletion() {
+        const state = this.sector9BBGEncounter;
+        if (this.gameState !== GAME_MODE.EXPERIMENTAL || !state?.initialized || state.victoryTransitionStarted) return false;
+        const remaining = this.players.some(player => Game.prototype.isSector9BBGDefender.call(this, player)
+            && !player.isDead && !player.isEliminated);
+        if (remaining) return false;
+        state.completed = true;
+        state.victoryTransitionStarted = true;
+        Game.prototype.beginSector9VictoryTransition.call(this);
+        return true;
+    }
+
+    beginSector9VictoryTransition() {
+        this.victoryFadeTimer = 0;
+        this.victoryFadeActive = true;
+        this.victoryScreenActive = false;
+        this.victoryContinueConfirmationActive = false;
+        this.resetLockInputs();
+        this.mouse.clicked = false;
+        this.players.forEach(player => { player.shouldFire = false; player.clearAimLock?.(); });
+        this.audio.stopGameplayMusic?.();
+        this.audio.play?.('victory_sfx');
+        this.audio.startBGM?.('victory_music');
+    }
+
+    showVictoryScreen() {
+        this.victoryFadeActive = false;
+        this.victoryScreenActive = true;
+        document.getElementById('victory-screen')?.classList.remove('hidden');
+        document.getElementById('victory-continue-confirmation')?.classList.add('hidden');
+        this.menuIndex = 0;
+        this.lastActiveMenuId = 'victory-screen';
+        this.setInitialMenuFocus(document.getElementById('victory-screen'));
+    }
+
+    hideVictoryScreen() {
+        this.victoryFadeActive = false;
+        this.victoryScreenActive = false;
+        this.victoryContinueConfirmationActive = false;
+        if (typeof document !== 'undefined') {
+            document.getElementById('victory-screen')?.classList.add('hidden');
+            document.getElementById('victory-continue-confirmation')?.classList.add('hidden');
+        }
+    }
+
+    openVictoryContinueConfirmation() {
+        this.victoryContinueConfirmationActive = true;
+        document.getElementById('victory-continue-confirmation')?.classList.remove('hidden');
+        this.menuIndex = 0;
+        this.lastActiveMenuId = 'victory-continue-confirmation';
+        this.setInitialMenuFocus(document.getElementById('victory-continue-confirmation'));
+    }
+
+    closeVictoryContinueConfirmation() {
+        this.victoryContinueConfirmationActive = false;
+        document.getElementById('victory-continue-confirmation')?.classList.add('hidden');
+        this.menuIndex = 0;
+        this.lastActiveMenuId = 'victory-screen';
+        this.setInitialMenuFocus(document.getElementById('victory-screen'));
+    }
+
+    confirmVictoryContinue() {
+        if (this.gameState !== GAME_MODE.EXPERIMENTAL) return false;
+        Game.prototype.hideVictoryScreen.call(this);
+        this.audio.stopBGM?.();
+        Game.prototype.resetSector9BBGEncounterForCurrentWorld.call(this);
+        const human = this.players.find(player => !player.isNPC && !player.isDead && !player.isEliminated);
+        if (human) {
+            const defenders = this.players.filter(player => Game.prototype.isSector9BBGDefender.call(this, player));
+            const unsafe = defenders.some(defender => Math.hypot(defender.x - human.x, defender.y - human.y) < defender.radius + human.radius + 80);
+            if (unsafe) {
+                const room = Game.prototype.getExperimentalRoom.call(this, human.roomId) || Game.prototype.getSector9BBGRoom.call(this);
+                const spawn = Game.prototype.findExperimentalSpawn.call(this, human.radius, this.players.filter(player => player !== human), room?.id);
+                Game.prototype.unindexExperimentalEntity.call(this, 'players', human);
+                human.x = spawn.x; human.y = spawn.y; human.roomId = room?.id || human.roomId;
+                Game.prototype.indexExperimentalEntity.call(this, 'players', human);
+            }
+        }
+        Game.prototype.beginGameplayMusic.call(this);
+        this.resetMouseLockInput();
+        return true;
+    }
+
+    startExperimentalNewGamePlus() {
+        const profile = Number.isInteger(this.selectedExperimentalProfileSlot)
+            ? this.experimentalProfiles.getProfile(this.selectedExperimentalProfileSlot)
+            : null;
+        if (!profile) return false;
+        this.experimentalNewGamePlusCycle += 1;
+        Game.prototype.hideVictoryScreen.call(this);
+        return this.startExperimentalMode(profile, { preserveNewGamePlusCycle: true });
+    }
+
     clearExperimentalState() {
         if (this.camera && this.experimentalCameraState?.previousZoom) {
             this.camera.zoom = this.experimentalCameraState.previousZoom;
@@ -1539,6 +1748,15 @@ export class Game {
             activeSequenceId: null,
             activeElapsed: 0
         };
+        this.sector9BBGEncounter = Game.prototype.createSector9BBGEncounterState.call(this);
+        this.victoryFadeTimer = 0;
+        this.victoryFadeActive = false;
+        this.victoryScreenActive = false;
+        this.victoryContinueConfirmationActive = false;
+        if (typeof document !== 'undefined') {
+            document.getElementById('victory-screen')?.classList.add('hidden');
+            document.getElementById('victory-continue-confirmation')?.classList.add('hidden');
+        }
     }
 
     initializeExperimentalRooms() {
@@ -1617,6 +1835,9 @@ export class Game {
 
     isHostileTarget(attacker, candidate) {
         if (!attacker || !candidate || attacker === candidate || candidate.isDead || candidate.isEliminated) return false;
+        if (candidate.isSector9BBGEncounterNPC && !Game.prototype.isHumanPlayerEntity.call(this, attacker)) return false;
+        if (attacker.isSector9BBGEncounterNPC && candidate.isNPC) return false;
+        if (!attacker.isSector9BBGEncounterNPC && candidate.isSector9BBGEncounterNPC) return false;
         if (this.gameState !== GAME_MODE.EXPERIMENTAL) return true;
         if (attacker.roomId !== candidate.roomId) return false;
         if (!attacker.isNPC || !candidate.isNPC) return true;
@@ -1705,13 +1926,14 @@ export class Game {
                 } else {
                     npc.rollAggression();
                 }
-                npc.initializeNPCLevel(npcRoom.npcLevel);
+                npc.initializeNPCLevel(Game.prototype.getExperimentalEnemyLevel.call(this, npcRoom.npcLevel));
                 npc.applyRandomCapsulePowerUps(Math.floor(npc.level * 0.75));
                 this.players.push(npc);
                 Game.prototype.indexExperimentalEntity.call(this, 'players', npc);
                 placedPlayers.push(npc);
             }
         }
+        Game.prototype.spawnSector9BBGEncounter.call(this);
         this.asteroids = [];
         this.hazards = [];
         for (const populationRoom of this.experimentalRooms.filter(area => area.isPopulationEligible)) {
@@ -2030,7 +2252,7 @@ export class Game {
         return active;
     }
 
-    startExperimentalMode(profile = null) {
+    startExperimentalMode(profile = null, options = {}) {
         const selectedProfile = profile || (Number.isInteger(this.selectedExperimentalProfileSlot)
             ? this.experimentalProfiles.getProfile(this.selectedExperimentalProfileSlot)
             : null);
@@ -2038,10 +2260,12 @@ export class Game {
             this.showExperimentalProfileSelection('Select or create a profile to begin.');
             return false;
         }
+        if (!options.preserveNewGamePlusCycle) this.experimentalNewGamePlusCycle = 0;
         this.closePauseMenu();
         this.hideArcadeGameOver();
         this.arcadeGameOver = false;
         this.arcadeResult = null;
+        Game.prototype.hideVictoryScreen.call(this);
         this.clearExperimentalState();
         this.players = [];
         this.asteroids = [];
@@ -2057,13 +2281,13 @@ export class Game {
         human.name = selectedProfile.name;
         human.applyPersistentProgression(selectedProfile);
         human.resetTransientLifeState(this.startingShieldCharges);
-        human.onPersistentProgressionChanged = player => this.saveExperimentalProfile(player);
+        human.onPersistentProgressionChanged = player => Game.prototype.saveExperimentalProfile.call(this, player);
         document.getElementById('menu-overlay').classList.add('hidden');
         this.experimentalCameraState = { previousZoom: this.camera.zoom };
         this.camera.zoom = DEFAULT_GAMEPLAY_ZOOM;
         this.camera.follow(this.players[0]);
         this.camera.useDirectWorld();
-        this.beginGameplayMusic();
+        Game.prototype.beginGameplayMusic.call(this);
         this.resetMouseLockInput();
         return true;
     }
@@ -2110,7 +2334,7 @@ export class Game {
         this.spawnInitialAsteroids();
         
         // Stop BGM when entering online gameplay
-        this.audio.stopBGM();
+        this.audio.stopBGM?.();
     }
 
     updateLobbyListUI(lobbies) {
@@ -2219,6 +2443,7 @@ export class Game {
         if (this.network) {
             this.network.leave();
         }
+        this.experimentalNewGamePlusCycle = 0;
         this.closePauseMenu();
         this.hideArcadeGameOver();
         this.arcadeWaveSize = 0;
@@ -2228,7 +2453,7 @@ export class Game {
         this.arcadeResult = null;
         this.optionsOpenedFromPause = false;
         this.gameState = 'MENU';
-        this.resetCombatMusicState();
+        Game.prototype.resetCombatMusicState.call(this);
         document.getElementById('menu-overlay').classList.remove('hidden');
         document.getElementById('main-menu').classList.remove('hidden');
         document.getElementById('arcade-menu').classList.add('hidden');
@@ -2254,6 +2479,7 @@ export class Game {
             else btn.classList.remove('focused');
         });
 
+        Game.prototype.hideVictoryScreen.call(this);
         this.clearExperimentalState();
         this.players = [];
         this.asteroids = [];
@@ -2265,7 +2491,7 @@ export class Game {
 
     handleFire(playerId, isBurstShot = false) {
         const player = this.players.find(p => p.id === playerId);
-        if (!player || player.isDead) return;
+        if (!player || player.isDead || this.victoryFadeActive || this.victoryScreenActive) return;
         if (this.gameState === GAME_MODE.EXPERIMENTAL && player.isNPC
             && !Game.prototype.hasHumanInExperimentalArea.call(this, player.roomId)) return;
         
@@ -2520,6 +2746,8 @@ export class Game {
 
         if (this.gameState === 'SPLASH') {
             this.updateSplash(dt);
+        } else if (this.victoryScreenActive || this.victoryContinueConfirmationActive) {
+            this.updateMenuNavigation(dt);
         } else if (this.activeModal === 'quit') {
             this.updateMenuNavigation(dt);
         } else if (this.arcadeGameOver) {
@@ -2647,7 +2875,11 @@ export class Game {
         // Determine the topmost active menu container. Modal and Game Over
         // layers live outside the normal menu overlay but share this contract.
         let activeMenu = null;
-        const potentialContainers = this.activeModal === 'quit'
+        const potentialContainers = this.victoryContinueConfirmationActive
+            ? ['victory-continue-confirmation']
+            : this.victoryScreenActive
+                ? ['victory-screen']
+                : this.activeModal === 'quit'
             ? ['quit-confirmation']
             : this.arcadeGameOver
                 ? ['arcade-game-over']
@@ -2835,6 +3067,14 @@ export class Game {
     }
 
     update(dt) {
+        if (this.victoryFadeActive) {
+            this.victoryFadeTimer += dt;
+            if (this.victoryFadeTimer >= VICTORY_FADE_DURATION_SECONDS) {
+                Game.prototype.showVictoryScreen.call(this);
+            }
+            return;
+        }
+        if (this.victoryScreenActive) return;
         if (this.gameState === GAME_MODE.EXPERIMENTAL) {
             this.updateExperimentalMessages(dt);
             this.updateExperimentalDialogue(dt);
@@ -2852,7 +3092,7 @@ export class Game {
                 if (player.id <= 2 && !player.isNPC) {
                     const oldPrestigeLevel = player.prestigeLevel;
                     const inputCamera = player.id === 1 ? this.getPlayerOneCamera() : this.camera;
-                    if (player.id === 1 && this.mouse.m2Pressed && this.mouse.m2Held) {
+                    if (!this.victoryFadeActive && !this.victoryScreenActive && player.id === 1 && this.mouse.m2Pressed && this.mouse.m2Held) {
                         this.beginPlayerOneAimLock(player, inputCamera);
                     }
                     const assignedGamepad = this.getAssignedGamepad(player, gamepads);
@@ -2915,7 +3155,7 @@ export class Game {
                     // Firing Logic
                     if (player.id === 1 && player.controlMode === 'KEYBOARD') {
                         // Mouse Autofire
-                        if (this.mouse.clicked && player.fireCooldown <= 0) {
+                        if (!this.victoryFadeActive && !this.victoryScreenActive && this.mouse.clicked && player.fireCooldown <= 0) {
                             this.handleFire(player.id);
                         }
                     }
@@ -2923,7 +3163,7 @@ export class Game {
                     // Gamepad Firing logic
                     if (assignedGamepad) {
                         const rt = assignedGamepad.buttons[7]; // R2 / RT
-                        if (rt && rt.pressed && player.fireCooldown <= 0) {
+                        if (!this.victoryFadeActive && !this.victoryScreenActive && rt && rt.pressed && player.fireCooldown <= 0) {
                             this.handleFire(player.id);
                         }
                     }
@@ -2938,6 +3178,12 @@ export class Game {
                     const localHazards = worldRules.usesRooms
                         ? Game.prototype.getExperimentalAreaEntities.call(this, player.roomId, 'hazards') : this.hazards;
                     player.update(dt, {}, {}, this.camera, localTargets, localAsteroids, [], false, this.transformationKills, localHazards, null, this.areTransformationsEnabled(), worldRules);
+                    if (player.isFixedPositionNPC) {
+                        player.x = player.fixedAnchorX;
+                        player.y = player.fixedAnchorY;
+                        player.vx = 0;
+                        player.vy = 0;
+                    }
                     player.resolveNPCLevelUps();
                     if (player.justPrestiged) prestigeTriggers.push(player);
                     
@@ -2946,7 +3192,7 @@ export class Game {
                         player.shouldTriggerBurstFire = false;
                     }
 
-                    if (player.shouldFire) {
+                    if (!this.victoryFadeActive && !this.victoryScreenActive && player.shouldFire) {
                         this.handleFire(player.id);
                         player.shouldFire = false;
                     }
@@ -2977,7 +3223,7 @@ export class Game {
         }
 
         if (worldRules.usesRooms) {
-            this.players.filter(player => !player.isDead).forEach(player => this.resolveExperimentalSlide(player));
+            this.players.filter(player => !player.isDead && !player.isFixedPositionNPC).forEach(player => this.resolveExperimentalSlide(player));
         }
 
         this.asteroids.forEach(a => {
@@ -3275,7 +3521,7 @@ export class Game {
 
         const primaryMusicPlayer = Game.prototype.getPrimaryMusicPlayer.call(this);
         if (!player.isNPC && player === primaryMusicPlayer && this.gameState !== GAME_MODE.ARCADE) {
-            this.beginGameplayMusic();
+            Game.prototype.beginGameplayMusic.call(this);
         }
 
         if (this.gameState === GAME_MODE.EXPERIMENTAL) {
@@ -3301,7 +3547,7 @@ export class Game {
 
             if (player.isNPC) {
                 player.resetLevelProgress();
-                player.initializeNPCLevel(room.npcLevel);
+                player.initializeNPCLevel(Game.prototype.getExperimentalEnemyLevel.call(this, room.npcLevel));
                 player.applyRandomCapsulePowerUps(Math.floor(player.level * 0.75));
                 player.color = chooseRandomPlayerColor();
                 player.rollAggression();
@@ -3438,6 +3684,7 @@ export class Game {
 
     resolvePlayerDamage(player, amount, killer) {
         if (!player || player.isDead || player.spawnImmunityTimer > 0) return;
+        if (!Game.prototype.canDamagePlayerTarget.call(this, player, killer)) return { shieldsConsumed: 0, hpLost: 0, died: false };
 
         const damage = Math.max(0, Math.floor(Number(amount) || 0));
         const result = { shieldsConsumed: 0, hpLost: 0, died: false };
@@ -3466,7 +3713,7 @@ export class Game {
         if (result.shieldsConsumed > 0) {
             player.markShieldLoss();
             if (isPrimaryHuman) {
-                this.audio.play('player_shield_hit');
+                this.audio.play?.('player_shield_hit');
             } else if (isNPCShipHit) {
                 Game.prototype.playSpatialEvent.call(
                     this,
@@ -3483,7 +3730,7 @@ export class Game {
         if (result.hpLost > 0) {
             player.markHullLoss();
             if (isPrimaryHuman) {
-                this.audio.play('player_hull_hit');
+                this.audio.play?.('player_hull_hit');
             } else if (isNPCShipHit) {
                 Game.prototype.playSpatialEvent.call(
                     this,
@@ -3534,17 +3781,17 @@ export class Game {
         player.cancelBurstFire();
         player.resetControllerAimLock(true);
         this.clearAimLocksForTarget(player);
-        player.respawnTimer = 2;
+        player.respawnTimer = player.noRespawn ? 0 : 2;
 
         const primaryMusicPlayer = Game.prototype.getPrimaryMusicPlayer.call(this);
         if (!player.isNPC && player === primaryMusicPlayer) {
-            this.audio.play('death');
-            this.audio.stopGameplayMusic();
-            this.resetCombatMusicState();
+            this.audio.play?.('death');
+            this.audio.stopGameplayMusic?.();
+            Game.prototype.resetCombatMusicState.call(this);
         }
 
         if (this.gameState === GAME_MODE.EXPERIMENTAL && !player.isNPC) {
-            this.saveExperimentalProfile(player);
+            Game.prototype.saveExperimentalProfile.call(this, player);
             const deathCause = Game.prototype.isNPCDamageSource.call(this, killer)
                 ? "Defeated by Zorka's Enemies"
                 : `Destroyed by ${Game.prototype.getDamageSourceDisplayName.call(this, killer)}`;
@@ -3556,7 +3803,7 @@ export class Game {
         }
 
         // Award the confirmed kill before Hardcore clears the victim's progression.
-        if (killer && killer !== player && typeof killer.addCapsule === 'function') {
+        if (killer && killer !== player && typeof killer.addCapsule === 'function' && !player.noKillReward) {
             if (player.isNPC) this.awardXP(killer, Game.prototype.getNPCXPReward.call(this, player), player);
             killer.addCapsule();
             killer.score = (killer.score || 0) + 1;
@@ -3594,6 +3841,13 @@ export class Game {
         
         if (window.ProgressLogger) {
             window.ProgressLogger.logProgress('player_death');
+        }
+
+        if (Game.prototype.isSector9BBGDefender.call(this, player)) {
+            player.isEliminated = true;
+            player.respawnTimer = 0;
+            Game.prototype.unindexExperimentalEntity.call(this, 'players', player);
+            Game.prototype.checkSector9BBGEncounterCompletion.call(this);
         }
 
         if (this.gameState === 'ARCADE') {
@@ -4043,7 +4297,18 @@ export class Game {
         }
 
         this.drawExperimentalMessages(this.ctx);
+        this.drawVictoryFade(this.ctx);
         this.drawCrosshair();
+    }
+
+
+    drawVictoryFade(ctx) {
+        if (!this.victoryFadeActive) return;
+        const alpha = Math.max(0, Math.min(1, this.victoryFadeTimer / VICTORY_FADE_DURATION_SECONDS));
+        ctx.save();
+        ctx.fillStyle = `rgba(0, 0, 0, ${alpha})`;
+        ctx.fillRect(0, 0, DESIGN_WIDTH, DESIGN_HEIGHT);
+        ctx.restore();
     }
 
     drawCrosshair() {
@@ -4467,7 +4732,33 @@ export class Game {
         if (!this.assets.schoolDeskBackground) return;
 
         const currentArea = Game.prototype.getExperimentalRenderArea.call(this);
-        if (!currentArea || currentArea.roomNumber !== 1) return;
+        if (!currentArea || ![1, SECTOR_9_BBG_ENCOUNTER.roomNumber].includes(currentArea.roomNumber)) return;
+
+        if (currentArea.roomNumber === SECTOR_9_BBG_ENCOUNTER.roomNumber) {
+            const rect = getSector9BBGImageRect(currentArea);
+            const image = this.assets.bbgScenery;
+            if (!rect || !image) return;
+            ctx.save();
+            camera.apply(ctx, rect.centerX, rect.centerY);
+            ctx.globalAlpha = 0.9;
+            ctx.drawImage(image, -rect.width / 2, -rect.height / 2, rect.width, rect.height);
+            ctx.restore();
+            if (typeof window !== 'undefined' && window.ZORKA_DEBUG_BBG_ANCHORS) {
+                for (const anchor of SECTOR_9_BBG_ENCOUNTER.anchors) {
+                    const position = getSector9BBGAnchorWorldPosition(currentArea, anchor);
+                    if (!position) continue;
+                    ctx.save();
+                    camera.apply(ctx, position.x, position.y);
+                    ctx.strokeStyle = '#00ffff';
+                    ctx.lineWidth = 4;
+                    ctx.beginPath();
+                    ctx.arc(0, 0, 20, 0, Math.PI * 2);
+                    ctx.stroke();
+                    ctx.restore();
+                }
+            }
+            return;
+        }
 
         const { left, right, top, bottom } = currentArea.bounds;
         const width = right - left;
