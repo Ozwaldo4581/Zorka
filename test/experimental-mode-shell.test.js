@@ -157,13 +157,26 @@ test('Experimental setup creates BBG-only Sector 9 NPC population', () => {
     const sector9Npcs = game.players.filter(player => player.isNPC && player.roomId === sector9.id);
     assert.equal(sector9Npcs.length, 7);
     assert.equal(sector9Npcs.every(player => Game.prototype.isSector9BBGDefender.call(game, player)), true);
+    assert.equal(sector9Npcs.every(player => player.aggressionLevel === 2), true);
     for (const roomNumber of [1, 2, 8]) {
         const room = rooms.find(candidate => candidate.roomNumber === roomNumber);
-        assert.equal(
-            game.players.filter(player => player.isNPC && !Game.prototype.isSector9BBGDefender.call(game, player) && player.roomId === room.id).length,
-            room.npcCount
-        );
+        const ordinaryNpcs = game.players.filter(player => player.isNPC && !Game.prototype.isSector9BBGDefender.call(game, player) && player.roomId === room.id);
+        assert.equal(ordinaryNpcs.length, room.npcCount);
+        assert.equal(ordinaryNpcs.every(player => player.aggressionLevel === game.botAggressionLevel), true);
     }
+
+    game.botAggressionLevel = 5;
+    assert.equal(Game.prototype.resetSector9BBGEncounterForCurrentWorld.call(game), true);
+    const resetSector9Npcs = game.players.filter(player => player.isNPC && player.roomId === sector9.id);
+    assert.equal(resetSector9Npcs.length, 7);
+    assert.equal(resetSector9Npcs.every(player => player.aggressionLevel === 2), true);
+
+    game.experimentalNewGamePlusCycle = 1;
+    assert.equal(Game.prototype.resetSector9BBGEncounterForCurrentWorld.call(game), true);
+    const newGamePlusSector9Npcs = game.players.filter(player => player.isNPC && player.roomId === sector9.id);
+    assert.equal(newGamePlusSector9Npcs.length, 7);
+    assert.equal(newGamePlusSector9Npcs.every(player => player.aggressionLevel === 2), true);
+    assert.equal(newGamePlusSector9Npcs.every(player => player.level > sector9Npcs[0].level), true);
 });
 
 test('Experimental cleanup clears room-local NPC intent', () => {
