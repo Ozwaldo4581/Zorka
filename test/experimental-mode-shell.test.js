@@ -4,6 +4,7 @@ import { readFile } from 'node:fs/promises';
 
 import { GAME_MODE, Game, WORLD_HEIGHT, WORLD_WIDTH } from '../game.js';
 import { Player } from '../entities/player.js';
+import { createExperimentalRooms } from '../world/experimental_rooms.js';
 import { wrap } from '../physics.js';
 
 test('Experimental has an explicit mode identifier and separate screen controls', async () => {
@@ -122,6 +123,47 @@ test('Experimental room and door state re-entry initializes one clean layout', (
     assert.equal(game.experimentalRooms.length, 17);
     assert.equal(game.experimentalDoors.length, 16);
     assert.equal(game.experimentalRoomPopulations.size, 9);
+    const sector9 = game.experimentalRooms.find(area => area.roomNumber === 9);
+    assert.equal(sector9.ordinaryNPCsAllowed, false);
+    assert.equal(sector9.specialEncounterNPCsAllowed, true);
+    assert.equal(sector9.isPopulationEligible, true);
+});
+
+test('Experimental setup creates BBG-only Sector 9 NPC population', () => {
+    const rooms = createExperimentalRooms(WORLD_WIDTH, WORLD_HEIGHT);
+    const human = new Player(0, 0, 1);
+    const game = {
+        gameState: GAME_MODE.EXPERIMENTAL,
+        experimentalRooms: rooms,
+        experimentalAreaIndexes: new Map(rooms.map(area => [area.id, {
+            players: new Set(), asteroids: new Set(), hazards: new Set(), projectiles: new Set(), vfx: new Set()
+        }])),
+        players: [human],
+        asteroids: [], hazards: [], projectiles: [],
+        asteroidDensityLevel: 0, debrisDensityLevel: 0, satelliteDensityLevel: 0,
+        experimentalNewGamePlusCycle: 0,
+        botAggressionLevel: 1,
+        sector9BBGEncounter: Game.prototype.createSector9BBGEncounterState(),
+        configurePlayerShields() {},
+        spawnAsteroid() {},
+        spawnSpaceDebris() {},
+        spawnSatellite() {},
+        findExperimentalSpawn: Game.prototype.findExperimentalSpawn
+    };
+
+    Game.prototype.setupExperimentalPopulations.call(game);
+
+    const sector9 = rooms.find(room => room.roomNumber === 9);
+    const sector9Npcs = game.players.filter(player => player.isNPC && player.roomId === sector9.id);
+    assert.equal(sector9Npcs.length, 7);
+    assert.equal(sector9Npcs.every(player => Game.prototype.isSector9BBGDefender.call(game, player)), true);
+    for (const roomNumber of [1, 2, 8]) {
+        const room = rooms.find(candidate => candidate.roomNumber === roomNumber);
+        assert.equal(
+            game.players.filter(player => player.isNPC && !Game.prototype.isSector9BBGDefender.call(game, player) && player.roomId === room.id).length,
+            room.npcCount
+        );
+    }
 });
 
 test('Experimental cleanup clears room-local NPC intent', () => {

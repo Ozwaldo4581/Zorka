@@ -110,7 +110,7 @@ test('default audio and input settings use SFX level 2 and keyboard/mouse', () =
 
 test('Experimental NPC respawns restore the numbered-room level, bounds, area, and color palette', () => {
     const rooms = createExperimentalRooms(WORLD_WIDTH, WORLD_HEIGHT);
-    for (const roomNumber of [2, 3, 9]) {
+    for (const roomNumber of [2, 3, 8]) {
         const room = rooms.find(candidate => candidate.roomNumber === roomNumber);
         const npc = new Player(room.spawnRegion.left, room.spawnRegion.top, roomNumber + 1, '#not-a-palette-color');
         npc.isNPC = true;
@@ -132,6 +132,27 @@ test('Experimental NPC respawns restore the numbered-room level, bounds, area, a
         assert.ok(PLAYER_COLORS.includes(npc.color));
         assert.equal(game.players.filter(player => player.isNPC && !player.isDead).length, 1);
     }
+});
+
+test('Experimental ordinary NPC respawn avoids rooms that disable ordinary NPC population', () => {
+    const rooms = createExperimentalRooms(WORLD_WIDTH, WORLD_HEIGHT);
+    const sector9 = rooms.find(candidate => candidate.roomNumber === 9);
+    const npc = new Player(sector9.spawnRegion.left, sector9.spawnRegion.top, 99, '#not-a-palette-color');
+    npc.isNPC = true;
+    npc.roomId = sector9.id;
+    npc.initializeNPCLevel(1);
+    npc.isDead = true;
+    const game = {
+        gameState: GAME_MODE.EXPERIMENTAL,
+        experimentalRooms: rooms,
+        players: [npc],
+        startingShieldCharges: 0,
+        findExperimentalSpawn: Game.prototype.findExperimentalSpawn
+    };
+    Game.prototype.respawnPlayer.call(game, npc);
+    assert.notEqual(npc.roomId, sector9.id);
+    assert.notEqual(npc.level, sector9.roomNumber);
+    assert.equal(Game.prototype.allowsOrdinaryExperimentalNPCPopulation.call(game, npc.roomId), true);
 });
 
 test('the shared reward schema creates one event pair in every active mode', () => {
