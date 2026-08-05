@@ -15,6 +15,9 @@ const DOOR_TRANSITION_TOLERANCE = 16;
 const FULL_ARENA_POPULATION = Object.freeze({
     densitySource: 'ARENA_OPTIONS', scale: 'FULL_ARENA', independentlyResolved: true
 });
+const BBG_ONLY_POPULATION = Object.freeze({
+    ...FULL_ARENA_POPULATION, ordinaryNPCsAllowed: false, specialEncounterNPCsAllowed: true
+});
 
 
 export const SECTOR_9_BBG_ENCOUNTER = Object.freeze({
@@ -92,6 +95,8 @@ export function createExperimentalArea({
     return Object.freeze({
         ...properties, id, areaType, roomNumber: normalizedRoomNumber,
         isPopulationEligible: areaType === EXPERIMENTAL_AREA_TYPE.ROOM,
+        ordinaryNPCsAllowed: areaType === EXPERIMENTAL_AREA_TYPE.ROOM && population?.ordinaryNPCsAllowed !== false,
+        specialEncounterNPCsAllowed: areaType === EXPERIMENTAL_AREA_TYPE.ROOM && population?.specialEncounterNPCsAllowed === true,
         bounds: Object.freeze({ ...bounds }), walls: Object.freeze([...walls]),
         entrances: Object.freeze([...entrances]), connectedAreaIds: Object.freeze([...connectedAreaIds]),
         population: areaType === EXPERIMENTAL_AREA_TYPE.ROOM ? population : null
@@ -178,7 +183,8 @@ export function createExperimentalAreas(worldWidth, worldHeight) {
             ...createExperimentalRoomProgression(roomNumber), id: `experimental-room-${roomNumber}`,
             areaType: EXPERIMENTAL_AREA_TYPE.ROOM, origin: point(origin.left, origin.top),
             width: worldWidth, height: worldHeight, bounds: boundsAt(origin.left, origin.top, worldWidth, worldHeight),
-            population: FULL_ARENA_POPULATION, npcAggressionSource: 'ARENA_OPTIONS'
+            population: roomNumber === SECTOR_9_BBG_ENCOUNTER.roomNumber ? BBG_ONLY_POPULATION : FULL_ARENA_POPULATION,
+            npcAggressionSource: 'ARENA_OPTIONS'
         });
     }
     const byId = new Map(shells.map(area => [area.id, area]));

@@ -1546,7 +1546,7 @@ export class Game {
 
     getExperimentalEnemyLevel(baseLevel) {
         return Math.max(1, Math.floor(Number(baseLevel) || 1))
-            + this.experimentalNewGamePlusCycle * EXPERIMENTAL_NEW_GAME_PLUS_LEVEL_STEP;
+            + (this.experimentalNewGamePlusCycle || 0) * EXPERIMENTAL_NEW_GAME_PLUS_LEVEL_STEP;
     }
 
     isHumanPlayerEntity(entity) {
@@ -1559,6 +1559,30 @@ export class Game {
 
     getSector9BBGRoom() {
         return (this.experimentalRooms || []).find(room => room.roomNumber === SECTOR_9_BBG_ENCOUNTER.roomNumber) || null;
+    }
+
+    allowsOrdinaryExperimentalNPCPopulation(roomOrId) {
+        if (this.gameState !== GAME_MODE.EXPERIMENTAL) return true;
+        const room = typeof roomOrId === 'string'
+            ? Game.prototype.getExperimentalRoom.call(this, roomOrId)
+            : roomOrId;
+        return Boolean(room?.isPopulationEligible && room.ordinaryNPCsAllowed !== false);
+    }
+
+    removeStaleOrdinaryExperimentalNPCsFromBlockedRooms() {
+        if (this.gameState !== GAME_MODE.EXPERIMENTAL) return 0;
+        let removed = 0;
+        for (const player of [...this.players]) {
+            if (!player?.isNPC || Game.prototype.isSector9BBGDefender.call(this, player)) continue;
+            if (Game.prototype.allowsOrdinaryExperimentalNPCPopulation.call(this, player.roomId)) continue;
+            Game.prototype.unindexExperimentalEntity.call(this, 'players', player);
+            const index = this.players.indexOf(player);
+            if (index !== -1) {
+                this.players.splice(index, 1);
+                removed++;
+            }
+        }
+        return removed;
     }
 
     getSector9BBGAnchorWorldPosition(anchor) {
@@ -1912,7 +1936,7 @@ export class Game {
             placedPlayers.push(player);
         });
         let nextNpcId = Math.max(1, ...this.players.map(player => player.id || 0)) + 1;
-        for (const npcRoom of this.experimentalRooms.filter(area => area.isPopulationEligible)) {
+        for (const npcRoom of this.experimentalRooms.filter(area => Game.prototype.allowsOrdinaryExperimentalNPCPopulation.call(this, area))) {
             for (let index = 0; index < npcRoom.npcCount; index++) {
                 const spawn = Game.prototype.findExperimentalSpawn.call(this, 25, placedPlayers, npcRoom.id);
                 const npc = new Player(spawn.x, spawn.y, nextNpcId++, chooseRandomPlayerColor());
@@ -1934,6 +1958,7 @@ export class Game {
             }
         }
         Game.prototype.spawnSector9BBGEncounter.call(this);
+        Game.prototype.removeStaleOrdinaryExperimentalNPCsFromBlockedRooms.call(this);
         this.asteroids = [];
         this.hazards = [];
         for (const populationRoom of this.experimentalRooms.filter(area => area.isPopulationEligible)) {
@@ -3526,9 +3551,17 @@ export class Game {
 
         if (this.gameState === GAME_MODE.EXPERIMENTAL) {
             const previousRoomId = player.roomId;
+            const previousRoom = Game.prototype.getExperimentalRoom.call(this, previousRoomId);
             const room = player.isNPC
-                ? (Game.prototype.getExperimentalRoom.call(this, previousRoomId) || this.experimentalRooms[0])
+                ? (Game.prototype.allowsOrdinaryExperimentalNPCPopulation.call(this, previousRoom)
+                    ? previousRoom
+                    : this.experimentalRooms.find(area => Game.prototype.allowsOrdinaryExperimentalNPCPopulation.call(this, area)))
                 : (this.experimentalRooms.find(area => area.roomNumber === 1) || this.experimentalRooms[0]);
+            if (player.isNPC && !room) {
+                player.isEliminated = true;
+                player.respawnTimer = 0;
+                return;
+            }
             const roomId = room.id;
             const spawn = player.isNPC
                 ? this.findExperimentalSpawn(player.radius, this.players, roomId)
