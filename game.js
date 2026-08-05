@@ -1613,12 +1613,8 @@ export class Game {
             npc.noRespawn = true;
             npc.fixedAnchorX = position.x;
             npc.fixedAnchorY = position.y;
-            if (this.botAggressionLevel > 0) {
-                npc.aggressionLevel = this.botAggressionLevel;
-                npc.rollAccuracy();
-            } else {
-                npc.rollAggression();
-            }
+            npc.aggressionLevel = SECTOR_9_BBG_ENCOUNTER.npcAggressionLevel;
+            npc.rollAccuracy();
             npc.initializeNPCLevel(Game.prototype.getExperimentalEnemyLevel.call(this, SECTOR_9_BBG_ENCOUNTER.baseNpcLevel));
             npc.applyRandomCapsulePowerUps(Math.floor(npc.level * 0.75));
             this.players.push(npc);
