@@ -1,6 +1,6 @@
 import { updateNewtonian, checkCollision, nearestWrappedDisplacement, closestPointOnSegment } from '../physics.js';
 import { Projectile } from './projectile.js';
-import { DESIGN_WIDTH, DESIGN_HEIGHT, WORLD_WIDTH } from '../game.js';
+import { DESIGN_WIDTH, DESIGN_HEIGHT, WORLD_WIDTH, WORLD_HEIGHT } from '../game.js';
 
 const BASE_GUN_COOLDOWN = 0.75;
 const BURST_INTERVAL = 0.05;
@@ -452,7 +452,7 @@ export class Player {
         else this.resetEvolutionForm();
 
         // Handle Ghost Movement
-        this.updateGhosts(dt);
+        this.updateGhosts(dt, worldRules);
 
         // Handle Burst Fire Logic
         if (this.burstCount > 0) {
@@ -738,35 +738,99 @@ export class Player {
         }
     }
 
-    updateGhosts(dt) {
+    updateGhosts(dt, worldRules = null) {
         if (this.isEventHorizon || this.isDead) {
             this.ghosts = [];
+            this.history = [];
             return;
         }
-        // Ghost logic: follow player breadcrumbs
-        if (!this.history) this.history = [];
-        this.history.unshift({ x: this.x, y: this.y, rotation: this.rotation });
-        if (this.history.length > 180) this.history.pop(); // Increased buffer to accommodate tripled delay (2 ghosts * 45 + cushion)
 
-        this.ghosts.forEach((ghost, i) => {
-            // Calculate delay based on ship size to maintain "just over 1 ship" distance
-            let shipSize = this.radius * 3.5;
-            if (this.isMartian) shipSize *= 2;
-            else if (this.isCyborg) shipSize *= 1.3;
-            else if (this.isDimensionX) shipSize *= 1.6;
-            
-            // At max speed (800), one frame is ~13.3px. 
-            // We want (shipSize + cushion) / 13.3 frames.
-            const framesPerShip = Math.ceil((shipSize + 180) / 13.3);
-            const delay = (i + 1) * framesPerShip;
-            
-            const pos = this.history[Math.min(delay, this.history.length - 1)];
-            if (pos) {
-                ghost.x = pos.x;
-                ghost.y = pos.y;
-                // Mirror aiming direction in real time
-                ghost.rotation = this.rotation;
+        if (!this.history) this.history = [];
+
+        const usesWrappedWorld = !worldRules?.usesRooms;
+        const getPathDelta = (from, to) => {
+            let dx = to.x - from.x;
+            let dy = to.y - from.y;
+
+            if (usesWrappedWorld) {
+                if (dx > WORLD_WIDTH / 2) dx -= WORLD_WIDTH;
+                else if (dx < -WORLD_WIDTH / 2) dx += WORLD_WIDTH;
+
+                if (dy > WORLD_HEIGHT / 2) dy -= WORLD_HEIGHT;
+                else if (dy < -WORLD_HEIGHT / 2) dy += WORLD_HEIGHT;
             }
+
+            return { dx, dy };
+        };
+
+        const currentPoint = { x: this.x, y: this.y, rotation: this.rotation };
+        const newestPoint = this.history[0];
+
+        if (!newestPoint) {
+            this.history.unshift(currentPoint);
+        } else {
+            const movement = getPathDelta(currentPoint, newestPoint);
+            const movedDistance = Math.hypot(movement.dx, movement.dy);
+
+            // Record breadcrumbs by actual travel rather than by frame count.
+            // A tiny threshold prevents stationary players from filling the buffer.
+            if (movedDistance >= 1) this.history.unshift(currentPoint);
+        }
+
+        let shipSize = this.radius * 3.5;
+        if (this.isMartian) shipSize *= 2;
+        else if (this.isCyborg) shipSize *= 1.3;
+        else if (this.isDimensionX) shipSize *= 1.6;
+
+        const ghostSpacing = shipSize + 24;
+        const maximumTrailDistance = Math.max(ghostSpacing, ghostSpacing * this.ghosts.length) + 300;
+
+        // Keep enough physical trail for every ghost, independent of frame rate.
+        let retainedDistance = 0;
+        let keepCount = Math.min(this.history.length, 1);
+        for (let i = 1; i < this.history.length; i++) {
+            const segment = getPathDelta(this.history[i - 1], this.history[i]);
+            retainedDistance += Math.hypot(segment.dx, segment.dy);
+            keepCount = i + 1;
+            if (retainedDistance >= maximumTrailDistance) break;
+        }
+        if (this.history.length > keepCount) this.history.length = keepCount;
+        if (this.history.length > 720) this.history.length = 720;
+
+        this.ghosts.forEach((ghost, index) => {
+            const targetDistance = ghostSpacing * (index + 1);
+            let travelled = 0;
+            let position = this.history[this.history.length - 1] || currentPoint;
+
+            for (let i = 1; i < this.history.length; i++) {
+                const newer = this.history[i - 1];
+                const older = this.history[i];
+                const segment = getPathDelta(newer, older);
+                const segmentLength = Math.hypot(segment.dx, segment.dy);
+
+                if (segmentLength <= 0) continue;
+
+                if (travelled + segmentLength >= targetDistance) {
+                    const ratio = (targetDistance - travelled) / segmentLength;
+                    let x = newer.x + segment.dx * ratio;
+                    let y = newer.y + segment.dy * ratio;
+
+                    if (usesWrappedWorld) {
+                        x = ((x % WORLD_WIDTH) + WORLD_WIDTH) % WORLD_WIDTH;
+                        y = ((y % WORLD_HEIGHT) + WORLD_HEIGHT) % WORLD_HEIGHT;
+                    }
+
+                    position = { x, y };
+                    break;
+                }
+
+                travelled += segmentLength;
+            }
+
+            ghost.x = position.x;
+            ghost.y = position.y;
+            // Ghost ships still mirror the player's current aim direction.
+            ghost.rotation = this.rotation;
         });
     }
 

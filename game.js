@@ -197,7 +197,7 @@ export class Game {
 
     async loadAssets() {
         this.assets = {
-            ship: await this.loadImage('assets/ShipNeonWhite.png'),
+            ship: await this.loadImage('assets/ShipSketch_256x256.png'),
             ufo: await this.loadImage('assets/1000008891.png'),
             cyborg: await this.loadImage('assets/cyborg_ship.webp'),
             dimensionX: await this.loadImage('assets/dimension_x_monster.webp'),
@@ -209,7 +209,9 @@ export class Game {
             background: await this.loadImage('assets/space_background.webp'),
             explosion: await this.loadImage('assets/explosion_vfx.webp'),
             squidScenery: await this.loadImage('assets/Squid.png'),
-            cranioidScenery: await this.loadImage('assets/Cranioid.png')
+            cranioidScenery: await this.loadImage('assets/Cranioid.png'),
+            schoolDeskBackground: await this.loadImage('assets/SchoolDeskZorka5.png'),
+            schoolDeskVisor: await this.loadImage('assets/SchoolDeskZorkaVisor2.png')
         };
     }
 
@@ -4214,6 +4216,7 @@ export class Game {
     drawWorld(ctx, camera) {
         this.drawBackground(ctx, camera);
         if (this.gameState === GAME_MODE.EXPERIMENTAL) {
+            this.drawExperimentalSectorBackground(ctx, camera);
             this.drawExperimentalScenery(ctx, camera);
             this.drawExperimentalWalls(ctx, camera);
         }
@@ -4457,6 +4460,84 @@ export class Game {
 
         state.activeSequenceId = nextSequence.id;
         state.activeElapsed = 0;
+    }
+
+    drawExperimentalSectorBackground(ctx, camera) {
+        if (this.gameState !== GAME_MODE.EXPERIMENTAL) return;
+        if (!this.assets.schoolDeskBackground) return;
+
+        const currentArea = Game.prototype.getExperimentalRenderArea.call(this);
+        if (!currentArea || currentArea.roomNumber !== 1) return;
+
+        const { left, right, top, bottom } = currentArea.bounds;
+        const width = right - left;
+        const height = bottom - top;
+        const centerX = left + width / 2;
+        const centerY = top + height / 2;
+
+        ctx.save();
+        camera.apply(ctx, centerX, centerY);
+        ctx.globalAlpha = 0.4;
+
+        const image = this.assets.schoolDeskBackground;
+        const imageScale = 1.5;
+
+        const drawWidth = image.naturalWidth * imageScale;
+        const drawHeight = image.naturalHeight * imageScale;
+
+        const offsetX = -373;
+        const offsetY = 60;
+
+        ctx.drawImage(
+            image,
+            -drawWidth / 2 + offsetX,
+            -drawHeight / 2 + offsetY,
+            drawWidth,
+            drawHeight
+        );
+
+        const localPlayer = this.players.find(player => !player.isNPC);
+        const visorImage = this.assets.schoolDeskVisor;
+
+        if (localPlayer && visorImage) {
+            const visorColor = localPlayer.color || '#00ffff';
+            const visorWidth = visorImage.naturalWidth;
+            const visorHeight = visorImage.naturalHeight;
+
+            if (
+                !this.schoolDeskVisorTint
+                || this.schoolDeskVisorTint.color !== visorColor
+                || this.schoolDeskVisorTint.width !== visorWidth
+                || this.schoolDeskVisorTint.height !== visorHeight
+            ) {
+                const tintedCanvas = document.createElement('canvas');
+                tintedCanvas.width = visorWidth;
+                tintedCanvas.height = visorHeight;
+
+                const tintedCtx = tintedCanvas.getContext('2d');
+                tintedCtx.drawImage(visorImage, 0, 0);
+                tintedCtx.globalCompositeOperation = 'source-in';
+                tintedCtx.fillStyle = visorColor;
+                tintedCtx.fillRect(0, 0, visorWidth, visorHeight);
+
+                this.schoolDeskVisorTint = {
+                    canvas: tintedCanvas,
+                    color: visorColor,
+                    width: visorWidth,
+                    height: visorHeight
+                };
+            }
+
+            ctx.drawImage(
+                this.schoolDeskVisorTint.canvas,
+                -drawWidth / 2 + offsetX,
+                -drawHeight / 2 + offsetY,
+                drawWidth,
+                drawHeight
+            );
+        }
+
+        ctx.restore();
     }
 
     drawExperimentalScenery(ctx, camera) {
