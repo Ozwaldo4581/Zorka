@@ -36,7 +36,11 @@ export class AudioManager {
             'gameplay_music': 'assets/audio/audio [music].mp3',
             'gameplay_drums': 'assets/audio/audio [drums].mp3',
             'tabla_critical': 'assets/audio/TablaCritical.mp3',
-            'death': 'assets/audio/death.mp3'
+            'death': 'assets/audio/death.mp3',
+            // Victory-specific files have not been supplied yet; these keys intentionally
+            // reuse existing registered assets until final filenames are provided.
+            'victory_sfx': 'assets/audio/death.mp3',
+            'victory_music': 'assets/audio/nes_music_intro.mp3'
         };
     }
 
@@ -290,6 +294,7 @@ export class AudioManager {
         if (name === 'player_shield_hit') volume = 0.65;
         if (name === 'player_hull_hit') volume = 0.65;
         if (name === 'death') volume = 0.8;
+        if (name === 'victory_sfx') volume = 0.9;
         
         gainNode.gain.value = Math.max(0, Math.min(1, volume * volumeScale * this.volumeLevelToGain(this.sfxVolumeLevel)));
         
@@ -334,6 +339,7 @@ export class AudioManager {
         if (name === 'player_shield_hit') volume = 0.65;
         if (name === 'player_hull_hit') volume = 0.65;
         if (name === 'death') volume = 0.8;
+        if (name === 'victory_sfx') volume = 0.9;
         gainNode.gain.value = volume * this.volumeLevelToGain(this.sfxVolumeLevel);
 
         const panner = this.ctx.createStereoPanner();

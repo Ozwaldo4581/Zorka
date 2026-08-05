@@ -850,6 +850,12 @@ export class Player {
         this.npcThinkTimer -= dt;
         this.npcBehaviorTimer -= dt;
         if (worldRules?.usesRooms && this.npcTarget?.roomId !== this.roomId) this.npcTarget = null;
+        if (this.isFixedPositionNPC) {
+            this.vx = 0;
+            this.vy = 0;
+            this.x = Number.isFinite(this.fixedAnchorX) ? this.fixedAnchorX : this.x;
+            this.y = Number.isFinite(this.fixedAnchorY) ? this.fixedAnchorY : this.y;
+        }
 
         // Personality/Behavior state transitions
         if (this.npcBehaviorTimer <= 0) {
@@ -892,6 +898,8 @@ export class Player {
             // Priority 1: Players
             others.forEach(other => {
                 if (other === this || other.isDead) return;
+                if (this.isSector9BBGEncounterNPC && other.isNPC) return;
+                if (!this.isSector9BBGEncounterNPC && other.isSector9BBGEncounterNPC) return;
                 if (worldRules?.usesRooms && other.roomId !== this.roomId) return;
                 const d = Math.hypot(other.x - this.x, other.y - this.y);
                 if (d < minDist && d <= aggressionRange) {
@@ -1060,6 +1068,16 @@ export class Player {
             fx = Math.sin(this.rotation) * effectiveThrust * travelWeight * chaseWeight;
             fy = -Math.cos(this.rotation) * effectiveThrust * travelWeight * chaseWeight;
             if (chaseWeight > 0) this.isThrusting = true;
+        }
+
+        if (this.isFixedPositionNPC) {
+            this.vx = 0;
+            this.vy = 0;
+            this.x = Number.isFinite(this.fixedAnchorX) ? this.fixedAnchorX : this.x;
+            this.y = Number.isFinite(this.fixedAnchorY) ? this.fixedAnchorY : this.y;
+            this.isThrusting = false;
+            setForce({ x: 0, y: 0 });
+            return;
         }
 
         fx += avoidFx;
