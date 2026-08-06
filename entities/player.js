@@ -11,6 +11,7 @@ export const EXPERIMENTAL_RESPAWN_PHASE_DURATION = 3;
 export const MAX_STACKABLE_WEAPON_STREAMS = 3;
 export const STACKABLE_CAPSULE_GUNS = Object.freeze(['Antigun', 'Double', 'Laser', 'Orb']);
 export const MAX_PROJECTILE_UPGRADES = 10;
+export const NPC_MAX_PROJECTILE_UPGRADES = 5;
 export const MAX_SHIELD_RECHARGE_UPGRADES = 10;
 export const MIN_SHIELD_RECHARGE_DELAY = 1;
 export const BASE_PLAYER_HP = 5;
@@ -169,7 +170,12 @@ export class Player {
 
     canSelectLevelUpgrade(choice) {
         if (this.pendingLevelUps <= 0) return false;
-        if (choice === 'projectile') return this.projectileUpgradeCount < this.maxProjectileUpgrades;
+        if (choice === 'projectile') {
+            const projectileUpgradeLimit = this.isNPC
+                ? NPC_MAX_PROJECTILE_UPGRADES
+                : this.maxProjectileUpgrades;
+            return this.projectileUpgradeCount < projectileUpgradeLimit;
+        }
         if (choice === 'speed') return this.speedUpgradeCount < this.maxSpeedUpgrades;
         return choice === 'shield' && this.shieldRechargeUpgradeCount < this.maxShieldRechargeUpgrades;
     }
