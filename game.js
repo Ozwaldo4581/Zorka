@@ -92,10 +92,10 @@ export function resolveProjectileConsumption(firstCategory, secondCategory) {
         || (firstCategory === ORB && secondCategory === ORB)) {
         return PROJECTILE_CONSUMPTION.BOTH;
     }
-    if ((firstCategory === LASER || firstCategory === ORB) && secondCategory === ORDINARY_GUN) {
+    if (firstCategory === ORB && secondCategory === ORDINARY_GUN) {
         return PROJECTILE_CONSUMPTION.SECOND;
     }
-    if ((secondCategory === LASER || secondCategory === ORB) && firstCategory === ORDINARY_GUN) {
+    if (secondCategory === ORB && firstCategory === ORDINARY_GUN) {
         return PROJECTILE_CONSUMPTION.FIRST;
     }
     return PROJECTILE_CONSUMPTION.NEITHER;
