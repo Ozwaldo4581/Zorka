@@ -5105,8 +5105,8 @@ export class Game {
         const drawHeight = image.naturalHeight * imageScale;
 
         // Preserve the original room-local placement as normalized offsets.
-        const offsetX = width * -0.02158564814814815;
-        const offsetY = height * 0.006172839506172839;
+        const offsetX = width * -0.03858564814814815;
+        const offsetY = height * 0.0806172839506172839;
 
         ctx.drawImage(
             image,
