@@ -18,6 +18,7 @@ import {
     createExperimentalArea,
     createExperimentalAreas,
     createExperimentalDoors,
+    createExperimentalShortcutDefinitions,
     createExperimentalHallways,
     createExperimentalRoomProgression,
     createExperimentalRooms,
@@ -72,13 +73,13 @@ test('Experimental room 1 uses the full authoritative arena dimensions and doorw
     assert.equal(room.width, 17280);
     assert.equal(room.height, 9720);
     assert.deepEqual(room.bounds, { left: 0, top: 0, right: 17280, bottom: 9720 });
-    assert.equal(room.walls.length, 5);
-    assert.deepEqual(room.walls.map(wall => [wall.start, wall.end]), [
-        [{ x: 0, y: 0 }, { x: 17280, y: 0 }],
-        [{ x: 17280, y: 0 }, { x: 17280, y: 9720 }],
-        [{ x: 17280, y: 9720 }, { x: 9120, y: 9720 }],
-        [{ x: 8160, y: 9720 }, { x: 0, y: 9720 }],
-        [{ x: 0, y: 9720 }, { x: 0, y: 0 }]
+    assert.equal(room.walls.length, 8);
+    assert.equal(room.connectedAreaIds.length, 4);
+    assert.deepEqual(room.walls.map(wall => wall.id).sort(), [
+        'experimental-room-1-wall-bottom-left', 'experimental-room-1-wall-bottom-right',
+        'experimental-room-1-wall-left-bottom', 'experimental-room-1-wall-left-top',
+        'experimental-room-1-wall-right-bottom', 'experimental-room-1-wall-right-top',
+        'experimental-room-1-wall-top-left', 'experimental-room-1-wall-top-right'
     ]);
     assert.equal(isPointInRoom({ x: 5000, y: 5000 }, room.bounds), true);
     assert.equal(isPointInRoom({ x: 17281, y: 5000 }, room.bounds), false);
@@ -133,7 +134,7 @@ test('room-to-hallway entrances own invisible blockers and aligned opening metad
     assert.equal(door.blockedCategories.includes('ordinary-projectile'), true);
 });
 
-test('nine-room layout uses exact continuous coordinates, progression, safe spawns, and chain-only adjacency', () => {
+test('nine-room layout keeps exact route coordinates, progression, and safe spawns', () => {
     const rooms = createExperimentalRooms(WORLD_WIDTH, WORLD_HEIGHT);
     const expectedOrigins = [
         [0, 0], [0, 13720], [-21280, 13720], [-21280, 0], [-21280, -13720],
@@ -151,15 +152,15 @@ test('nine-room layout uses exact continuous coordinates, progression, safe spaw
         assert.deepEqual([room.width, room.height, room.npcCount, room.npcLevel], [17280, 9720, 1 + 2 * (number - 1), number]);
     });
 
-    assert.equal(createExperimentalHallways(WORLD_WIDTH, WORLD_HEIGHT).length, 8);
+    assert.equal(createExperimentalHallways(WORLD_WIDTH, WORLD_HEIGHT).length, 11);
 });
 
-test('eight long Room 0 hallways have sixteen aligned entrances and no area overlaps', () => {
+test('eleven long Room 0 hallways have aligned entrances and no area overlaps', () => {
     const areas = createExperimentalAreas(WORLD_WIDTH, WORLD_HEIGHT);
     const hallways = areas.filter(area => area.areaType === EXPERIMENTAL_AREA_TYPE.HALLWAY);
     const doors = createExperimentalDoors(areas);
-    assert.equal(hallways.length, 8);
-    assert.equal(new Set(hallways.map(area => area.id)).size, 8);
+    assert.equal(hallways.length, 11);
+    assert.equal(new Set(hallways.map(area => area.id)).size, 11);
     for (const hallway of hallways) {
         assert.equal(hallway.roomNumber, 0);
         assert.equal(hallway.isPopulationEligible, false);
@@ -167,7 +168,7 @@ test('eight long Room 0 hallways have sixteen aligned entrances and no area over
         assert.ok([hallway.width, hallway.height].includes(EXPERIMENTAL_HALLWAY_WIDTH));
         assert.equal(hallway.connectedAreaIds.length, 2);
     }
-    assert.equal(doors.length, 16);
+    assert.equal(doors.length, 22);
     doors.forEach(door => {
         assert.equal(door.openingWidth, EXPERIMENTAL_ENTRANCE_WIDTH);
         assert.equal(door.blocker.isDoorBlocker, true);
@@ -184,6 +185,23 @@ test('eight long Room 0 hallways have sixteen aligned entrances and no area over
             assert.equal(overlapWidth > 0 && overlapHeight > 0, false, `${areas[firstIndex].id} overlaps ${areas[secondIndex].id}`);
         }
     }
+});
+
+test('three immutable shortcut definitions connect Sector 1 walls to safe aligned destinations', () => {
+    const shortcuts = createExperimentalShortcutDefinitions(WORLD_WIDTH, WORLD_HEIGHT);
+    assert.equal(shortcuts.length, 3);
+    assert.deepEqual(shortcuts.map(({ id, sourceWall, destinationRoomNumber, destinationWall, colorName }) =>
+        [id, sourceWall, destinationRoomNumber, destinationWall, colorName]), [
+        ['sector-1-to-4', 'left', 4, 'right', 'blue'],
+        ['sector-1-to-6', 'top', 6, 'bottom', 'green'],
+        ['sector-1-to-8', 'right', 8, 'left', 'magenta']
+    ]);
+    assert.ok(shortcuts.every(Object.isFrozen));
+    assert.ok(shortcuts.every(shortcut => Object.isFrozen(shortcut.hallwayBounds)));
+    const areas = createExperimentalAreas(WORLD_WIDTH, WORLD_HEIGHT);
+    const shortcutDoors = createExperimentalDoors(areas).filter(door => door.shortcutId);
+    assert.equal(shortcutDoors.filter(door => door.shortcutRole === 'LOCKED_SOURCE').length, 3);
+    assert.equal(shortcutDoors.filter(door => door.shortcutRole === 'UNLOCKING_DESTINATION').length, 3);
 });
 
 test('each hallway gap exceeds the maximum camera span along its travel axis', () => {
@@ -334,8 +352,8 @@ test('only the Experimental initialization seam adds room definitions', () => {
 
     assert.deepEqual(game.experimentalRooms, []);
     Game.prototype.initializeExperimentalRooms.call(game);
-    assert.equal(game.experimentalRooms.length, 17);
-    assert.equal(game.experimentalDoors.length, 16);
+    assert.equal(game.experimentalRooms.length, 20);
+    assert.equal(game.experimentalDoors.length, 22);
     for (const room of game.experimentalRooms) {
         if (room.isPopulationEligible) assert.deepEqual(game.experimentalRoomPopulations.get(room.id)?.desired, { asteroids: 49, debris: 3, satellites: 3 });
         else assert.equal(game.experimentalRoomPopulations.has(room.id), false);

@@ -20,6 +20,7 @@ import {
     createExperimentalAreas,
     createExperimentalDoors,
     EXPERIMENTAL_COLLISION_CATEGORY,
+    EXPERIMENTAL_SHORTCUT_ID,
     SECTOR_9_BBG_ENCOUNTER,
     getSector9BBGImageRect,
     getSector9BBGAnchorWorldPosition
@@ -178,6 +179,8 @@ export class Game {
         this.lastCombatMusicTier = null;
         this.nextArcadeNpcId = 2;
         this.experimentalNewGamePlusCycle = 0;
+        this.experimentalUnlockedShortcutIds = new Set();
+        this.experimentalShortcutPromptedIds = new Set();
         this.sector9BBGEncounter = this.createSector9BBGEncounterState();
         this.victoryFadeTimer = 0;
         this.victoryFadeActive = false;
@@ -1747,9 +1750,10 @@ export class Game {
 
     startExperimentalNewGamePlus() {
         const profile = Number.isInteger(this.selectedExperimentalProfileSlot)
-            ? this.experimentalProfiles.getProfile(this.selectedExperimentalProfileSlot)
+            ? this.experimentalProfiles.resetShortcutUnlocks(this.selectedExperimentalProfileSlot)
             : null;
         if (!profile) return false;
+        this.experimentalUnlockedShortcutIds = new Set();
         this.experimentalNewGamePlusCycle += 1;
         Game.prototype.hideVictoryScreen.call(this);
         return this.startExperimentalMode(profile, { preserveNewGamePlusCycle: true });
@@ -1777,6 +1781,7 @@ export class Game {
         this.experimentalCameraState = null;
         this.experimentalSectorMessage = null;
         this.experimentalObjectiveMessage = null;
+        this.experimentalShortcutPromptedIds = new Set();
         this.experimentalDialogueState = {
             completedSequenceIds: new Set(),
             activeSequenceId: null,
@@ -1842,6 +1847,55 @@ export class Game {
         const encounter = [...(this.experimentalEncounterStates?.values() || [])]
             .find(state => state.progressionDoorId === door.id);
         return Boolean(encounter && !encounter.doorUnlocked);
+    }
+
+    isExperimentalShortcutUnlocked(shortcutId) {
+        return Boolean(shortcutId && this.experimentalUnlockedShortcutIds?.has(shortcutId));
+    }
+
+    isExperimentalShortcutDoorLocked(door) {
+        return door?.shortcutRole === 'LOCKED_SOURCE'
+            && !Game.prototype.isExperimentalShortcutUnlocked.call(this, door.shortcutId);
+    }
+
+    unlockExperimentalShortcut(shortcutId, player) {
+        if (this.gameState !== GAME_MODE.EXPERIMENTAL || !player || player.isNPC
+            || !Object.values(EXPERIMENTAL_SHORTCUT_ID).includes(shortcutId)
+            || Game.prototype.isExperimentalShortcutUnlocked.call(this, shortcutId)) return false;
+        this.experimentalUnlockedShortcutIds.add(shortcutId);
+        Game.prototype.saveExperimentalProfile.call(this, player);
+        this.experimentalObjectiveMessage = {
+            lines: ['Shortcut to Sector 1 opened.'],
+            remaining: EXPERIMENTAL_OBJECTIVE_MESSAGE_DURATION
+        };
+        return true;
+    }
+
+    updateExperimentalShortcutInteractions(player) {
+        if (!player || player.isNPC || player.isDead) return false;
+        let changed = false;
+        const adjacentLockedIds = new Set();
+        for (const door of this.experimentalDoors || []) {
+            if (!door.shortcutId || !door.roomIds.includes(player.roomId)
+                || !Game.prototype.isExperimentalDoorAdjacent.call(this, player, door, 80)) continue;
+            if (door.shortcutRole === 'UNLOCKING_DESTINATION') {
+                changed = Game.prototype.unlockExperimentalShortcut.call(this, door.shortcutId, player) || changed;
+            } else if (Game.prototype.isExperimentalShortcutDoorLocked.call(this, door)) {
+                adjacentLockedIds.add(door.shortcutId);
+                if (!this.experimentalShortcutPromptedIds?.has(door.shortcutId)) {
+                    this.experimentalShortcutPromptedIds ||= new Set();
+                    this.experimentalShortcutPromptedIds.add(door.shortcutId);
+                    this.experimentalObjectiveMessage = {
+                        lines: [door.sourceMessage],
+                        remaining: EXPERIMENTAL_OBJECTIVE_MESSAGE_DURATION
+                    };
+                }
+            }
+        }
+        for (const shortcutId of this.experimentalShortcutPromptedIds || []) {
+            if (!adjacentLockedIds.has(shortcutId)) this.experimentalShortcutPromptedIds.delete(shortcutId);
+        }
+        return changed;
     }
 
     getWorldRules() {
@@ -2274,7 +2328,10 @@ export class Game {
         try {
             this.experimentalProfiles.updateProfile(
                 this.selectedExperimentalProfileSlot,
-                player.getPersistentProgressionSnapshot()
+                {
+                    ...player.getPersistentProgressionSnapshot(),
+                    unlockedShortcutIds: [...(this.experimentalUnlockedShortcutIds || [])]
+                }
             );
             return true;
         } catch (error) {
@@ -2430,6 +2487,7 @@ export class Game {
             return false;
         }
         if (!options.preserveNewGamePlusCycle) this.experimentalNewGamePlusCycle = 0;
+        this.experimentalUnlockedShortcutIds = new Set(selectedProfile.unlockedShortcutIds || []);
         this.closePauseMenu();
         this.hideArcadeGameOver();
         this.arcadeGameOver = false;
@@ -3461,7 +3519,10 @@ export class Game {
 
         if (worldRules.usesRooms) {
             this.players.filter(player => !player.isDead && !player.isNPC)
-                .forEach(player => this.resolveExperimentalPlayerRoomMembership(player));
+                .forEach(player => {
+                    Game.prototype.updateExperimentalShortcutInteractions.call(this, player);
+                    this.resolveExperimentalPlayerRoomMembership(player);
+                });
         }
 
         this.reconcileArcadeNPCs();
@@ -3524,7 +3585,8 @@ export class Game {
         for (const door of connectedDoors) {
             if (door.blockedCategories.includes(category)
                 || (category === EXPERIMENTAL_COLLISION_CATEGORY.HUMAN_PLAYER
-                    && Game.prototype.isExperimentalProgressionDoorLocked.call(this, door))) walls.push(door.blocker);
+                    && (Game.prototype.isExperimentalProgressionDoorLocked.call(this, door)
+                        || Game.prototype.isExperimentalShortcutDoorLocked.call(this, door)))) walls.push(door.blocker);
         }
         return walls;
     }
@@ -5143,14 +5205,15 @@ export class Game {
             ctx.restore();
         }
         for (const door of this.experimentalDoors || []) {
-            if (!Game.prototype.isExperimentalProgressionDoorLocked.call(this, door)) continue;
+            const shortcutLocked = Game.prototype.isExperimentalShortcutDoorLocked.call(this, door);
+            if (!shortcutLocked && !Game.prototype.isExperimentalProgressionDoorLocked.call(this, door)) continue;
             const blocker = door.blocker;
             const dx = blocker.end.x - blocker.start.x;
             const dy = blocker.end.y - blocker.start.y;
             ctx.save();
             camera.apply(ctx, blocker.start.x, blocker.start.y);
-            ctx.strokeStyle = '#ff5a5a';
-            ctx.shadowColor = '#ff2020';
+            ctx.strokeStyle = shortcutLocked ? door.color : '#ff5a5a';
+            ctx.shadowColor = shortcutLocked ? door.color : '#ff2020';
             ctx.shadowBlur = 18;
             ctx.lineWidth = 10;
             ctx.beginPath();

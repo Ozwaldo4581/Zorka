@@ -136,14 +136,13 @@ test('Experimental room and door state re-entry initializes one clean layout', (
         players: [], asteroids: [], hazards: [], projectiles: []
     };
     Game.prototype.initializeExperimentalRooms.call(game);
-    assert.equal(game.experimentalRooms.length, 17);
-    assert.deepEqual(game.experimentalRooms.filter(area => area.roomNumber === 0).map(area => area.id),
-        Array.from({ length: 8 }, (_, index) => `experimental-hallway-${index + 1}-${index + 2}`));
-    assert.equal(game.experimentalDoors.length, 16);
+    assert.equal(game.experimentalRooms.length, 20);
+    assert.equal(game.experimentalRooms.filter(area => area.roomNumber === 0).length, 11);
+    assert.equal(game.experimentalDoors.length, 22);
     Game.prototype.clearExperimentalState.call(game);
     Game.prototype.initializeExperimentalRooms.call(game);
-    assert.equal(game.experimentalRooms.length, 17);
-    assert.equal(game.experimentalDoors.length, 16);
+    assert.equal(game.experimentalRooms.length, 20);
+    assert.equal(game.experimentalDoors.length, 22);
     assert.equal(game.experimentalRoomPopulations.size, 9);
     const sector9 = game.experimentalRooms.find(area => area.roomNumber === 9);
     assert.equal(sector9.ordinaryNPCsAllowed, false);

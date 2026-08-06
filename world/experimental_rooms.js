@@ -71,6 +71,18 @@ export function getSector9BBGAnchorWorldPosition(room, anchor) {
 
 export const EXPERIMENTAL_AREA_TYPE = Object.freeze({ ROOM: 'ROOM', HALLWAY: 'HALLWAY' });
 
+export const EXPERIMENTAL_SHORTCUT_ID = Object.freeze({
+    SECTOR_1_TO_4: 'sector-1-to-4',
+    SECTOR_1_TO_6: 'sector-1-to-6',
+    SECTOR_1_TO_8: 'sector-1-to-8'
+});
+
+const SHORTCUT_ROUTE = Object.freeze([
+    Object.freeze({ id: EXPERIMENTAL_SHORTCUT_ID.SECTOR_1_TO_4, destinationRoomNumber: 4, direction: 'LEFT', sourceWall: 'left', destinationWall: 'right', color: '#248cff', colorName: 'blue' }),
+    Object.freeze({ id: EXPERIMENTAL_SHORTCUT_ID.SECTOR_1_TO_6, destinationRoomNumber: 6, direction: 'UP', sourceWall: 'top', destinationWall: 'bottom', color: '#25d366', colorName: 'green' }),
+    Object.freeze({ id: EXPERIMENTAL_SHORTCUT_ID.SECTOR_1_TO_8, destinationRoomNumber: 8, direction: 'RIGHT', sourceWall: 'right', destinationWall: 'left', color: '#ff2bd6', colorName: 'magenta' })
+]);
+
 const ROUTE = Object.freeze([
     [1, 2, 'DOWN'], [2, 3, 'LEFT'], [3, 4, 'UP'], [4, 5, 'UP'],
     [5, 6, 'RIGHT'], [6, 7, 'RIGHT'], [7, 8, 'DOWN'], [8, 9, 'DOWN']
@@ -129,6 +141,29 @@ function hallwayBounds(source, direction) {
     if (direction === 'UP') return boundsAt(centerX - EXPERIMENTAL_HALLWAY_WIDTH / 2, source.top - EXPERIMENTAL_HALLWAY_LENGTH, EXPERIMENTAL_HALLWAY_WIDTH, EXPERIMENTAL_HALLWAY_LENGTH);
     if (direction === 'LEFT') return boundsAt(source.left - EXPERIMENTAL_HALLWAY_LENGTH, centerY - EXPERIMENTAL_HALLWAY_WIDTH / 2, EXPERIMENTAL_HALLWAY_LENGTH, EXPERIMENTAL_HALLWAY_WIDTH);
     return boundsAt(source.right, centerY - EXPERIMENTAL_HALLWAY_WIDTH / 2, EXPERIMENTAL_HALLWAY_LENGTH, EXPERIMENTAL_HALLWAY_WIDTH);
+}
+
+export function createExperimentalShortcutDefinitions(roomWidth, roomHeight) {
+    const sourceBounds = boundsAt(0, 0, roomWidth, roomHeight);
+    return Object.freeze(SHORTCUT_ROUTE.map(shortcut => {
+        const destinationOrigin = nextRoomOrigin(sourceBounds, shortcut.direction, roomWidth, roomHeight);
+        const destinationBounds = boundsAt(destinationOrigin.left, destinationOrigin.top, roomWidth, roomHeight);
+        const corridorBounds = hallwayBounds(sourceBounds, shortcut.direction);
+        const hallwayId = `experimental-shortcut-hallway-${shortcut.id}`;
+        const sourceGeometry = connectionGeometry({ id: 'experimental-room-1', bounds: sourceBounds }, { id: hallwayId, bounds: corridorBounds });
+        const destinationGeometry = connectionGeometry({ id: hallwayId, bounds: corridorBounds }, { id: `experimental-room-${shortcut.destinationRoomNumber}`, bounds: destinationBounds });
+        return Object.freeze({
+            ...shortcut,
+            sourceRoomId: 'experimental-room-1',
+            destinationRoomId: `experimental-room-${shortcut.destinationRoomNumber}`,
+            hallwayId,
+            hallwayBounds: corridorBounds,
+            sourceEntrance: Object.freeze({ role: 'LOCKED_SOURCE', ...sourceGeometry }),
+            destinationEntrance: Object.freeze({ role: 'UNLOCKING_DESTINATION', ...destinationGeometry }),
+            sourceMessage: 'Door opens from other side',
+            collisionCategory: 'persistent-shortcut'
+        });
+    }));
 }
 
 function connectionGeometry(first, second) {
@@ -200,10 +235,29 @@ export function createExperimentalAreas(roomWidth, roomHeight) {
         });
         byId.set(id, shells.at(-1));
     }
+    const shortcuts = createExperimentalShortcutDefinitions(roomWidth, roomHeight);
+    for (const shortcut of shortcuts) {
+        shells.push({
+            id: shortcut.hallwayId, areaType: EXPERIMENTAL_AREA_TYPE.HALLWAY, roomNumber: 0,
+            width: shortcut.hallwayBounds.right - shortcut.hallwayBounds.left,
+            height: shortcut.hallwayBounds.bottom - shortcut.hallwayBounds.top,
+            bounds: shortcut.hallwayBounds,
+            connectedAreaIds: [shortcut.sourceRoomId, shortcut.destinationRoomId],
+            shortcut
+        });
+        byId.set(shortcut.hallwayId, shells.at(-1));
+    }
     const connections = ROUTE.flatMap(([from, to]) => {
         const hallway = byId.get(`experimental-hallway-${from}-${to}`);
         return [[byId.get(`experimental-room-${from}`), hallway], [hallway, byId.get(`experimental-room-${to}`)]];
     }).map(([first, second]) => ({ first, second, ...connectionGeometry(first, second) }));
+    for (const shortcut of shortcuts) {
+        const hallway = byId.get(shortcut.hallwayId);
+        connections.push(
+            { first: byId.get(shortcut.sourceRoomId), second: hallway, ...shortcut.sourceEntrance },
+            { first: hallway, second: byId.get(shortcut.destinationRoomId), ...shortcut.destinationEntrance }
+        );
+    }
 
     return shells.map(shell => {
         const areaConnections = connections.filter(connection => connection.first.id === shell.id || connection.second.id === shell.id);
@@ -243,12 +297,20 @@ export function createExperimentalDoors(areas) {
         const connected = byId.get(connectedId);
         if (!connected) continue;
         const geometry = connectionGeometry(area, connected);
+        const shortcut = area.shortcut || connected.shortcut || null;
+        const isShortcutSource = Boolean(shortcut && [area.id, connected.id].includes(shortcut.sourceRoomId));
+        const shortcutRole = shortcut
+            ? (isShortcutSource ? shortcut.sourceEntrance.role : shortcut.destinationEntrance.role)
+            : null;
         const openingMin = geometry.openingCenter - EXPERIMENTAL_ENTRANCE_WIDTH / 2;
         const openingMax = geometry.openingCenter + EXPERIMENTAL_ENTRANCE_WIDTH / 2;
         const horizontal = geometry.orientation === 'HORIZONTAL';
         const id = `experimental-entrance-${area.id}-${connected.id}`;
         doors.push(Object.freeze({
             id, roomIds: Object.freeze([area.id, connected.id]), ...geometry,
+            shortcutId: shortcut?.id || null, shortcutRole,
+            color: shortcut?.color || null, colorName: shortcut?.colorName || null,
+            sourceMessage: isShortcutSource ? shortcut?.sourceMessage : null,
             openingMin, openingMax, openingWidth: EXPERIMENTAL_ENTRANCE_WIDTH,
             transitionTolerance: DOOR_TRANSITION_TOLERANCE, sharedWallIds: Object.freeze([]),
             blocker: Object.freeze({

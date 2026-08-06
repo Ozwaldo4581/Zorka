@@ -1,9 +1,12 @@
+import { EXPERIMENTAL_SHORTCUT_ID } from '../world/experimental_rooms.js';
+
 export const EXPERIMENTAL_PROFILE_STORAGE_KEY = 'zorka.experimentalProfiles.v1';
-export const EXPERIMENTAL_PROFILE_SCHEMA_VERSION = 3;
+export const EXPERIMENTAL_PROFILE_SCHEMA_VERSION = 4;
 export const EXPERIMENTAL_PROFILE_SLOT_COUNT = 5;
 export const EXPERIMENTAL_PROFILE_NAME_MAX_LENGTH = 20;
 
 const emptySlots = () => Array(EXPERIMENTAL_PROFILE_SLOT_COUNT).fill(null);
+const KNOWN_SHORTCUT_IDS = Object.freeze(Object.values(EXPERIMENTAL_SHORTCUT_ID));
 const integer = (value, minimum = 0) => Number.isFinite(Number(value))
     ? Math.max(minimum, Math.floor(Number(value)))
     : minimum;
@@ -19,6 +22,9 @@ export function normalizeExperimentalProfile(profile, slot) {
         profile.shieldRechargeUpgradeCount ?? profile.levelShieldUpgradeCount
     ));
     const usedLevelUps = projectileUpgradeCount + speedUpgradeCount + shieldRechargeUpgradeCount;
+    const unlockedShortcutIds = [...new Set(Array.isArray(profile.unlockedShortcutIds)
+        ? profile.unlockedShortcutIds.filter(id => KNOWN_SHORTCUT_IDS.includes(id))
+        : [])];
     return Object.freeze({
         version: EXPERIMENTAL_PROFILE_SCHEMA_VERSION,
         slot,
@@ -29,7 +35,8 @@ export function normalizeExperimentalProfile(profile, slot) {
         projectileUpgradeCount,
         speedUpgradeCount,
         shieldRechargeUpgradeCount,
-        deaths: integer(profile.deaths)
+        deaths: integer(profile.deaths),
+        unlockedShortcutIds: Object.freeze(unlockedShortcutIds)
     });
 }
 
@@ -122,6 +129,13 @@ export class ExperimentalProfileStore {
         slots[slot] = profile;
         this.persist(slots);
         return { ...profile };
+    }
+
+    resetShortcutUnlocks(slot) {
+        this.assertSlot(slot);
+        const profile = this.getProfile(slot);
+        if (!profile) throw new Error('The selected profile no longer exists.');
+        return this.updateProfile(slot, { ...profile, unlockedShortcutIds: [] });
     }
 
 
