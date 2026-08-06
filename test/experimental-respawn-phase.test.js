@@ -95,6 +95,39 @@ test('Experimental human respawn returns to Sector 1 and chooses a different sha
     assert.equal(player.spawnImmunityTimer, 0);
 });
 
+test('Experimental human respawn reassigns only living NPC color conflicts', () => {
+    const rooms = createExperimentalAreas(WORLD_WIDTH, WORLD_HEIGHT);
+    const previousColor = PLAYER_COLORS[0];
+    const expectedNewColor = chooseDifferentPlayerColor(previousColor, () => 0);
+    const human = Object.assign(new Player(1, 2, 1, previousColor), {
+        isDead: true,
+        roomId: rooms.find(room => room.roomNumber === 2).id
+    });
+    const conflicting = Object.assign(new Player(10, 10, 2, expectedNewColor), { isNPC: true });
+    const unchanged = Object.assign(new Player(20, 20, 3, PLAYER_COLORS.at(-1)), { isNPC: true });
+    const deadConflict = Object.assign(new Player(30, 30, 4, expectedNewColor), { isNPC: true, isDead: true });
+    const game = {
+        gameState: GAME_MODE.EXPERIMENTAL,
+        experimentalRooms: rooms,
+        experimentalAreaIndexes: null,
+        players: [human, conflicting, unchanged, deadConflict],
+        audio: { startGameplayMusic() {} },
+        showExperimentalSectorMessage() {}
+    };
+    const originalRandom = Math.random;
+    Math.random = () => 0;
+    try {
+        Game.prototype.respawnPlayer.call(game, human);
+    } finally {
+        Math.random = originalRandom;
+    }
+
+    assert.equal(human.color, expectedNewColor);
+    assert.notEqual(conflicting.color, human.color);
+    assert.equal(unchanged.color, PLAYER_COLORS.at(-1));
+    assert.equal(deadConflict.color, expectedNewColor);
+});
+
 test('different-color selection reuses the shared palette and excludes the current color', () => {
     for (const currentColor of PLAYER_COLORS) {
         assert.notEqual(chooseDifferentPlayerColor(currentColor, () => 0), currentColor);

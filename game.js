@@ -87,9 +87,13 @@ export function resolveProjectileConsumption(firstCategory, secondCategory) {
     if (isMissile(secondCategory) && isDamaging(firstCategory)) {
         return firstCategory === ORDINARY_GUN ? PROJECTILE_CONSUMPTION.BOTH : PROJECTILE_CONSUMPTION.SECOND;
     }
-    if ((firstCategory === LASER && secondCategory === ORB)
-        || (firstCategory === ORB && secondCategory === LASER)
-        || (firstCategory === ORB && secondCategory === ORB)) {
+    if (firstCategory === LASER && secondCategory === ORB) {
+        return PROJECTILE_CONSUMPTION.SECOND;
+    }
+    if (firstCategory === ORB && secondCategory === LASER) {
+        return PROJECTILE_CONSUMPTION.FIRST;
+    }
+    if (firstCategory === ORB && secondCategory === ORB) {
         return PROJECTILE_CONSUMPTION.BOTH;
     }
     if (firstCategory === ORB && secondCategory === ORDINARY_GUN) {
@@ -1684,11 +1688,12 @@ export class Game {
         if (state.initialized) return false;
         const room = Game.prototype.getSector9BBGRoom.call(this);
         if (!room) return false;
+        const humanColor = this.players.find(player => !player.isNPC)?.color;
         let nextNpcId = Math.max(1, ...this.players.map(player => player.id || 0)) + 1;
         for (const anchor of SECTOR_9_BBG_ENCOUNTER.anchors) {
             const position = getSector9BBGAnchorWorldPosition(room, anchor);
             if (!position) continue;
-            const npc = new Player(position.x, position.y, nextNpcId++, chooseRandomPlayerColor());
+            const npc = new Player(position.x, position.y, nextNpcId++, chooseOrdinaryNPCColor(humanColor));
             if (typeof this.configurePlayerShields === 'function') this.configurePlayerShields(npc);
             npc.isNPC = true;
             npc.name = `BBG DEFENDER ${anchor.label || anchor.id}`;
@@ -2169,6 +2174,17 @@ export class Game {
         return spawned;
     }
 
+    reconcileExperimentalNPCColorConflicts(human) {
+        if (this.gameState !== GAME_MODE.EXPERIMENTAL || !human || human.isNPC) return 0;
+        let reassigned = 0;
+        for (const npc of this.players) {
+            if (!npc?.isNPC || npc.isDead || npc.isEliminated || npc.color !== human.color) continue;
+            npc.color = chooseOrdinaryNPCColor(human.color);
+            reassigned++;
+        }
+        return reassigned;
+    }
+
     isLivingOrdinaryExperimentalRoomEnemy(player, roomId = player?.roomId) {
         return this.gameState === GAME_MODE.EXPERIMENTAL && player instanceof Player && player.isNPC
             && player.isOrdinaryExperimentalNPC === true && player.roomId === roomId
@@ -2425,7 +2441,6 @@ export class Game {
         // Reuse the shared Solo human contract; room-configured NPCs are added below.
         this.spawnPlayers(GAME_MODE.SOLO, 2);
         this.gameState = GAME_MODE.EXPERIMENTAL;
-        this.initializeExperimentalWorldState();
     }
 
     initializeExperimentalWorldState() {
@@ -2588,13 +2603,14 @@ export class Game {
         human.name = selectedProfile.name;
         human.applyPersistentProgression(selectedProfile);
         human.resetTransientLifeState();
+        human.color = chooseRandomPlayerColor();
+        this.initializeExperimentalWorldState();
 
         // Adventure/Experimental mode entry uses the same human materialization
-        // sequence as a post-death respawn. setupExperimentalPopulations() has
-        // already placed the player at the center of Sector 1.
+        // sequence as a post-death respawn. World initialization has placed the
+        // player at the center of Sector 1 using the final human color for NPCs.
         human.previousX = human.x;
         human.previousY = human.y;
-        human.color = chooseDifferentPlayerColor(human.color);
         human.startExperimentalRespawnPhase(human.x, human.y);
 
         human.onPersistentProgressionChanged = player => Game.prototype.saveExperimentalProfile.call(this, player);
@@ -3893,10 +3909,12 @@ export class Game {
                 player.resetLevelProgress();
                 player.initializeNPCLevel(Game.prototype.getExperimentalEnemyLevel.call(this, room.npcLevel));
                 player.applyRandomCapsulePowerUps(Math.floor(player.level * 0.75));
-                player.color = chooseRandomPlayerColor();
+                const humanColor = this.players.find(candidate => !candidate.isNPC)?.color;
+                player.color = chooseOrdinaryNPCColor(humanColor);
                 player.rollAggression();
             } else {
                 player.color = chooseDifferentPlayerColor(player.color);
+                Game.prototype.reconcileExperimentalNPCColorConflicts.call(this, player);
                 player.startExperimentalRespawnPhase(spawn.x, spawn.y);
                 Game.prototype.showExperimentalSectorMessage.call(this, 1);
             }

@@ -489,6 +489,7 @@ test('Experimental composition follows each room NPC count and level', () => {
             Array.from({ length: room.npcCount }, () => [room.id, room.npcLevel])
         )));
     assert.equal(game.players.filter(player => player.isSector9BBGEncounterNPC).length, 7);
+    assert.equal(game.players.slice(1).every(player => player.color !== game.players[0].color), true);
     assert.ok(game.players.slice(1).every(player => Math.hypot(game.players[0].x - player.x, game.players[0].y - player.y) > 120));
 });
 
