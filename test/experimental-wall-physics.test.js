@@ -26,6 +26,7 @@ const createExperimentalContext = overrides => {
         gameState: GAME_MODE.EXPERIMENTAL,
         experimentalRooms,
         experimentalDoors: createExperimentalDoors(experimentalRooms),
+        experimentalUnlockedShortcutIds: new Set(['sector-1-to-4', 'sector-1-to-6', 'sector-1-to-8']),
         players: [],
         asteroids: [],
         hazards: [],

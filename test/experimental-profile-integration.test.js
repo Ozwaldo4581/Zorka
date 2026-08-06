@@ -4,7 +4,7 @@ import { readFile } from 'node:fs/promises';
 
 import { Game, GAME_MODE, WORLD_HEIGHT, WORLD_WIDTH } from '../game.js';
 import { Player } from '../entities/player.js';
-import { createExperimentalAreas } from '../world/experimental_rooms.js';
+import { createExperimentalAreas, createExperimentalDoors } from '../world/experimental_rooms.js';
 
 test('profile menu supplies five slots, name entry, and Adventure launch routing', async () => {
     const html = await readFile(new URL('../index.html', import.meta.url), 'utf8');
@@ -85,4 +85,74 @@ test('autosave accepts only the selected Experimental human', () => {
     assert.equal(Game.prototype.saveExperimentalProfile.call(game, human), false);
     assert.equal(writes.length, 2);
     assert.equal(writes[0].slot, 2);
+    assert.deepEqual(writes[0].snapshot.unlockedShortcutIds, []);
+});
+
+test('locked shortcut collision, remote human activation, immediate save, and message use separate runtime state', () => {
+    const areas = createExperimentalAreas(WORLD_WIDTH, WORLD_HEIGHT);
+    const doors = createExperimentalDoors(areas);
+    const sourceDoor = doors.find(door => door.shortcutId === 'sector-1-to-4' && door.shortcutRole === 'LOCKED_SOURCE');
+    const remoteDoor = doors.find(door => door.shortcutId === 'sector-1-to-4' && door.shortcutRole === 'UNLOCKING_DESTINATION');
+    const human = Object.assign(new Player(sourceDoor.boundaryCoordinate + 10, sourceDoor.openingCenter), {
+        roomId: 'experimental-room-1'
+    });
+    const saves = [];
+    const game = {
+        gameState: GAME_MODE.EXPERIMENTAL,
+        players: [human],
+        experimentalRooms: areas,
+        experimentalDoors: doors,
+        experimentalEncounterStates: new Map(),
+        experimentalUnlockedShortcutIds: new Set(),
+        selectedExperimentalProfileSlot: 0,
+        experimentalProfiles: { updateProfile(slot, snapshot) { saves.push({ slot, snapshot }); } }
+    };
+
+    assert.equal(Game.prototype.getExperimentalCollisionWalls.call(game, human).includes(sourceDoor.blocker), true);
+    Game.prototype.updateExperimentalShortcutInteractions.call(game, human);
+    assert.deepEqual(game.experimentalObjectiveMessage.lines, ['Door opens from other side']);
+    assert.equal(game.experimentalUnlockedShortcutIds.size, 0);
+
+    Object.assign(human, {
+        roomId: 'experimental-room-4',
+        x: remoteDoor.boundaryCoordinate - 10,
+        y: remoteDoor.openingCenter
+    });
+    assert.equal(Game.prototype.updateExperimentalShortcutInteractions.call(game, human), true);
+    assert.deepEqual([...game.experimentalUnlockedShortcutIds], ['sector-1-to-4']);
+    assert.equal(saves.length, 1);
+    assert.deepEqual(saves[0].snapshot.unlockedShortcutIds, ['sector-1-to-4']);
+    assert.deepEqual(game.experimentalObjectiveMessage.lines, ['Shortcut to Sector 1 opened.']);
+
+    Object.assign(human, { roomId: 'experimental-room-1', x: sourceDoor.boundaryCoordinate + 10, y: sourceDoor.openingCenter });
+    assert.equal(Game.prototype.getExperimentalCollisionWalls.call(game, human).includes(sourceDoor.blocker), false);
+    assert.equal(Game.prototype.updateExperimentalShortcutInteractions.call(game, human), false);
+    assert.equal(saves.length, 1);
+});
+
+test('NPCs cannot activate remote shortcut entrances', () => {
+    const areas = createExperimentalAreas(WORLD_WIDTH, WORLD_HEIGHT);
+    const remoteDoor = createExperimentalDoors(areas)
+        .find(door => door.shortcutId === 'sector-1-to-6' && door.shortcutRole === 'UNLOCKING_DESTINATION');
+    const npc = Object.assign(new Player(remoteDoor.openingCenter, remoteDoor.boundaryCoordinate, 2), {
+        isNPC: true,
+        roomId: 'experimental-room-6'
+    });
+    const game = {
+        gameState: GAME_MODE.EXPERIMENTAL,
+        experimentalDoors: createExperimentalDoors(areas),
+        experimentalUnlockedShortcutIds: new Set()
+    };
+    assert.equal(Game.prototype.updateExperimentalShortcutInteractions.call(game, npc), false);
+    assert.equal(game.experimentalUnlockedShortcutIds.size, 0);
+});
+
+test('normal Experimental cleanup leaves profile-owned shortcut runtime progression intact', () => {
+    const game = {
+        players: [], asteroids: [], hazards: [], projectiles: [],
+        experimentalUnlockedShortcutIds: new Set(['sector-1-to-6']),
+        experimentalRooms: [], experimentalDoors: [], camera: null
+    };
+    Game.prototype.clearExperimentalState.call(game);
+    assert.deepEqual([...game.experimentalUnlockedShortcutIds], ['sector-1-to-6']);
 });
