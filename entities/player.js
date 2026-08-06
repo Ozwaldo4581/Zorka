@@ -232,8 +232,8 @@ export class Player {
             level: this.level,
             hullStrength: this.maxHP,
             shields: `${this.shieldCharges}/${this.maxShieldCharges}`,
-            projectile: `${this.projectileUpgradeCount}/${this.maxProjectileUpgrades}`,
-            shieldRecharge: `${this.shieldRechargeUpgradeCount}/${this.maxShieldRechargeUpgrades}`,
+            projectile: this.projectileUpgradeCount,
+            shieldRecharge: this.shieldRechargeUpgradeCount,
             shieldRechargeDelay: this.shieldRechargeDelay,
             speed: 1 + this.speedUpgradeCount,
             deaths: this.deaths

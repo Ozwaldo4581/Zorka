@@ -141,9 +141,7 @@ export class ExperimentalProfileStore {
     getSummaries() {
         return this.loadSlots().map(profile => profile
             ? Object.freeze({
-                slot: profile.slot, name: profile.name, level: profile.level,
-                projectileUpgradeCount: profile.projectileUpgradeCount,
-                shieldRechargeUpgradeCount: profile.shieldRechargeUpgradeCount
+                slot: profile.slot, name: profile.name, level: profile.level
             })
             : null);
     }

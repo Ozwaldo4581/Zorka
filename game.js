@@ -1,4 +1,4 @@
-import { Player, MAX_PROJECTILE_UPGRADES, MAX_SHIELD_RECHARGE_UPGRADES } from './entities/player.js';
+import { Player } from './entities/player.js';
 import { Asteroid } from './entities/asteroid.js';
 import { SpaceDebris, Satellite } from './entities/hazards.js';
 import { Projectile } from './entities/projectile.js';
@@ -1825,6 +1825,7 @@ export class Game {
             this.experimentalEncounterStates.set(room.id, {
                 roomId: room.id, encounterCleared: false, doorUnlocked: false, populationSpawned: false,
                 npcCount: room.npcCount, npcLevel: room.npcLevel,
+                requiredPlayerKills: room.npcCount, playerCreditedKills: 0,
                 progressionDoorId: progressionDoor?.id || null,
                 progressionHallwayId: hallway?.id || null
             });
@@ -2003,12 +2004,12 @@ export class Game {
         }
     }
 
-    spawnOrdinaryExperimentalRoomNPCs(roomId, placedPlayers = this.players) {
+    spawnOrdinaryExperimentalRoomNPCs(roomId, placedPlayers = this.players, spawnCount = null) {
         const room = Game.prototype.getExperimentalRoom.call(this, roomId);
         if (!room || !Game.prototype.allowsOrdinaryExperimentalNPCPopulation.call(this, room)
             || room.roomNumber >= SECTOR_9_BBG_ENCOUNTER.roomNumber) return [];
         const encounter = Game.prototype.getExperimentalEncounterState.call(this, room.id);
-        const count = encounter?.npcCount ?? room.npcCount;
+        const count = spawnCount === null ? (encounter?.npcCount ?? room.npcCount) : Math.max(0, spawnCount);
         let nextNpcId = Math.max(1, ...this.players.map(player => player.id || 0)) + 1;
         const spawned = [];
         for (let index = 0; index < count; index++) {
@@ -2041,13 +2042,35 @@ export class Game {
             && !player.isDead && !player.isEliminated;
     }
 
-    evaluateExperimentalRoomClear(deadNPC) {
+    resolveExperimentalHumanKillCredit(victim, source) {
+        if (this.gameState !== GAME_MODE.EXPERIMENTAL || !victim?.isOrdinaryExperimentalNPC) return null;
+        const killer = Game.prototype.resolveCombatParticipant.call(this, source);
+        if (!killer || killer === victim || killer.isNPC || !this.players.includes(killer)) return null;
+        return killer;
+    }
+
+    resolveExperimentalOrdinaryNPCDeath(deadNPC, source) {
         if (!deadNPC?.isOrdinaryExperimentalNPC) return false;
         const encounter = Game.prototype.getExperimentalEncounterState.call(this, deadNPC.roomId);
-        if (!encounter || encounter.encounterCleared) return false;
-        const remaining = this.players.some(player => player !== deadNPC
-            && Game.prototype.isLivingOrdinaryExperimentalRoomEnemy.call(this, player, deadNPC.roomId));
-        if (remaining) return false;
+        if (!encounter) return false;
+        const credited = Boolean(Game.prototype.resolveExperimentalHumanKillCredit.call(this, deadNPC, source));
+
+        Game.prototype.unindexExperimentalEntity.call(this, 'players', deadNPC);
+        const deadIndex = this.players.indexOf(deadNPC);
+        if (deadIndex !== -1) this.players.splice(deadIndex, 1);
+
+        if (!credited) {
+            if (!encounter.doorUnlocked) {
+                Game.prototype.spawnOrdinaryExperimentalRoomNPCs.call(this, deadNPC.roomId, this.players, 1);
+            }
+            return false;
+        }
+
+        encounter.playerCreditedKills = Math.min(
+            encounter.requiredPlayerKills,
+            encounter.playerCreditedKills + 1
+        );
+        if (encounter.doorUnlocked || encounter.playerCreditedKills < encounter.requiredPlayerKills) return false;
         encounter.encounterCleared = true;
         encounter.doorUnlocked = true;
         encounter.populationSpawned = false;
@@ -2130,7 +2153,7 @@ export class Game {
                 name.textContent = summary.name;
                 const level = document.createElement('span');
                 level.className = 'profile-slot-level';
-                level.textContent = `Lvl ${summary.level} · Projectile ${summary.projectileUpgradeCount}/${MAX_PROJECTILE_UPGRADES} · Shield Recharge ${summary.shieldRechargeUpgradeCount}/${MAX_SHIELD_RECHARGE_UPGRADES}`;
+                level.textContent = `Lvl ${summary.level}`;
                 button.append(name, level);
                 button.addEventListener('click', () => this.selectExperimentalProfile(slot));
             } else {
@@ -2294,7 +2317,10 @@ export class Game {
         const encounter = Game.prototype.getExperimentalEncounterState.call(this, human?.roomId);
         this.experimentalObjectiveMessage = {
             lines: encounter && !encounter.doorUnlocked
-                ? ['Defeat all enemies to open the hallway.']
+                ? [
+                    'Defeat the required enemies yourself to open the hallway.',
+                    `Player kills remaining: ${Math.max(0, encounter.requiredPlayerKills - encounter.playerCreditedKills)}`
+                ]
                 : ['The Princess is in Sector 9!', 'Save the Princess!', 'Save the Galaxy!'],
             remaining: EXPERIMENTAL_OBJECTIVE_MESSAGE_DURATION
         };
@@ -3924,8 +3950,7 @@ export class Game {
         if (this.gameState === GAME_MODE.EXPERIMENTAL && player.isNPC && player.isOrdinaryExperimentalNPC) {
             player.isEliminated = true;
             player.respawnTimer = 0;
-            Game.prototype.unindexExperimentalEntity.call(this, 'players', player);
-            Game.prototype.evaluateExperimentalRoomClear.call(this, player);
+            Game.prototype.resolveExperimentalOrdinaryNPCDeath.call(this, player, killer);
         }
 
         if (this.gameState === GAME_MODE.EXPERIMENTAL && !player.isNPC) {

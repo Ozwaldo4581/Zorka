@@ -37,37 +37,83 @@ test('ordinary encounter records gate only the outgoing progression door and exc
     assert.equal([...game.experimentalEncounterStates.keys()].some(id => id.includes('hallway')), false);
 
     const room1 = game.experimentalEncounterStates.get('experimental-room-1');
-    assert.deepEqual({ cleared: room1.encounterCleared, unlocked: room1.doorUnlocked, count: room1.npcCount, level: room1.npcLevel },
-        { cleared: false, unlocked: false, count: 1, level: 1 });
+    assert.deepEqual({
+        cleared: room1.encounterCleared, unlocked: room1.doorUnlocked, count: room1.npcCount,
+        required: room1.requiredPlayerKills, credited: room1.playerCreditedKills, level: room1.npcLevel
+    }, { cleared: false, unlocked: false, count: 1, required: 1, credited: 0, level: 1 });
     const outgoing = game.experimentalDoors.find(door => door.id === room1.progressionDoorId);
     const incoming = game.experimentalDoors.find(door => door.roomIds.includes('experimental-room-1') && door !== outgoing);
     assert.equal(Game.prototype.isExperimentalProgressionDoorLocked.call(game, outgoing), true);
     assert.equal(Game.prototype.isExperimentalProgressionDoorLocked.call(game, incoming), false);
 });
 
-test('partial deaths stay locked, the final ordinary death permanently unlocks, and reset preserves history', () => {
+test('only human-credited ordinary NPC deaths unlock at the configured target', () => {
     const game = createContext();
     const roomId = 'experimental-room-2';
-    game.players = [ordinaryNPC(roomId, 2), ordinaryNPC(roomId, 3), ordinaryNPC(roomId, 4)];
+    const human = Object.assign(new Player(100, 400, 1), { roomId });
+    game.players = [human, ordinaryNPC(roomId, 2), ordinaryNPC(roomId, 3), ordinaryNPC(roomId, 4)];
     for (const npc of game.players) Game.prototype.indexExperimentalEntity.call(game, 'players', npc);
 
-    const [first, second, final] = game.players;
-    first.isDead = first.isEliminated = true;
-    assert.equal(Game.prototype.evaluateExperimentalRoomClear.call(game, first), false);
-    second.isDead = second.isEliminated = true;
-    assert.equal(Game.prototype.evaluateExperimentalRoomClear.call(game, second), false);
-    final.isDead = final.isEliminated = true;
-    assert.equal(Game.prototype.evaluateExperimentalRoomClear.call(game, final), true);
-
     const state = game.experimentalEncounterStates.get(roomId);
+    const first = game.players[1];
+    assert.equal(Game.prototype.resolveExperimentalOrdinaryNPCDeath.call(game, first, human), false);
+    assert.equal(state.playerCreditedKills, 1);
+    assert.equal(state.doorUnlocked, false);
+
+    const second = game.players.find(player => player.isOrdinaryExperimentalNPC);
+    assert.equal(Game.prototype.resolveExperimentalOrdinaryNPCDeath.call(game, second, { owner: human }), false);
+    assert.equal(state.playerCreditedKills, 2);
+
+    const final = game.players.find(player => player.isOrdinaryExperimentalNPC);
+    assert.equal(Game.prototype.resolveExperimentalOrdinaryNPCDeath.call(game, final, human), true);
     assert.equal(state.doorUnlocked, true);
-    assert.equal(Game.prototype.evaluateExperimentalRoomClear.call(game, final), false);
     const replacements = Game.prototype.resetExperimentalRoomEncounter.call(game, roomId);
     assert.equal(replacements.length, state.npcCount);
     assert.equal(game.players.filter(player => player.roomId === roomId && player.isOrdinaryExperimentalNPC).length, state.npcCount);
     assert.equal(state.encounterCleared, true);
     assert.equal(state.doorUnlocked, true);
     assert.ok(replacements.every(player => player.noRespawn && player.respawnTimer === 0));
+    assert.equal(state.playerCreditedKills, state.requiredPlayerKills);
+});
+
+test('non-human and environmental ordinary NPC deaths replace one opportunity without progress', () => {
+    const sources = [
+        null,
+        {},
+        Object.assign(new Player(0, 0, 50), { isNPC: true }),
+        { owner: Object.assign(new Player(0, 0, 51), { isNPC: true }) },
+        { isSatellite: true },
+        { isDebris: true },
+        { size: 'large' },
+        { owner: null }
+    ];
+    for (const source of sources) {
+        const game = createContext();
+        const roomId = 'experimental-room-2';
+        const human = Object.assign(new Player(0, 0, 1), { roomId });
+        const victim = ordinaryNPC(roomId, 2);
+        game.players = [human, victim];
+        Game.prototype.indexExperimentalEntity.call(game, 'players', victim);
+        assert.equal(Game.prototype.resolveExperimentalOrdinaryNPCDeath.call(game, victim, source), false);
+        const state = game.experimentalEncounterStates.get(roomId);
+        assert.equal(state.playerCreditedKills, 0);
+        assert.equal(state.requiredPlayerKills, 3);
+        const replacements = game.players.filter(player => player.isOrdinaryExperimentalNPC);
+        assert.equal(replacements.length, 1);
+        assert.equal(replacements[0].roomId, roomId);
+        assert.equal(replacements[0].level, state.npcLevel);
+        assert.equal(replacements[0].aggressionLevel, game.botAggressionLevel);
+        assert.ok(game.experimentalAreaIndexes.get(roomId).players.has(replacements[0]));
+    }
+});
+
+test('self-kills and inactive human sources do not receive encounter credit', () => {
+    const game = createContext();
+    const roomId = 'experimental-room-1';
+    const victim = ordinaryNPC(roomId, 2);
+    game.players = [victim];
+    assert.equal(Game.prototype.resolveExperimentalHumanKillCredit.call(game, victim, victim), null);
+    assert.equal(Game.prototype.resolveExperimentalHumanKillCredit.call(game, victim, new Player(0, 0, 3)), null);
 });
 
 test('locked progression collision is human-only while ordinary blockers remain unchanged', () => {
