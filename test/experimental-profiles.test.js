@@ -34,9 +34,9 @@ test('creating and updating one trimmed profile preserves every other slot', () 
         powerUpCapsules: 5, activeGun: 'Laser', roomId: 'experimental-room-9'
     });
     assert.deepEqual(store.getProfile(2), {
-        version: 4, slot: 2, name: 'Nova', level: 4, totalXP: 750, pendingLevelUps: 1,
+        version: 5, slot: 2, name: 'Nova', level: 4, totalXP: 750, pendingLevelUps: 1,
         projectileUpgradeCount: 1, speedUpgradeCount: 1, shieldRechargeUpgradeCount: 1, deaths: 0,
-        unlockedShortcutIds: []
+        newGamePlusCycle: 0, unlockedShortcutIds: []
     });
     assert.equal(store.loadSlots().filter(Boolean).length, 1);
     assert.equal(JSON.parse(storage.getItem(EXPERIMENTAL_PROFILE_STORAGE_KEY)).version, EXPERIMENTAL_PROFILE_SCHEMA_VERSION);
@@ -77,9 +77,9 @@ test('stored values are normalized, truncated, migrated, and stripped of tempora
     const profiles = new ExperimentalProfileStore(storage).loadSlots();
     assert.equal(profiles.length, 5);
     assert.deepEqual(profiles[0], {
-        version: 4, slot: 0, name: 'Pilot 0', level: 0, totalXP: 0, pendingLevelUps: 0,
+        version: 5, slot: 0, name: 'Pilot 0', level: 0, totalXP: 0, pendingLevelUps: 0,
         projectileUpgradeCount: 0, speedUpgradeCount: 0, shieldRechargeUpgradeCount: 0, deaths: 0,
-        unlockedShortcutIds: []
+        newGamePlusCycle: 0, unlockedShortcutIds: []
     });
     assert.equal('powerUpCapsules' in profiles[0], false);
     assert.equal('activeGun' in profiles[0], false);
@@ -95,9 +95,9 @@ test('version 1 migration preserves existing progression and permanent bonuses',
     }) });
     const [veteran, earlyTester] = new ExperimentalProfileStore(storage).loadSlots();
     assert.deepEqual(veteran, {
-        version: 4, slot: 0, name: 'Veteran', level: 1, totalXP: 237, pendingLevelUps: 0,
+        version: 5, slot: 0, name: 'Veteran', level: 1, totalXP: 237, pendingLevelUps: 0,
         projectileUpgradeCount: 1, speedUpgradeCount: 2, shieldRechargeUpgradeCount: 3, deaths: 0,
-        unlockedShortcutIds: []
+        newGamePlusCycle: 0, unlockedShortcutIds: []
     });
     assert.equal(earlyTester.level, 0);
     assert.equal(earlyTester.totalXP, 42);
@@ -115,4 +115,19 @@ test('shortcut unlocks normalize by stable ID, persist, and reset only through t
     assert.deepEqual(new ExperimentalProfileStore(storage).getProfile(0).unlockedShortcutIds, ['sector-1-to-4', 'sector-1-to-8']);
     assert.deepEqual(store.resetShortcutUnlocks(0).unlockedShortcutIds, []);
     assert.deepEqual(store.getSummaries()[0], { slot: 0, name: 'Pathfinder', level: 0 });
+});
+
+test('NG+ cycles migrate, persist per profile, survive partial saves, and delete with the profile', () => {
+    const storage = new FakeStorage();
+    const store = new ExperimentalProfileStore(storage);
+    assert.equal(store.createProfile(0, 'Normal').newGamePlusCycle, 0);
+    store.createProfile(1, 'Veteran');
+    store.updateProfile(1, { newGamePlusCycle: 2 });
+    store.updateProfile(1, { totalXP: 99 });
+    const reloaded = new ExperimentalProfileStore(storage);
+    assert.equal(reloaded.getProfile(0).newGamePlusCycle, 0);
+    assert.equal(reloaded.getProfile(1).newGamePlusCycle, 2);
+    assert.equal(reloaded.getProfile(1).totalXP, 99);
+    reloaded.deleteProfile(1);
+    assert.equal(reloaded.getProfile(1), null);
 });

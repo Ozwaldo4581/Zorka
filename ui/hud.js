@@ -312,8 +312,8 @@ export class HUD {
             { name: player.slot1Type || 'Antigun', type: 'GUN' },
             { name: 'Missile', type: 'ADD-ON' },
             { name: slot3Name, type: player.isMartian ? 'UPGRADE' : 'GUN' },
-            { name: 'Ghost', type: 'ADD-ON' },
-            { name: 'Shield', type: 'MAX +1' }
+            { name: 'Cyborg', type: 'WEAPON' },
+            { name: 'Ghost', type: 'ADD-ON' }
         ];
 
         const slotWidth = 90;

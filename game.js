@@ -1750,13 +1750,18 @@ export class Game {
 
     startExperimentalNewGamePlus() {
         const profile = Number.isInteger(this.selectedExperimentalProfileSlot)
-            ? this.experimentalProfiles.resetShortcutUnlocks(this.selectedExperimentalProfileSlot)
+            ? this.experimentalProfiles.getProfile(this.selectedExperimentalProfileSlot)
             : null;
         if (!profile) return false;
         this.experimentalUnlockedShortcutIds = new Set();
-        this.experimentalNewGamePlusCycle += 1;
+        this.experimentalNewGamePlusCycle = Math.max(0, profile.newGamePlusCycle || 0) + 1;
+        const updatedProfile = this.experimentalProfiles.updateProfile(this.selectedExperimentalProfileSlot, {
+            ...profile,
+            newGamePlusCycle: this.experimentalNewGamePlusCycle,
+            unlockedShortcutIds: []
+        });
         Game.prototype.hideVictoryScreen.call(this);
-        return this.startExperimentalMode(profile, { preserveNewGamePlusCycle: true });
+        return this.startExperimentalMode(updatedProfile);
     }
 
     clearExperimentalState() {
@@ -2330,6 +2335,7 @@ export class Game {
                 this.selectedExperimentalProfileSlot,
                 {
                     ...player.getPersistentProgressionSnapshot(),
+                    newGamePlusCycle: this.experimentalNewGamePlusCycle || 0,
                     unlockedShortcutIds: [...(this.experimentalUnlockedShortcutIds || [])]
                 }
             );
@@ -2486,7 +2492,7 @@ export class Game {
             this.showExperimentalProfileSelection('Select or create a profile to begin.');
             return false;
         }
-        if (!options.preserveNewGamePlusCycle) this.experimentalNewGamePlusCycle = 0;
+        this.experimentalNewGamePlusCycle = Math.max(0, Math.floor(Number(selectedProfile.newGamePlusCycle) || 0));
         this.experimentalUnlockedShortcutIds = new Set(selectedProfile.unlockedShortcutIds || []);
         this.closePauseMenu();
         this.hideArcadeGameOver();
@@ -4082,11 +4088,14 @@ export class Game {
         // Reset ALL power-up progress on death
         player.powerUpCapsules = 0;
         player.activeGun = 'Normal';
+        player.weaponStreamCounts = { Laser: 0, Antigun: 0, Double: 0 };
         player.ghosts = []; 
         player.hasMissile = false;
         player.restoreShieldCharges(0);
         player.history = []; // Clear history so ghosts don't snap back to old positions on respawn
         player.martianParallelGuns = 1;
+        player.hasCyborgWeapon = false;
+        player.resetEvolutionForm();
 
         // Dying resets this ship's current kill streak AND best High Tide
         player.killStreak = 0;

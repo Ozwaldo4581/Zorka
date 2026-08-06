@@ -72,7 +72,7 @@ test('schema two shield selections migrate to recharge and schema three round-tr
     }] });
     const store = new ExperimentalProfileStore(storage);
     const legacy = store.getProfile(0);
-    assert.deepEqual([legacy.version, legacy.projectileUpgradeCount, legacy.shieldRechargeUpgradeCount], [4, 5, 3]);
+    assert.deepEqual([legacy.version, legacy.projectileUpgradeCount, legacy.shieldRechargeUpgradeCount], [5, 5, 3]);
     const saved = store.updateProfile(0, { ...legacy, projectileUpgradeCount: 10, shieldRechargeUpgradeCount: 10 });
     assert.deepEqual([saved.projectileUpgradeCount, saved.shieldRechargeUpgradeCount], [10, 10]);
     assert.deepEqual(store.getProfile(0), saved);

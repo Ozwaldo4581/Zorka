@@ -218,14 +218,15 @@ test('Shield upgrades increase match-local capacity and grant one current charge
     }
 });
 
-test('slot five always applies Shield and consumes the capsule stack', () => {
+test('slot five grants Ghost without changing the independent Shield system', () => {
     const player = new Player(0, 0);
     player.configureShields(2, 6);
     player.powerUpCapsules = 5;
     player.powerUpError = 'OLD ERROR';
     player.activatePowerUp();
-    assert.equal(player.shieldCharges, 3);
-    assert.equal(player.maxShieldCharges, 3);
+    assert.equal(player.shieldCharges, 2);
+    assert.equal(player.maxShieldCharges, 2);
+    assert.equal(player.ghosts.length, 1);
     assert.equal(player.powerUpCapsules, 0);
     assert.equal(player.powerUpError, null);
 });

@@ -6,6 +6,7 @@ const BASE_GUN_COOLDOWN = 0.75;
 const BURST_INTERVAL = 0.05;
 const BASE_PROJECTILE_SPEED = 1200;
 const MARTIAN_PARALLEL_OFFSET = 30;
+export const MAX_STACKABLE_WEAPON_STREAMS = 3;
 export const MAX_PROJECTILE_UPGRADES = 10;
 export const MAX_SHIELD_RECHARGE_UPGRADES = 10;
 export const MIN_SHIELD_RECHARGE_DELAY = 1;
@@ -45,6 +46,7 @@ export class Player {
         this.powerUpCapsules = 0;
         this.maxPowerUpSlots = 5;
         this.activeGun = 'Normal'; // Normal, Antigun, Double, Laser
+        this.weaponStreamCounts = { Laser: 0, Antigun: 0, Double: 0 };
         this.slot1Type = Math.random() < 0.5 ? 'Antigun' : 'Double'; // Randomize slot 1 type on spawn
         this.ghosts = []; // List of Ghost entities
         this.hasForcefield = false;
@@ -78,6 +80,7 @@ export class Player {
         this.name = `EARTHLING ${id}`;
         this.isMartian = false;
         this.isCyborg = false;
+        this.hasCyborgWeapon = false;
         this.isDimensionX = false;
         this.isEventHorizon = false;
         this.isEliminated = false; 
@@ -272,12 +275,15 @@ export class Player {
         this.restoreHP();
         this.powerUpCapsules = 0;
         this.activeGun = 'Normal';
+        this.weaponStreamCounts = { Laser: 0, Antigun: 0, Double: 0 };
         this.ghosts = [];
         this.history = [];
         this.hasMissile = false;
         this.missileCooldown = 0;
         this.missileReloadLevel = 0;
         this.martianParallelGuns = 1;
+        this.hasCyborgWeapon = false;
+        this.resetEvolutionForm();
         this.bonusSpeed = 0;
         this.restoreShieldCharges(this.maxShieldCharges);
     }
@@ -417,7 +423,7 @@ export class Player {
     }
 
     resetEvolutionForm() {
-        this.setEvolutionForm('EARTHLING');
+        this.setEvolutionForm(this.hasCyborgWeapon ? 'CYBORG' : 'EARTHLING');
         this.justPrestiged = false;
     }
 
@@ -1139,12 +1145,14 @@ export class Player {
     canActivateCapsuleSlot(slot) {
         const normalizedSlot = Math.floor(Number(slot) || 0);
         if (normalizedSlot < 1 || normalizedSlot > this.maxPowerUpSlots) return false;
-        if (normalizedSlot === 1 && this.slot1Type === 'Antigun' && this.activeGun === 'Antigun') return false;
+        if (normalizedSlot === 1
+            && (this.weaponStreamCounts?.[this.slot1Type] || 0) >= MAX_STACKABLE_WEAPON_STREAMS) return false;
         if (normalizedSlot === 3) {
             if (this.isMartian) return this.martianParallelGuns < 2;
-            if (this.activeGun === 'Laser') return false;
+            if ((this.weaponStreamCounts?.Laser || 0) >= MAX_STACKABLE_WEAPON_STREAMS) return false;
         }
-        if (normalizedSlot === 4 && this.ghosts.length >= 2) return false;
+        if (normalizedSlot === 4 && this.isCyborg) return false;
+        if (normalizedSlot === 5 && this.ghosts.length >= 2) return false;
         return true;
     }
 
@@ -1153,9 +1161,10 @@ export class Player {
 
         const slot = this.powerUpCapsules;
         if (!this.canActivateCapsuleSlot(slot)) {
-            if (slot === 1) this.powerUpError = 'ANTIGUN ALREADY ACTIVE';
-            else if (slot === 3) this.powerUpError = 'LASER ALREADY ACTIVE';
-            else if (slot === 4) this.powerUpError = 'GHOST MAXED';
+            if (slot === 1) this.powerUpError = `${this.slot1Type.toUpperCase()} MAXED`;
+            else if (slot === 3) this.powerUpError = 'LASER MAXED';
+            else if (slot === 4) this.powerUpError = 'CYBORG ALREADY ACTIVE';
+            else if (slot === 5) this.powerUpError = 'GHOST MAXED';
             return false;
         }
         let success = true;
@@ -1163,6 +1172,8 @@ export class Player {
         switch (slot) {
             case 1: // Random Antigun or Double
                 this.activeGun = this.slot1Type;
+                this.weaponStreamCounts[this.slot1Type] = Math.min(MAX_STACKABLE_WEAPON_STREAMS,
+                    (this.weaponStreamCounts[this.slot1Type] || 0) + 1);
                 this.cancelBurstFire();
                 break;
             case 2: // Missile
@@ -1175,19 +1186,23 @@ export class Player {
                     this.martianParallelGuns = 2;
                 } else {
                     this.activeGun = 'Laser';
+                    this.weaponStreamCounts.Laser = Math.min(MAX_STACKABLE_WEAPON_STREAMS,
+                        (this.weaponStreamCounts.Laser || 0) + 1);
                     this.cancelBurstFire();
                 }
                 break;
-            case 4: // Ghost
+            case 4: // Cyborg weapon
+                this.hasCyborgWeapon = true;
+                this.setEvolutionForm('CYBORG');
+                this.cancelBurstFire();
+                break;
+            case 5: // Ghost
                 if (this.ghosts.length < 2) {
                     this.ghosts.push({ x: this.x, y: this.y, rotation: this.rotation });
                 } else {
                     success = false;
                     this.powerUpError = 'GHOST MAXED';
                 }
-                break;
-            case 5: // Shield
-                this.applyShieldUpgrade();
                 break;
         }
 
@@ -1219,11 +1234,14 @@ export class Player {
 
     clearExperimentalRoomCapsuleBonuses() {
         this.activeGun = 'Normal';
+        this.weaponStreamCounts = { Laser: 0, Antigun: 0, Double: 0 };
         this.cancelBurstFire();
         this.hasMissile = false;
         this.missileReloadLevel = 0;
         this.missileCooldown = 0;
         this.martianParallelGuns = 1;
+        this.hasCyborgWeapon = false;
+        this.resetEvolutionForm();
         this.ghosts = [];
         this.history = [];
     }
@@ -1398,12 +1416,12 @@ export class Player {
                 break;
         }
 
-        emissionAngles.forEach(angle => projs.push(createProj(angle)));
-
-        // Capsule 3 duplicates the completed Martian pattern without changing its
-        // angles, velocity, projectile snapshot, or trigger cadence.
-        if (this.isMartian && this.martianParallelGuns > 1) {
-            emissionAngles.forEach(angle => projs.push(createProj(angle, MARTIAN_PARALLEL_OFFSET)));
+        const selectedStreams = this.isMartian
+            ? this.martianParallelGuns
+            : Math.max(1, this.weaponStreamCounts?.[this.activeGun] || 0);
+        for (let stream = 0; stream < selectedStreams; stream++) {
+            const lateralOffset = (stream - (selectedStreams - 1) / 2) * MARTIAN_PARALLEL_OFFSET;
+            emissionAngles.forEach(angle => projs.push(createProj(angle, lateralOffset)));
         }
         return projs;
     }
