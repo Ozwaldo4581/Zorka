@@ -20,6 +20,8 @@ import {
     createExperimentalAreas,
     createExperimentalDoors,
     EXPERIMENTAL_COLLISION_CATEGORY,
+    EXPERIMENTAL_ROOM_GRID_COLUMNS,
+    EXPERIMENTAL_ROOM_GRID_ROWS,
     SECTOR_9_BBG_ENCOUNTER,
     getSector9BBGImageRect,
     getSector9BBGAnchorWorldPosition
@@ -29,6 +31,8 @@ export const DESIGN_WIDTH = 1920;
 export const DESIGN_HEIGHT = 1080;
 export const WORLD_WIDTH = DESIGN_WIDTH * 9;
 export const WORLD_HEIGHT = DESIGN_HEIGHT * 9;
+export const EXPERIMENTAL_ROOM_WIDTH = DESIGN_WIDTH * EXPERIMENTAL_ROOM_GRID_COLUMNS;
+export const EXPERIMENTAL_ROOM_HEIGHT = DESIGN_HEIGHT * EXPERIMENTAL_ROOM_GRID_ROWS;
 export const GAME_MODE = Object.freeze({
     SOLO: 'SOLO',
     PVP: 'PVP',
@@ -76,6 +80,22 @@ const DEBRIS_DENSITY_COUNTS = Object.freeze([0, 3, 7, 10, 16, 21]);
 const SATELLITE_DENSITY_COUNTS = Object.freeze([0, 3, 5, 6, 9, 14]);
 const VICTORY_FADE_DURATION_SECONDS = 4;
 const EXPERIMENTAL_NEW_GAME_PLUS_LEVEL_STEP = 10;
+// The Sector 1 art was authored at these normalized positions in a 3 x 3
+// room. Rendering derives its resized offset from the current room bounds.
+const SCHOOL_DESK_BACKGROUND_POSITION = Object.freeze({
+    offsetX: -373 / (DESIGN_WIDTH * 3),
+    offsetY: 60 / (DESIGN_HEIGHT * 3)
+});
+
+export function getSchoolDeskBackgroundPosition(room) {
+    const { left, right, top, bottom } = room.bounds;
+    const width = right - left;
+    const height = bottom - top;
+    return {
+        x: left + width / 2 + width * SCHOOL_DESK_BACKGROUND_POSITION.offsetX,
+        y: top + height / 2 + height * SCHOOL_DESK_BACKGROUND_POSITION.offsetY
+    };
+}
 
 export function getArenaPopulationTargets(asteroidLevel, debrisLevel, satelliteLevel) {
     return {
@@ -1780,7 +1800,7 @@ export class Game {
     }
 
     initializeExperimentalRooms() {
-        this.experimentalRooms = createExperimentalAreas(WORLD_WIDTH, WORLD_HEIGHT);
+        this.experimentalRooms = createExperimentalAreas(EXPERIMENTAL_ROOM_WIDTH, EXPERIMENTAL_ROOM_HEIGHT);
         this.experimentalDoors = createExperimentalDoors(this.experimentalRooms);
         Game.prototype.initializeExperimentalAreaIndexes.call(this);
         const desired = getArenaPopulationTargets(
@@ -4799,14 +4819,10 @@ export class Game {
             return;
         }
 
-        const { left, right, top, bottom } = currentArea.bounds;
-        const width = right - left;
-        const height = bottom - top;
-        const centerX = left + width / 2;
-        const centerY = top + height / 2;
+        const backgroundPosition = getSchoolDeskBackgroundPosition(currentArea);
 
         ctx.save();
-        camera.apply(ctx, centerX, centerY);
+        camera.apply(ctx, backgroundPosition.x, backgroundPosition.y);
         ctx.globalAlpha = 0.4;
 
         const image = this.assets.schoolDeskBackground;
@@ -4815,13 +4831,10 @@ export class Game {
         const drawWidth = image.naturalWidth * imageScale;
         const drawHeight = image.naturalHeight * imageScale;
 
-        const offsetX = -373;
-        const offsetY = 60;
-
         ctx.drawImage(
             image,
-            -drawWidth / 2 + offsetX,
-            -drawHeight / 2 + offsetY,
+            -drawWidth / 2,
+            -drawHeight / 2,
             drawWidth,
             drawHeight
         );
@@ -4860,8 +4873,8 @@ export class Game {
 
             ctx.drawImage(
                 this.schoolDeskVisorTint.canvas,
-                -drawWidth / 2 + offsetX,
-                -drawHeight / 2 + offsetY,
+                -drawWidth / 2,
+                -drawHeight / 2,
                 drawWidth,
                 drawHeight
             );

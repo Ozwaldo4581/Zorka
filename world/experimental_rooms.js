@@ -11,6 +11,10 @@ export const EXPERIMENTAL_HALLWAY_LENGTH = 4000;
 // A 960-unit entrance plus 240 units of wall shoulder on either side gives
 // transformed human ships ample room to turn and slide without widening doors.
 export const EXPERIMENTAL_HALLWAY_WIDTH = 1440;
+// Ordinary Experimental combat rooms occupy their own screen-area grid. Keep
+// this independent from the standard arena's 9 x 9 wrapped-world contract.
+export const EXPERIMENTAL_ROOM_GRID_COLUMNS = 2;
+export const EXPERIMENTAL_ROOM_GRID_ROWS = 2;
 const DOOR_TRANSITION_TOLERANCE = 16;
 const FULL_ARENA_POPULATION = Object.freeze({
     densitySource: 'ARENA_OPTIONS', scale: 'FULL_ARENA', independentlyResolved: true
