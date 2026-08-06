@@ -12,9 +12,11 @@ test('profile menu supplies five slots, name entry, and Adventure launch routing
         'experimental-profile-menu', 'experimental-profile-slots', 'experimental-profile-name',
         'btn-experimental-profile-create', 'btn-experimental-profile-cancel', 'btn-experimental-profile-back'
     ]) assert.match(html, new RegExp(`id=["']${id}["']`));
-    assert.match(html, /id="btn-experimental-start">START A NEW ADVENTURE<\/button>/);
+    assert.match(html, /id="btn-experimental-start">ADVENTURE<\/button>/);
     const game = await readFile(new URL('../game.js', import.meta.url), 'utf8');
     assert.match(game, /btn-experimental-start'[\s\S]{0,100}showExperimentalProfileSelection/);
+    assert.match(game, /level\.textContent = `Lvl \$\{summary\.level\}`/);
+    assert.doesNotMatch(game, /level\.textContent = `Lvl \$\{summary\.level\}[^`]+Projectile/);
 });
 
 test('Player restores permanent profile counters and derived stats exactly once', () => {

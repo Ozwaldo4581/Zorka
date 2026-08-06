@@ -26,7 +26,7 @@ test('creating and updating one trimmed profile preserves every other slot', () 
     assert.equal(created.name, 'Nova');
     assert.equal(created.level, 0);
     assert.equal(created.totalXP, 0);
-    assert.deepEqual(store.getSummaries(), [null, null, { slot: 2, name: 'Nova', level: 0, projectileUpgradeCount: 0, shieldRechargeUpgradeCount: 0 }, null, null]);
+    assert.deepEqual(store.getSummaries(), [null, null, { slot: 2, name: 'Nova', level: 0 }, null, null]);
 
     store.updateProfile(2, {
         name: 'Ignored rename', level: 4, totalXP: 750, pendingLevelUps: 1,

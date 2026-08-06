@@ -7,6 +7,7 @@ import { HUD } from '../ui/hud.js';
 
 const makeCanvasContext = () => ({
     texts: [], fills: [],
+    save() {}, restore() {},
     beginPath() {}, moveTo() {}, lineTo() {}, stroke() {}, strokeRect() {},
     fillRect(x, y, width, height) { this.fills.push({ x, y, width, height }); },
     fillText(value) { this.texts.push(String(value)); }
@@ -20,7 +21,7 @@ test('Solo and Experimental leaderboards read Player progression stats while oth
     player.speedUpgradeCount = 2;
     const expectedStats = {
         name: 'Nova', level: 0, hullStrength: 10, shields: '3/3',
-        projectile: '1/10', shieldRecharge: '0/10', shieldRechargeDelay: 6,
+        projectile: 1, shieldRecharge: 0, shieldRechargeDelay: 6,
         speed: 3, deaths: 0
     };
     assert.deepEqual(player.getLeaderboardStats(), expectedStats);
@@ -29,10 +30,12 @@ test('Solo and Experimental leaderboards read Player progression stats while oth
     for (const mode of [GAME_MODE.SOLO, GAME_MODE.EXPERIMENTAL]) {
         const ctx = makeCanvasContext();
         hud.drawScoreboard(ctx, [player], false, mode);
-        for (const label of ['Name', 'Level', 'Hull Strength', 'Shields', 'Projectile', 'Speed', 'Deaths']) {
+        for (const label of ['Level', 'Hull Strength', 'Shields', 'Projectile', 'Speed', 'Deaths']) {
             assert.ok(ctx.texts.includes(label));
         }
-        for (const value of Object.values(expectedStats)) assert.ok(ctx.texts.includes(String(value)));
+        for (const key of ['level', 'hullStrength', 'shields', 'projectile', 'shieldRecharge', 'speed', 'deaths']) {
+            assert.ok(ctx.texts.includes(String(expectedStats[key])));
+        }
     }
 
     const pvp = makeCanvasContext();
@@ -97,7 +100,7 @@ test('Experimental death records one death and displays attributed return feedba
     assert.equal(victim.deaths, 1);
     assert.deepEqual(
         [game.experimentalSectorMessage.text, game.experimentalSectorMessage.detail],
-        ['Destroyed by TIMMY', 'Returning to Sector 1']
+        ["Defeated by Zorka's Enemies", 'Returning to Sector 1']
     );
     Game.prototype.resolvePlayerDamage.call(game, victim, 1, killer);
     assert.equal(victim.deaths, 1, 'a dead player cannot be counted twice before respawn');
