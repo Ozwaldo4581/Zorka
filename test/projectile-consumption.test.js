@@ -36,8 +36,9 @@ test('projectile combat classification excludes special-control representations'
 });
 
 test('pure projectile hierarchy resolves laser, orb, ordinary, and missile outcomes', () => {
-    assert.equal(resolveProjectileConsumption(CATEGORY.LASER, CATEGORY.ORDINARY_GUN), CONSUMPTION.SECOND);
-    assert.equal(resolveProjectileConsumption(CATEGORY.LASER, CATEGORY.ORB), CONSUMPTION.BOTH);
+    assert.equal(resolveProjectileConsumption(CATEGORY.LASER, CATEGORY.ORDINARY_GUN), CONSUMPTION.NEITHER);
+    assert.equal(resolveProjectileConsumption(CATEGORY.LASER, CATEGORY.ORB), CONSUMPTION.SECOND);
+    assert.equal(resolveProjectileConsumption(CATEGORY.ORB, CATEGORY.LASER), CONSUMPTION.FIRST);
     assert.equal(resolveProjectileConsumption(CATEGORY.ORB, CATEGORY.ORDINARY_GUN), CONSUMPTION.SECOND);
     assert.equal(resolveProjectileConsumption(CATEGORY.ORB, CATEGORY.ORB), CONSUMPTION.BOTH);
     assert.equal(resolveProjectileConsumption(CATEGORY.ORDINARY_GUN, CATEGORY.ORDINARY_GUN), CONSUMPTION.NEITHER);
@@ -69,18 +70,18 @@ test('authoritative pair pass enforces survivability and detonates missiles once
     const ordinary = projectile(CATEGORY.ORDINARY_GUN, enemyB);
     const { game } = collisionGame([laser, ordinary]);
     Game.prototype.checkCollisions.call(game);
-    assert.deepEqual(game.projectiles, [laser]);
+    assert.deepEqual(game.projectiles, [laser, ordinary]);
 
     const orb = projectile(CATEGORY.ORB, enemyB);
     game.projectiles.push(orb);
     Game.prototype.checkCollisions.call(game);
-    assert.deepEqual(game.projectiles, []);
+    assert.deepEqual(game.projectiles, [laser, ordinary]);
 
     const interceptor = projectile(CATEGORY.LASER, enemyA);
     const missile = projectile(CATEGORY.MISSILE, enemyB);
     game.projectiles.push(interceptor, missile);
     Game.prototype.checkCollisions.call(game);
-    assert.deepEqual(game.projectiles, [interceptor]);
+    assert.deepEqual(game.projectiles, [laser, ordinary, interceptor]);
     assert.equal(missile.hasDetonated, true);
 });
 
@@ -100,6 +101,16 @@ test('ordinary interception consumes both shots while orbs survive missile inter
     Game.prototype.checkCollisions.call(second);
     assert.deepEqual(second.projectiles, [orb]);
     assert.equal(skinny.hasDetonated, true);
+});
+
+test('laser survives orb interception in either projectile order', () => {
+    for (const orbFirst of [false, true]) {
+        const laser = projectile(CATEGORY.LASER, { id: 1 });
+        const orb = projectile(CATEGORY.ORB, { id: 2 });
+        const game = collisionGame(orbFirst ? [orb, laser] : [laser, orb]).game;
+        Game.prototype.checkCollisions.call(game);
+        assert.deepEqual(game.projectiles, [laser]);
+    }
 });
 
 test('standard and skinny missiles consume and detonate each other exactly once', () => {
@@ -146,5 +157,5 @@ test('sandbox projectile interception is wrap-aware', () => {
     const ordinary = projectile(CATEGORY.ORDINARY_GUN, { id: 2 }, WORLD_WIDTH - 4);
     const game = collisionGame([laser, ordinary]).game;
     Game.prototype.checkCollisions.call(game);
-    assert.deepEqual(game.projectiles, [laser]);
+    assert.deepEqual(game.projectiles, [laser, ordinary]);
 });
