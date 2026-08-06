@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import { Player, MAX_STACKABLE_WEAPON_STREAMS } from '../entities/player.js';
+import { PLAYER_COLORS, chooseOrdinaryNPCColor } from '../game.js';
 
 const select = (player, slot) => {
     player.powerUpCapsules = slot;
@@ -87,4 +88,39 @@ test('capsule tiers four and five grant Orb and Ghost while leaving Shields unch
     assert.equal(select(player, 5), true);
     assert.equal(player.ghosts.length, 1);
     assert.deepEqual([player.shieldCharges, player.maxShieldCharges], [2, 2]);
+});
+
+test('switching capsule guns clears the previous rank and restarts it on return', () => {
+    const player = new Player(0, 0);
+    for (let rank = 1; rank <= 3; rank++) assert.equal(select(player, 3), true);
+    assert.equal(select(player, 3), false);
+    assert.equal(player.powerUpCapsules, 3);
+
+    assert.equal(select(player, 4), true);
+    assert.equal(player.activeGun, 'Orb');
+    assert.deepEqual(player.weaponStreamCounts, { Laser: 0, Antigun: 0, Double: 0, Orb: 1 });
+    assert.equal(player.canActivateCapsuleSlot(3), true);
+
+    assert.equal(select(player, 3), true);
+    assert.equal(player.activeGun, 'Laser');
+    assert.deepEqual(player.weaponStreamCounts, { Laser: 1, Antigun: 0, Double: 0, Orb: 0 });
+});
+
+test('ordinary NPC capsule assignment allows at most one rank-one gun', () => {
+    const npc = new Player(0, 0);
+    npc.isNPC = true;
+    npc.slot1Type = 'Double';
+    npc.applyOrdinaryNPCCapsulePowerUps(20, () => 0);
+    const ranks = Object.values(npc.weaponStreamCounts);
+    assert.equal(ranks.filter(rank => rank > 0).length, 1);
+    assert.equal(Math.max(...ranks), 1);
+});
+
+test('ordinary NPC colors exclude every authoritative human palette color', () => {
+    for (const humanColor of PLAYER_COLORS) {
+        for (const random of [0, 0.5, 0.999999]) {
+            assert.notEqual(chooseOrdinaryNPCColor(humanColor, () => random), humanColor);
+        }
+    }
+    assert.equal(chooseOrdinaryNPCColor('#00ffff', () => 0, ['#00ffff']), '#ffffff');
 });

@@ -50,6 +50,12 @@ export function chooseRandomPlayerColor(random = Math.random) {
     return PLAYER_COLORS[Math.floor(random() * PLAYER_COLORS.length)];
 }
 
+export function chooseOrdinaryNPCColor(playerColor, random = Math.random, colorPool = PLAYER_COLORS) {
+    const availableColors = colorPool.filter(color => color !== playerColor);
+    if (availableColors.length === 0) return playerColor === '#ffffff' ? '#00ffff' : '#ffffff';
+    return availableColors[Math.min(availableColors.length - 1, Math.floor(random() * availableColors.length))];
+}
+
 const TARGET_TIE_PRIORITY = Object.freeze({
     player: 0,
     missile: 1,
@@ -2078,9 +2084,10 @@ export class Game {
         const count = spawnCount === null ? (encounter?.npcCount ?? room.npcCount) : Math.max(0, spawnCount);
         let nextNpcId = Math.max(1, ...this.players.map(player => player.id || 0)) + 1;
         const spawned = [];
+        const humanColor = this.players.find(player => !player.isNPC)?.color;
         for (let index = 0; index < count; index++) {
             const spawn = Game.prototype.findExperimentalSpawn.call(this, 25, placedPlayers, room.id);
-            const npc = new Player(spawn.x, spawn.y, nextNpcId++, chooseRandomPlayerColor());
+            const npc = new Player(spawn.x, spawn.y, nextNpcId++, chooseOrdinaryNPCColor(humanColor));
             if (typeof this.configurePlayerShields === 'function') this.configurePlayerShields(npc);
             npc.isNPC = true;
             npc.name = `ROOM ${room.roomNumber} BOT ${index + 1}`;
@@ -2092,7 +2099,7 @@ export class Game {
                 npc.rollAccuracy();
             } else npc.rollAggression();
             npc.initializeNPCLevel(Game.prototype.getExperimentalEnemyLevel.call(this, encounter?.npcLevel ?? room.npcLevel));
-            npc.applyRandomCapsulePowerUps(Math.floor(npc.level * 0.75));
+            npc.applyOrdinaryNPCCapsulePowerUps(Math.floor(npc.level * 0.75));
             this.players.push(npc);
             Game.prototype.indexExperimentalEntity.call(this, 'players', npc);
             if (placedPlayers !== this.players) placedPlayers.push(npc);
