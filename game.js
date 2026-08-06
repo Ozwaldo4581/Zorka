@@ -99,6 +99,12 @@ export function getExperimentalPopulationTargets(asteroidLevel, debrisLevel, sat
     ]));
 }
 
+export function getExperimentalRoomPopulationTargets(roomNumber, asteroidLevel, debrisLevel, satelliteLevel) {
+    const targets = getExperimentalPopulationTargets(asteroidLevel, debrisLevel, satelliteLevel);
+    const asteroidMultiplier = roomNumber === 7 ? 1.2 : roomNumber === 8 ? 1.4 : 1;
+    return { ...targets, asteroids: Math.round(targets.asteroids * asteroidMultiplier) };
+}
+
 export function getShieldRechargeDelay(optionValue) {
     return SHIELD_RECHARGE_DELAYS[optionValue] ?? SHIELD_RECHARGE_DELAYS[3];
 }
@@ -1808,18 +1814,18 @@ export class Game {
         this.experimentalDoors = createExperimentalDoors(this.experimentalRooms);
         Game.prototype.initializeExperimentalAreaIndexes.call(this);
         Game.prototype.initializeExperimentalEncounterStates.call(this);
-        const desired = getExperimentalPopulationTargets(
-            this.asteroidDensityLevel,
-            this.debrisDensityLevel,
-            this.satelliteDensityLevel
-        );
         this.experimentalRoomPopulations = new Map(this.experimentalRooms.filter(room => room.isPopulationEligible).map(room => [room.id, {
             density: Object.freeze({
                 asteroidLevel: this.asteroidDensityLevel,
                 debrisLevel: this.debrisDensityLevel,
                 satelliteLevel: this.satelliteDensityLevel
             }),
-            desired: Object.freeze({ ...desired })
+            desired: Object.freeze(getExperimentalRoomPopulationTargets(
+                room.roomNumber,
+                this.asteroidDensityLevel,
+                this.debrisDensityLevel,
+                this.satelliteDensityLevel
+            ))
         }]));
     }
 
@@ -2056,7 +2062,8 @@ export class Game {
         this.hazards = [];
         for (const populationRoom of this.experimentalRooms.filter(area => area.isPopulationEligible)) {
             const targets = this.experimentalRoomPopulations?.get(populationRoom.id)?.desired
-                || getExperimentalPopulationTargets(this.asteroidDensityLevel, this.debrisDensityLevel, this.satelliteDensityLevel);
+                || getExperimentalRoomPopulationTargets(populationRoom.roomNumber,
+                    this.asteroidDensityLevel, this.debrisDensityLevel, this.satelliteDensityLevel);
             for (let index = 0; index < targets.asteroids; index++) this.spawnAsteroid('large', undefined, undefined, populationRoom.id);
             for (let index = 0; index < targets.debris; index++) this.spawnSpaceDebris(populationRoom.id);
             for (let index = 0; index < targets.satellites; index++) this.spawnSatellite(populationRoom.id);
@@ -4088,13 +4095,12 @@ export class Game {
         // Reset ALL power-up progress on death
         player.powerUpCapsules = 0;
         player.activeGun = 'Normal';
-        player.weaponStreamCounts = { Laser: 0, Antigun: 0, Double: 0 };
+        player.weaponStreamCounts = { Laser: 0, Antigun: 0, Double: 0, Orb: 0 };
         player.ghosts = []; 
         player.hasMissile = false;
         player.restoreShieldCharges(0);
         player.history = []; // Clear history so ghosts don't snap back to old positions on respawn
         player.martianParallelGuns = 1;
-        player.hasCyborgWeapon = false;
         player.resetEvolutionForm();
 
         // Dying resets this ship's current kill streak AND best High Tide
@@ -4343,7 +4349,7 @@ export class Game {
         }
     }
 
-    // Standard AoE projectile detonation (e.g. Cyborg Orbs)
+    // Standard AoE projectile detonation (e.g. Orbs)
     detonateAoEProjectile(p) {
         if (!p || p.hasDetonated) return;
         p.hasDetonated = true;
@@ -4369,8 +4375,8 @@ export class Game {
 
         for (const a of impactedAsteroids) {
             if (!a || a.isDestroyed) continue;
-            // Cyborg Orbs destroy large and medium asteroids in one hit
-            if (p.owner && p.owner.isCyborg) {
+            // Orbs destroy large and medium asteroids in one hit.
+            if (p.isOrb) {
                 a.hits = a.maxHits - 1;
             }
             this.hitTarget(a, p.owner);

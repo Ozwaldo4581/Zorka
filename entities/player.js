@@ -46,7 +46,7 @@ export class Player {
         this.powerUpCapsules = 0;
         this.maxPowerUpSlots = 5;
         this.activeGun = 'Normal'; // Normal, Antigun, Double, Laser
-        this.weaponStreamCounts = { Laser: 0, Antigun: 0, Double: 0 };
+        this.weaponStreamCounts = { Laser: 0, Antigun: 0, Double: 0, Orb: 0 };
         this.slot1Type = Math.random() < 0.5 ? 'Antigun' : 'Double'; // Randomize slot 1 type on spawn
         this.ghosts = []; // List of Ghost entities
         this.hasForcefield = false;
@@ -80,7 +80,6 @@ export class Player {
         this.name = `EARTHLING ${id}`;
         this.isMartian = false;
         this.isCyborg = false;
-        this.hasCyborgWeapon = false;
         this.isDimensionX = false;
         this.isEventHorizon = false;
         this.isEliminated = false; 
@@ -275,14 +274,13 @@ export class Player {
         this.restoreHP();
         this.powerUpCapsules = 0;
         this.activeGun = 'Normal';
-        this.weaponStreamCounts = { Laser: 0, Antigun: 0, Double: 0 };
+        this.weaponStreamCounts = { Laser: 0, Antigun: 0, Double: 0, Orb: 0 };
         this.ghosts = [];
         this.history = [];
         this.hasMissile = false;
         this.missileCooldown = 0;
         this.missileReloadLevel = 0;
         this.martianParallelGuns = 1;
-        this.hasCyborgWeapon = false;
         this.resetEvolutionForm();
         this.bonusSpeed = 0;
         this.restoreShieldCharges(this.maxShieldCharges);
@@ -423,7 +421,7 @@ export class Player {
     }
 
     resetEvolutionForm() {
-        this.setEvolutionForm(this.hasCyborgWeapon ? 'CYBORG' : 'EARTHLING');
+        this.setEvolutionForm('EARTHLING');
         this.justPrestiged = false;
     }
 
@@ -1151,7 +1149,8 @@ export class Player {
             if (this.isMartian) return this.martianParallelGuns < 2;
             if ((this.weaponStreamCounts?.Laser || 0) >= MAX_STACKABLE_WEAPON_STREAMS) return false;
         }
-        if (normalizedSlot === 4 && this.isCyborg) return false;
+        if (normalizedSlot === 4
+            && (this.weaponStreamCounts?.Orb || 0) >= MAX_STACKABLE_WEAPON_STREAMS) return false;
         if (normalizedSlot === 5 && this.ghosts.length >= 2) return false;
         return true;
     }
@@ -1163,7 +1162,7 @@ export class Player {
         if (!this.canActivateCapsuleSlot(slot)) {
             if (slot === 1) this.powerUpError = `${this.slot1Type.toUpperCase()} MAXED`;
             else if (slot === 3) this.powerUpError = 'LASER MAXED';
-            else if (slot === 4) this.powerUpError = 'CYBORG ALREADY ACTIVE';
+            else if (slot === 4) this.powerUpError = 'ORB MAXED';
             else if (slot === 5) this.powerUpError = 'GHOST MAXED';
             return false;
         }
@@ -1191,9 +1190,9 @@ export class Player {
                     this.cancelBurstFire();
                 }
                 break;
-            case 4: // Cyborg weapon
-                this.hasCyborgWeapon = true;
-                this.setEvolutionForm('CYBORG');
+            case 4: // Orb weapon
+                this.weaponStreamCounts.Orb = Math.min(MAX_STACKABLE_WEAPON_STREAMS,
+                    (this.weaponStreamCounts.Orb || 0) + 1);
                 this.cancelBurstFire();
                 break;
             case 5: // Ghost
@@ -1234,13 +1233,12 @@ export class Player {
 
     clearExperimentalRoomCapsuleBonuses() {
         this.activeGun = 'Normal';
-        this.weaponStreamCounts = { Laser: 0, Antigun: 0, Double: 0 };
+        this.weaponStreamCounts = { Laser: 0, Antigun: 0, Double: 0, Orb: 0 };
         this.cancelBurstFire();
         this.hasMissile = false;
         this.missileReloadLevel = 0;
         this.missileCooldown = 0;
         this.martianParallelGuns = 1;
-        this.hasCyborgWeapon = false;
         this.resetEvolutionForm();
         this.ghosts = [];
         this.history = [];
@@ -1256,7 +1254,8 @@ export class Player {
             
             // Check if this weapon supports burst
             const baseProjectile = this.resolveBaseProjectile();
-            const isBurstWeapon = !this.isCyborg && !this.isDimensionX;
+            const hasOrbWeapon = (this.weaponStreamCounts?.Orb || 0) > 0;
+            const isBurstWeapon = hasOrbWeapon || (!this.isCyborg && !this.isDimensionX);
 
             if (!isBurstShot) {
                 this.fireCooldown = isBurstWeapon ? BASE_GUN_COOLDOWN : 0.35;
@@ -1321,7 +1320,8 @@ export class Player {
 
     resolveBaseProjectile() {
         const quantity = 3 + Math.min(this.maxProjectileUpgrades, Math.max(0, this.projectileUpgradeCount));
-        const usesLaser = this.isMartian || (!this.isCyborg && !this.isDimensionX && this.activeGun === 'Laser');
+        const usesOrb = this.isCyborg || (this.weaponStreamCounts?.Orb || 0) > 0;
+        const usesLaser = !usesOrb && (this.isMartian || (!this.isDimensionX && this.activeGun === 'Laser'));
         const definition = usesLaser ? this.getLaserProjectileDefinition() : {
             kind: 'projectile',
             isLaser: false,
@@ -1331,18 +1331,18 @@ export class Player {
             canWrap: true
         };
 
-        return { ...definition, projectileLevel: this.projectileUpgradeCount, quantity };
+        return { ...definition, isOrb: usesOrb, projectileLevel: this.projectileUpgradeCount, quantity };
     }
 
     getGunProjectiles(x, y, rotation, baseProjectile = this.resolveBaseProjectile()) {
         const projs = [];
         const isDistanceLimitedGun = !baseProjectile.isLaser
-            && !this.isCyborg
+            && !baseProjectile.isOrb
             && !this.isDimensionX
             && ['Normal', 'Antigun', 'Double'].includes(this.activeGun);
 
         const createProj = (angle, lateralOffset = 0) => {
-            const projSpeed = this.isCyborg ? baseProjectile.speed * 0.5 : baseProjectile.speed;
+            const projSpeed = baseProjectile.isOrb ? baseProjectile.speed * 0.5 : baseProjectile.speed;
             const vx = Math.sin(angle) * projSpeed;
             const vy = -Math.cos(angle) * projSpeed;
             
@@ -1350,7 +1350,7 @@ export class Player {
             let spawnOffset = 40;
             if (this.isMartian) spawnOffset = 80;
             else if (this.isDimensionX) spawnOffset = 64; // Scaled with ship size
-            else if (this.isCyborg) spawnOffset = 52;
+            else if (baseProjectile.isOrb) spawnOffset = 52;
             
             let sx = x + Math.sin(angle) * spawnOffset;
             let sy = y - Math.cos(angle) * spawnOffset;
@@ -1370,8 +1370,9 @@ export class Player {
             if (isDistanceLimitedGun) p.maxTravelDistance = WORLD_WIDTH;
 
             // Cyborg base projectile is a single shot orb
-            if (this.isCyborg) {
+            if (baseProjectile.isOrb) {
                 p.isLaser = false;
+                p.isOrb = true;
                 p.radius = 45; // Reduced to 75% of previous size (60 -> 45)
                 p.lifeSpan = 1.8; // Increased lifespan to compensate for slower speed
                 p.aoeRadius = 80; // Adjusted AoE proportionally
@@ -1388,7 +1389,7 @@ export class Player {
             return p;
         };
 
-        if (this.isCyborg && this.activeGun === 'Laser') {
+        if (this.isCyborg && (this.weaponStreamCounts?.Orb || 0) === 0 && this.activeGun === 'Laser') {
             // Cyborg Laser powerup: Decoy (Fake Asteroid)
             const dp = createProj(rotation);
             dp.isDecoy = true;
@@ -1416,7 +1417,9 @@ export class Player {
                 break;
         }
 
-        const selectedStreams = this.isMartian
+        const selectedStreams = baseProjectile.isOrb && !this.isCyborg
+            ? Math.max(1, this.weaponStreamCounts.Orb)
+            : this.isMartian
             ? this.martianParallelGuns
             : Math.max(1, this.weaponStreamCounts?.[this.activeGun] || 0);
         for (let stream = 0; stream < selectedStreams; stream++) {
