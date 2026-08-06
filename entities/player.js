@@ -7,6 +7,7 @@ const BURST_INTERVAL = 0.05;
 const BASE_PROJECTILE_SPEED = 1200;
 const MARTIAN_PARALLEL_OFFSET = 30;
 export const MAX_STACKABLE_WEAPON_STREAMS = 3;
+export const STACKABLE_CAPSULE_GUNS = Object.freeze(['Antigun', 'Double', 'Laser', 'Orb']);
 export const MAX_PROJECTILE_UPGRADES = 10;
 export const MAX_SHIELD_RECHARGE_UPGRADES = 10;
 export const MIN_SHIELD_RECHARGE_DELAY = 1;
@@ -1155,6 +1156,28 @@ export class Player {
         return true;
     }
 
+    selectStackableCapsuleGun(weapon) {
+        if (!STACKABLE_CAPSULE_GUNS.includes(weapon)) {
+            return { applied: false, reason: 'invalid-weapon' };
+        }
+        const currentRank = this.activeGun === weapon ? (this.weaponStreamCounts?.[weapon] || 0) : 0;
+        if (currentRank >= MAX_STACKABLE_WEAPON_STREAMS) {
+            return { applied: false, reason: 'maxed', weapon, rank: currentRank };
+        }
+
+        const switched = this.activeGun !== weapon;
+        this.weaponStreamCounts = { Laser: 0, Antigun: 0, Double: 0, Orb: 0 };
+        this.activeGun = weapon;
+        this.weaponStreamCounts[weapon] = switched ? 1 : currentRank + 1;
+        this.cancelBurstFire();
+        return {
+            applied: true,
+            reason: switched ? 'switched' : 'rank-increased',
+            weapon,
+            rank: this.weaponStreamCounts[weapon]
+        };
+    }
+
     activatePowerUp() {
         if (this.powerUpCapsules === 0) return false;
 
@@ -1170,10 +1193,7 @@ export class Player {
 
         switch (slot) {
             case 1: // Random Antigun or Double
-                this.activeGun = this.slot1Type;
-                this.weaponStreamCounts[this.slot1Type] = Math.min(MAX_STACKABLE_WEAPON_STREAMS,
-                    (this.weaponStreamCounts[this.slot1Type] || 0) + 1);
-                this.cancelBurstFire();
+                success = this.selectStackableCapsuleGun(this.slot1Type).applied;
                 break;
             case 2: // Missile
                 this.hasMissile = true;
@@ -1184,16 +1204,11 @@ export class Player {
                     // Martian Capsule 3 adds one parallel copy to each base emission.
                     this.martianParallelGuns = 2;
                 } else {
-                    this.activeGun = 'Laser';
-                    this.weaponStreamCounts.Laser = Math.min(MAX_STACKABLE_WEAPON_STREAMS,
-                        (this.weaponStreamCounts.Laser || 0) + 1);
-                    this.cancelBurstFire();
+                    success = this.selectStackableCapsuleGun('Laser').applied;
                 }
                 break;
             case 4: // Orb weapon
-                this.weaponStreamCounts.Orb = Math.min(MAX_STACKABLE_WEAPON_STREAMS,
-                    (this.weaponStreamCounts.Orb || 0) + 1);
-                this.cancelBurstFire();
+                success = this.selectStackableCapsuleGun('Orb').applied;
                 break;
             case 5: // Ghost
                 if (this.ghosts.length < 2) {
@@ -1231,6 +1246,29 @@ export class Player {
         return applied;
     }
 
+    applyOrdinaryNPCCapsulePowerUps(count, random = Math.random) {
+        const targetCount = Math.max(0, Math.floor(Number(count) || 0));
+        let applied = 0;
+        let hasCapsuleGun = false;
+        while (applied < targetCount) {
+            const availableSlots = [];
+            for (let slot = 1; slot <= this.maxPowerUpSlots; slot++) {
+                if (hasCapsuleGun && [1, 3, 4].includes(slot)) continue;
+                if (this.canActivateCapsuleSlot(slot)) availableSlots.push(slot);
+            }
+            if (availableSlots.length === 0) break;
+            const index = Math.min(availableSlots.length - 1, Math.floor(random() * availableSlots.length));
+            const slot = availableSlots[index];
+            this.powerUpCapsules = slot;
+            if (!this.activatePowerUp()) break;
+            if ([1, 3, 4].includes(slot) && !this.isMartian) hasCapsuleGun = true;
+            applied++;
+        }
+        this.powerUpCapsules = 0;
+        this.powerUpError = null;
+        return applied;
+    }
+
     clearExperimentalRoomCapsuleBonuses() {
         this.activeGun = 'Normal';
         this.weaponStreamCounts = { Laser: 0, Antigun: 0, Double: 0, Orb: 0 };
@@ -1254,7 +1292,7 @@ export class Player {
             
             // Check if this weapon supports burst
             const baseProjectile = this.resolveBaseProjectile();
-            const hasOrbWeapon = (this.weaponStreamCounts?.Orb || 0) > 0;
+            const hasOrbWeapon = this.activeGun === 'Orb' && (this.weaponStreamCounts?.Orb || 0) > 0;
             const isBurstWeapon = hasOrbWeapon || (!this.isCyborg && !this.isDimensionX);
 
             if (!isBurstShot) {
@@ -1320,7 +1358,7 @@ export class Player {
 
     resolveBaseProjectile() {
         const quantity = 3 + Math.min(this.maxProjectileUpgrades, Math.max(0, this.projectileUpgradeCount));
-        const usesOrb = this.isCyborg || (this.weaponStreamCounts?.Orb || 0) > 0;
+        const usesOrb = this.isCyborg || (this.activeGun === 'Orb' && (this.weaponStreamCounts?.Orb || 0) > 0);
         const usesLaser = !usesOrb && (this.isMartian || (!this.isDimensionX && this.activeGun === 'Laser'));
         const definition = usesLaser ? this.getLaserProjectileDefinition() : {
             kind: 'projectile',
