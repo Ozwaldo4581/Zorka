@@ -50,6 +50,11 @@ export function chooseRandomPlayerColor(random = Math.random) {
     return PLAYER_COLORS[Math.floor(random() * PLAYER_COLORS.length)];
 }
 
+export function chooseDifferentPlayerColor(currentColor, random = Math.random) {
+    const availableColors = PLAYER_COLORS.filter(color => color !== currentColor);
+    return availableColors[Math.floor(random() * availableColors.length)];
+}
+
 export function chooseOrdinaryNPCColor(playerColor, random = Math.random, colorPool = PLAYER_COLORS) {
     const availableColors = colorPool.filter(color => color !== playerColor);
     if (availableColors.length === 0) return playerColor === '#ffffff' ? '#00ffff' : '#ffffff';
@@ -2738,7 +2743,8 @@ export class Game {
 
     handleFire(playerId, isBurstShot = false) {
         const player = this.players.find(p => p.id === playerId);
-        if (!player || player.isDead || this.victoryFadeActive || this.victoryScreenActive) return;
+        if (!player || player.isDead || player.isWeaponLocked()
+            || this.victoryFadeActive || this.victoryScreenActive) return;
         if (this.gameState === GAME_MODE.EXPERIMENTAL && player.isNPC
             && !Game.prototype.hasHumanInExperimentalArea.call(this, player.roomId)) return;
         
@@ -3474,7 +3480,9 @@ export class Game {
         }
 
         if (worldRules.usesRooms) {
-            this.players.filter(player => !player.isDead && !player.isFixedPositionNPC).forEach(player => this.resolveExperimentalSlide(player));
+            this.players
+                .filter(player => !player.isDead && !player.isFixedPositionNPC && !player.isTranslationLocked())
+                .forEach(player => this.resolveExperimentalSlide(player));
         }
 
         this.asteroids.forEach(a => {
@@ -3824,6 +3832,8 @@ export class Game {
                 player.color = chooseRandomPlayerColor();
                 player.rollAggression();
             } else {
+                player.color = chooseDifferentPlayerColor(player.color);
+                player.startExperimentalRespawnPhase(spawn.x, spawn.y);
                 Game.prototype.showExperimentalSectorMessage.call(this, 1);
             }
             return;
@@ -3862,8 +3872,13 @@ export class Game {
         }
     }
 
+    isCombatSourceLocked(source) {
+        const owner = source?.owner || source;
+        return owner?.isWeaponLocked?.() === true;
+    }
+
     hitTarget(target, killer) {
-        if (!target || target.isDestroyed) return;
+        if (!target || target.isDestroyed || Game.prototype.isCombatSourceLocked.call(this, killer)) return;
         
         target.hits++;
         if (target.hits >= target.maxHits) {
@@ -3955,7 +3970,8 @@ export class Game {
     }
 
     resolvePlayerDamage(player, amount, killer) {
-        if (!player || player.isDead || player.spawnImmunityTimer > 0) return;
+        if (!player || player.isDead || player.isDamageImmune()) return;
+        if (Game.prototype.isCombatSourceLocked.call(this, killer)) return;
         if (!Game.prototype.canDamagePlayerTarget.call(this, player, killer)) return { shieldsConsumed: 0, hpLost: 0, died: false };
 
         const damage = Math.max(0, Math.floor(Number(amount) || 0));
@@ -4314,7 +4330,7 @@ export class Game {
                     continue;
                 }
                 this.asteroidPlayerContacts.set(a, contacts);
-                if (a.size !== 'small' && player.spawnImmunityTimer > 0) break;
+                if (a.size !== 'small' && player.isDamageImmune()) break;
                 if (!contacts.has(player)) {
                     contacts.add(player);
                     if (a.size === 'small') {
