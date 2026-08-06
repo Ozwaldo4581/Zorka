@@ -312,7 +312,7 @@ export class HUD {
             { name: player.slot1Type || 'Antigun', type: 'GUN' },
             { name: 'Missile', type: 'ADD-ON' },
             { name: slot3Name, type: player.isMartian ? 'UPGRADE' : 'GUN' },
-            { name: 'Cyborg', type: 'WEAPON' },
+            { name: 'Orb', type: 'WEAPON' },
             { name: 'Ghost', type: 'ADD-ON' }
         ];
 

@@ -46,15 +46,43 @@ test('Laser stacks to three centered parallel streams and clears on life reset',
     assert.equal(player.activatePowerUp(), false);
     assert.equal(player.powerUpCapsules, 3);
     player.resetTransientLifeState();
-    assert.deepEqual(player.weaponStreamCounts, { Laser: 0, Antigun: 0, Double: 0 });
+    assert.deepEqual(player.weaponStreamCounts, { Laser: 0, Antigun: 0, Double: 0, Orb: 0 });
 });
 
-test('capsule tiers four and five grant Cyborg and Ghost while leaving Shields unchanged', () => {
+test('Orb stacks to three centered streams, shares projectile scaling, and clears on life reset', () => {
+    const player = new Player(100, 100);
+    const originalRadius = player.radius;
+    player.projectileUpgradeCount = 4;
+    for (let streams = 1; streams <= MAX_STACKABLE_WEAPON_STREAMS; streams++) {
+        assert.equal(select(player, 4), true);
+        assert.equal(player.weaponStreamCounts.Orb, streams);
+        const shots = player.getGunProjectiles(player.x, player.y, 0);
+        assert.equal(shots.length, streams);
+        assert.equal(shots.every(shot => shot.isOrb && shot.owner === player && shot.vx === 0), true);
+        assert.ok(Math.abs(shots.reduce((sum, shot) => sum + shot.x, 0) / shots.length - player.x) < 1e-9);
+    }
+    player.spawnImmunityTimer = 0;
+    const initialShots = player.fire();
+    assert.equal(initialShots.length, MAX_STACKABLE_WEAPON_STREAMS);
+    assert.equal(player.fireCooldown, 0.75);
+    assert.equal(player.burstCount, player.resolveBaseProjectile().quantity - 1);
+    assert.equal(player.radius, originalRadius);
+    assert.equal(player.isCyborg, false);
+    player.powerUpCapsules = 4;
+    assert.equal(player.canActivateCapsuleSlot(4), false);
+    assert.equal(player.activatePowerUp(), false);
+    assert.equal(player.powerUpCapsules, 4);
+    player.resetTransientLifeState();
+    assert.equal(player.weaponStreamCounts.Orb, 0);
+});
+
+test('capsule tiers four and five grant Orb and Ghost while leaving Shields unchanged', () => {
     const player = new Player(0, 0);
     player.configureShields(2, 6);
     assert.equal(select(player, 4), true);
-    assert.equal(player.hasCyborgWeapon, true);
-    assert.equal(player.isCyborg, true);
+    assert.equal(player.weaponStreamCounts.Orb, 1);
+    assert.equal(player.isCyborg, false);
+    assert.equal('hasCyborgWeapon' in player, false);
     assert.deepEqual([player.shieldCharges, player.maxShieldCharges], [2, 2]);
     assert.equal(select(player, 5), true);
     assert.equal(player.ghosts.length, 1);

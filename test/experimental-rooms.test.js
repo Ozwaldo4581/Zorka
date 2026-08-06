@@ -9,7 +9,8 @@ import {
     WORLD_HEIGHT,
     WORLD_WIDTH,
     getArenaPopulationTargets,
-    getExperimentalPopulationTargets
+    getExperimentalPopulationTargets,
+    getExperimentalRoomPopulationTargets
 } from '../game.js';
 import { Asteroid } from '../entities/asteroid.js';
 import { SpaceDebris, Satellite } from '../entities/hazards.js';
@@ -264,6 +265,22 @@ test('Experimental environmental targets preserve density at the 25/81 room-area
     );
 });
 
+test('Experimental Sectors 7 and 8 derive asteroid-only targets from the standard room target', () => {
+    for (let level = 0; level <= 5; level++) {
+        const baseline = getExperimentalPopulationTargets(level, level, level);
+        const sector6 = getExperimentalRoomPopulationTargets(6, level, level, level);
+        const sector7 = getExperimentalRoomPopulationTargets(7, level, level, level);
+        const sector8 = getExperimentalRoomPopulationTargets(8, level, level, level);
+        assert.deepEqual(sector6, baseline);
+        assert.equal(sector7.asteroids, Math.round(baseline.asteroids * 1.2));
+        assert.equal(sector8.asteroids, Math.round(baseline.asteroids * 1.4));
+        assert.deepEqual({ debris: sector7.debris, satellites: sector7.satellites },
+            { debris: baseline.debris, satellites: baseline.satellites });
+        assert.deepEqual({ debris: sector8.debris, satellites: sector8.satellites },
+            { debris: baseline.debris, satellites: baseline.satellites });
+    }
+});
+
 test('Experimental population setup applies area-scaled targets through room-local spawn methods', () => {
     for (let level = 0; level <= 5; level++) {
         const calls = { asteroids: 0, debris: 0, satellites: 0 };
@@ -290,13 +307,18 @@ test('Experimental population setup applies area-scaled targets through room-loc
         Game.prototype.setupExperimentalPopulations.call(game);
         const targets = getExperimentalPopulationTargets(level, level, level);
         assert.deepEqual(calls, {
-            asteroids: targets.asteroids * 9,
+            asteroids: targets.asteroids * 7
+                + Math.round(targets.asteroids * 1.2)
+                + Math.round(targets.asteroids * 1.4),
             debris: targets.debris * 9,
             satellites: targets.satellites * 9
         });
         for (const room of game.experimentalRooms) {
+            const roomTargets = getExperimentalRoomPopulationTargets(
+                room.roomNumber, level, level, level
+            );
             assert.deepEqual(roomCalls.get(room.id) || {}, Object.fromEntries(
-                Object.entries(targets).filter(([, count]) => count > 0)
+                Object.entries(roomTargets).filter(([, count]) => count > 0)
             ));
         }
     }
@@ -355,7 +377,10 @@ test('only the Experimental initialization seam adds room definitions', () => {
     assert.equal(game.experimentalRooms.length, 20);
     assert.equal(game.experimentalDoors.length, 22);
     for (const room of game.experimentalRooms) {
-        if (room.isPopulationEligible) assert.deepEqual(game.experimentalRoomPopulations.get(room.id)?.desired, { asteroids: 49, debris: 3, satellites: 3 });
+        if (room.isPopulationEligible) assert.deepEqual(
+            game.experimentalRoomPopulations.get(room.id)?.desired,
+            getExperimentalRoomPopulationTargets(room.roomNumber, 2, 3, 4)
+        );
         else assert.equal(game.experimentalRoomPopulations.has(room.id), false);
     }
     Game.prototype.clearExperimentalState.call(game);
