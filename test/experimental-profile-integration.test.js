@@ -22,19 +22,19 @@ test('Player restores permanent profile counters and derived stats exactly once'
     player.configureShields(3, 4);
     player.applyPersistentProgression({
         level: 4, totalXP: 750, pendingLevelUps: 1,
-        projectileUpgradeCount: 1, speedUpgradeCount: 1, levelShieldUpgradeCount: 1
+        projectileUpgradeCount: 1, speedUpgradeCount: 1, shieldRechargeUpgradeCount: 1, deaths: 0
     });
     assert.deepEqual(player.getPersistentProgressionSnapshot(), {
         level: 4, totalXP: 750, pendingLevelUps: 1,
-        projectileUpgradeCount: 1, speedUpgradeCount: 1, levelShieldUpgradeCount: 1
+        projectileUpgradeCount: 1, speedUpgradeCount: 1, shieldRechargeUpgradeCount: 1, deaths: 0
     });
     assert.equal(player.getSpeedMultiplier(), 1.1);
     assert.equal(player.getBurstRoundCount(), 4);
-    assert.equal(player.maxShieldCharges, 4);
+    assert.equal(player.maxShieldCharges, 7);
     assert.equal(player.maxHP, 14);
 
     player.applyPersistentProgression(player.getPersistentProgressionSnapshot());
-    assert.equal(player.maxShieldCharges, 4, 'reapplying a snapshot does not duplicate Shield capacity');
+    assert.equal(player.maxShieldCharges, 7, 'reapplying a snapshot does not duplicate Shield capacity');
 });
 
 test('fresh Experimental life keeps progression and clears transient state at Sector 1 center', () => {
@@ -44,7 +44,7 @@ test('fresh Experimental life keeps progression and clears transient state at Se
     player.configureShields(3, 4);
     player.applyPersistentProgression({
         level: 3, totalXP: 600, pendingLevelUps: 0,
-        projectileUpgradeCount: 1, speedUpgradeCount: 1, levelShieldUpgradeCount: 1
+        projectileUpgradeCount: 1, speedUpgradeCount: 1, shieldRechargeUpgradeCount: 1, deaths: 0
     });
     Object.assign(player, {
         x: 99, y: 88, vx: 7, vy: 8, roomId: 'experimental-room-9', powerUpCapsules: 5,
@@ -60,7 +60,7 @@ test('fresh Experimental life keeps progression and clears transient state at Se
     assert.equal(player.hasMissile, false);
     assert.deepEqual(player.ghosts, []);
     assert.deepEqual(player.history, []);
-    assert.deepEqual([player.level, player.totalXP, player.maxShieldCharges], [3, 600, 4]);
+    assert.deepEqual([player.level, player.totalXP, player.maxShieldCharges], [3, 600, 6]);
 });
 
 test('autosave accepts only the selected Experimental human', () => {

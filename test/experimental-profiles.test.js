@@ -26,16 +26,16 @@ test('creating and updating one trimmed profile preserves every other slot', () 
     assert.equal(created.name, 'Nova');
     assert.equal(created.level, 0);
     assert.equal(created.totalXP, 0);
-    assert.deepEqual(store.getSummaries(), [null, null, { slot: 2, name: 'Nova', level: 0 }, null, null]);
+    assert.deepEqual(store.getSummaries(), [null, null, { slot: 2, name: 'Nova', level: 0, projectileUpgradeCount: 0, shieldRechargeUpgradeCount: 0 }, null, null]);
 
     store.updateProfile(2, {
         name: 'Ignored rename', level: 4, totalXP: 750, pendingLevelUps: 1,
-        projectileUpgradeCount: 1, speedUpgradeCount: 1, levelShieldUpgradeCount: 1,
+        projectileUpgradeCount: 1, speedUpgradeCount: 1, shieldRechargeUpgradeCount: 1,
         powerUpCapsules: 5, activeGun: 'Laser', roomId: 'experimental-room-9'
     });
     assert.deepEqual(store.getProfile(2), {
-        version: 2, slot: 2, name: 'Nova', level: 4, totalXP: 750, pendingLevelUps: 1,
-        projectileUpgradeCount: 1, speedUpgradeCount: 1, levelShieldUpgradeCount: 1
+        version: 3, slot: 2, name: 'Nova', level: 4, totalXP: 750, pendingLevelUps: 1,
+        projectileUpgradeCount: 1, speedUpgradeCount: 1, shieldRechargeUpgradeCount: 1, deaths: 0
     });
     assert.equal(store.loadSlots().filter(Boolean).length, 1);
     assert.equal(JSON.parse(storage.getItem(EXPERIMENTAL_PROFILE_STORAGE_KEY)).version, EXPERIMENTAL_PROFILE_SCHEMA_VERSION);
@@ -76,8 +76,8 @@ test('stored values are normalized, truncated, migrated, and stripped of tempora
     const profiles = new ExperimentalProfileStore(storage).loadSlots();
     assert.equal(profiles.length, 5);
     assert.deepEqual(profiles[0], {
-        version: 2, slot: 0, name: 'Pilot 0', level: 0, totalXP: 0, pendingLevelUps: 0,
-        projectileUpgradeCount: 0, speedUpgradeCount: 0, levelShieldUpgradeCount: 0
+        version: 3, slot: 0, name: 'Pilot 0', level: 0, totalXP: 0, pendingLevelUps: 0,
+        projectileUpgradeCount: 0, speedUpgradeCount: 0, shieldRechargeUpgradeCount: 0, deaths: 0
     });
     assert.equal('powerUpCapsules' in profiles[0], false);
     assert.equal('activeGun' in profiles[0], false);
@@ -93,8 +93,8 @@ test('version 1 migration preserves existing progression and permanent bonuses',
     }) });
     const [veteran, earlyTester] = new ExperimentalProfileStore(storage).loadSlots();
     assert.deepEqual(veteran, {
-        version: 2, slot: 0, name: 'Veteran', level: 1, totalXP: 237, pendingLevelUps: 0,
-        projectileUpgradeCount: 1, speedUpgradeCount: 2, levelShieldUpgradeCount: 3
+        version: 3, slot: 0, name: 'Veteran', level: 1, totalXP: 237, pendingLevelUps: 0,
+        projectileUpgradeCount: 1, speedUpgradeCount: 2, shieldRechargeUpgradeCount: 3, deaths: 0
     });
     assert.equal(earlyTester.level, 0);
     assert.equal(earlyTester.totalXP, 42);

@@ -1,4 +1,4 @@
-import { Player } from './entities/player.js';
+import { Player, MAX_PROJECTILE_UPGRADES, MAX_SHIELD_RECHARGE_UPGRADES } from './entities/player.js';
 import { Asteroid } from './entities/asteroid.js';
 import { SpaceDebris, Satellite } from './entities/hazards.js';
 import { Projectile } from './entities/projectile.js';
@@ -1770,6 +1770,7 @@ export class Game {
         this.experimentalRooms = [];
         this.experimentalDoors = [];
         this.experimentalRoomPopulations = new Map();
+        this.experimentalEncounterStates = new Map();
         this.experimentalSessionId = (this.experimentalSessionId || 0) + 1;
         this.experimentalRoomAssignments = new Map();
         this.experimentalAreaIndexes = new Map();
@@ -1796,6 +1797,7 @@ export class Game {
         this.experimentalRooms = createExperimentalAreas(EXPERIMENTAL_ROOM_WIDTH, EXPERIMENTAL_ROOM_HEIGHT);
         this.experimentalDoors = createExperimentalDoors(this.experimentalRooms);
         Game.prototype.initializeExperimentalAreaIndexes.call(this);
+        Game.prototype.initializeExperimentalEncounterStates.call(this);
         const desired = getExperimentalPopulationTargets(
             this.asteroidDensityLevel,
             this.debrisDensityLevel,
@@ -1809,6 +1811,36 @@ export class Game {
             }),
             desired: Object.freeze({ ...desired })
         }]));
+    }
+
+    initializeExperimentalEncounterStates() {
+        this.experimentalEncounterStates = new Map();
+        for (const room of (this.experimentalRooms || []).filter(area => area.roomNumber > 0
+            && area.roomNumber < SECTOR_9_BBG_ENCOUNTER.roomNumber && area.ordinaryNPCsAllowed !== false)) {
+            const hallway = this.experimentalRooms.find(area => area.roomNumber === 0
+                && area.connectedAreaIds?.includes(room.id)
+                && area.connectedAreaIds?.includes(`experimental-room-${room.roomNumber + 1}`));
+            const progressionDoor = hallway && this.experimentalDoors.find(door =>
+                door.roomIds.includes(room.id) && door.roomIds.includes(hallway.id));
+            this.experimentalEncounterStates.set(room.id, {
+                roomId: room.id, encounterCleared: false, doorUnlocked: false, populationSpawned: false,
+                npcCount: room.npcCount, npcLevel: room.npcLevel,
+                progressionDoorId: progressionDoor?.id || null,
+                progressionHallwayId: hallway?.id || null
+            });
+        }
+        return this.experimentalEncounterStates;
+    }
+
+    getExperimentalEncounterState(roomId) {
+        return this.experimentalEncounterStates?.get(roomId) || null;
+    }
+
+    isExperimentalProgressionDoorLocked(door) {
+        if (!door) return false;
+        const encounter = [...(this.experimentalEncounterStates?.values() || [])]
+            .find(state => state.progressionDoorId === door.id);
+        return Boolean(encounter && !encounter.doorUnlocked);
     }
 
     getWorldRules() {
@@ -1951,30 +1983,12 @@ export class Game {
             player.x = spawn.x;
             player.y = spawn.y;
             player.roomId = room.id;
+            player.experimentalLastCombatRoomId = room.id;
             Game.prototype.indexExperimentalEntity.call(this, 'players', player);
             placedPlayers.push(player);
         });
-        let nextNpcId = Math.max(1, ...this.players.map(player => player.id || 0)) + 1;
         for (const npcRoom of this.experimentalRooms.filter(area => Game.prototype.allowsOrdinaryExperimentalNPCPopulation.call(this, area))) {
-            for (let index = 0; index < npcRoom.npcCount; index++) {
-                const spawn = Game.prototype.findExperimentalSpawn.call(this, 25, placedPlayers, npcRoom.id);
-                const npc = new Player(spawn.x, spawn.y, nextNpcId++, chooseRandomPlayerColor());
-                if (typeof this.configurePlayerShields === 'function') this.configurePlayerShields(npc);
-                npc.isNPC = true;
-                npc.name = `ROOM ${npcRoom.roomNumber} BOT ${index + 1}`;
-                npc.roomId = npcRoom.id;
-                if (this.botAggressionLevel > 0) {
-                    npc.aggressionLevel = this.botAggressionLevel;
-                    npc.rollAccuracy();
-                } else {
-                    npc.rollAggression();
-                }
-                npc.initializeNPCLevel(Game.prototype.getExperimentalEnemyLevel.call(this, npcRoom.npcLevel));
-                npc.applyRandomCapsulePowerUps(Math.floor(npc.level * 0.75));
-                this.players.push(npc);
-                Game.prototype.indexExperimentalEntity.call(this, 'players', npc);
-                placedPlayers.push(npc);
-            }
+            Game.prototype.spawnOrdinaryExperimentalRoomNPCs.call(this, npcRoom.id, placedPlayers);
         }
         Game.prototype.spawnSector9BBGEncounter.call(this);
         Game.prototype.removeStaleOrdinaryExperimentalNPCsFromBlockedRooms.call(this);
@@ -1987,6 +2001,70 @@ export class Game {
             for (let index = 0; index < targets.debris; index++) this.spawnSpaceDebris(populationRoom.id);
             for (let index = 0; index < targets.satellites; index++) this.spawnSatellite(populationRoom.id);
         }
+    }
+
+    spawnOrdinaryExperimentalRoomNPCs(roomId, placedPlayers = this.players) {
+        const room = Game.prototype.getExperimentalRoom.call(this, roomId);
+        if (!room || !Game.prototype.allowsOrdinaryExperimentalNPCPopulation.call(this, room)
+            || room.roomNumber >= SECTOR_9_BBG_ENCOUNTER.roomNumber) return [];
+        const encounter = Game.prototype.getExperimentalEncounterState.call(this, room.id);
+        const count = encounter?.npcCount ?? room.npcCount;
+        let nextNpcId = Math.max(1, ...this.players.map(player => player.id || 0)) + 1;
+        const spawned = [];
+        for (let index = 0; index < count; index++) {
+            const spawn = Game.prototype.findExperimentalSpawn.call(this, 25, placedPlayers, room.id);
+            const npc = new Player(spawn.x, spawn.y, nextNpcId++, chooseRandomPlayerColor());
+            if (typeof this.configurePlayerShields === 'function') this.configurePlayerShields(npc);
+            npc.isNPC = true;
+            npc.name = `ROOM ${room.roomNumber} BOT ${index + 1}`;
+            npc.roomId = room.id;
+            npc.isOrdinaryExperimentalNPC = true;
+            npc.noRespawn = true;
+            if (this.botAggressionLevel > 0) {
+                npc.aggressionLevel = this.botAggressionLevel;
+                npc.rollAccuracy();
+            } else npc.rollAggression();
+            npc.initializeNPCLevel(Game.prototype.getExperimentalEnemyLevel.call(this, encounter?.npcLevel ?? room.npcLevel));
+            npc.applyRandomCapsulePowerUps(Math.floor(npc.level * 0.75));
+            this.players.push(npc);
+            Game.prototype.indexExperimentalEntity.call(this, 'players', npc);
+            if (placedPlayers !== this.players) placedPlayers.push(npc);
+            spawned.push(npc);
+        }
+        if (encounter) encounter.populationSpawned = true;
+        return spawned;
+    }
+
+    isLivingOrdinaryExperimentalRoomEnemy(player, roomId = player?.roomId) {
+        return this.gameState === GAME_MODE.EXPERIMENTAL && player instanceof Player && player.isNPC
+            && player.isOrdinaryExperimentalNPC === true && player.roomId === roomId
+            && !player.isDead && !player.isEliminated;
+    }
+
+    evaluateExperimentalRoomClear(deadNPC) {
+        if (!deadNPC?.isOrdinaryExperimentalNPC) return false;
+        const encounter = Game.prototype.getExperimentalEncounterState.call(this, deadNPC.roomId);
+        if (!encounter || encounter.encounterCleared) return false;
+        const remaining = this.players.some(player => player !== deadNPC
+            && Game.prototype.isLivingOrdinaryExperimentalRoomEnemy.call(this, player, deadNPC.roomId));
+        if (remaining) return false;
+        encounter.encounterCleared = true;
+        encounter.doorUnlocked = true;
+        encounter.populationSpawned = false;
+        this.experimentalObjectiveMessage = { lines: ['Hallway opened!'], remaining: EXPERIMENTAL_OBJECTIVE_MESSAGE_DURATION };
+        return true;
+    }
+
+    resetExperimentalRoomEncounter(roomId) {
+        const encounter = Game.prototype.getExperimentalEncounterState.call(this, roomId);
+        if (!encounter) return [];
+        for (const npc of [...this.players]) {
+            if (!npc?.isOrdinaryExperimentalNPC || npc.roomId !== roomId) continue;
+            Game.prototype.unindexExperimentalEntity.call(this, 'players', npc);
+            this.players.splice(this.players.indexOf(npc), 1);
+        }
+        encounter.populationSpawned = false;
+        return Game.prototype.spawnOrdinaryExperimentalRoomNPCs.call(this, roomId, this.players);
     }
 
     getExperimentalRoomPopulation(roomId) {
@@ -2052,7 +2130,7 @@ export class Game {
                 name.textContent = summary.name;
                 const level = document.createElement('span');
                 level.className = 'profile-slot-level';
-                level.textContent = `Lvl ${summary.level}`;
+                level.textContent = `Lvl ${summary.level} · Projectile ${summary.projectileUpgradeCount}/${MAX_PROJECTILE_UPGRADES} · Shield Recharge ${summary.shieldRechargeUpgradeCount}/${MAX_SHIELD_RECHARGE_UPGRADES}`;
                 button.append(name, level);
                 button.addEventListener('click', () => this.selectExperimentalProfile(slot));
             } else {
@@ -2212,8 +2290,12 @@ export class Game {
     }
 
     showExperimentalObjectiveMessage() {
+        const human = (this.players || []).find(player => !player.isNPC);
+        const encounter = Game.prototype.getExperimentalEncounterState.call(this, human?.roomId);
         this.experimentalObjectiveMessage = {
-            lines: ['The Princess is in Sector 9!', 'Save the Princess!', 'Save the Galaxy!'],
+            lines: encounter && !encounter.doorUnlocked
+                ? ['Defeat all enemies to open the hallway.']
+                : ['The Princess is in Sector 9!', 'Save the Princess!', 'Save the Galaxy!'],
             remaining: EXPERIMENTAL_OBJECTIVE_MESSAGE_DURATION
         };
     }
@@ -2324,7 +2406,7 @@ export class Game {
         }
         human.name = selectedProfile.name;
         human.applyPersistentProgression(selectedProfile);
-        human.resetTransientLifeState(this.startingShieldCharges);
+        human.resetTransientLifeState();
         human.onPersistentProgressionChanged = player => Game.prototype.saveExperimentalProfile.call(this, player);
         document.getElementById('menu-overlay').classList.add('hidden');
         this.experimentalCameraState = { previousZoom: this.camera.zoom };
@@ -3393,7 +3475,9 @@ export class Game {
             }
         }
         for (const door of connectedDoors) {
-            if (door.blockedCategories.includes(category)) walls.push(door.blocker);
+            if (door.blockedCategories.includes(category)
+                || (category === EXPERIMENTAL_COLLISION_CATEGORY.HUMAN_PLAYER
+                    && Game.prototype.isExperimentalProgressionDoorLocked.call(this, door))) walls.push(door.blocker);
         }
         return walls;
     }
@@ -3429,6 +3513,7 @@ export class Game {
                 || (direction < 0 && across < door.boundaryCoordinate - clearance)) {
                 Game.prototype.unindexExperimentalEntity.call(this, 'players', player, previousRoomId);
                 player.roomId = candidateId;
+                if (candidate.roomNumber > 0) player.experimentalLastCombatRoomId = candidate.id;
                 Game.prototype.indexExperimentalEntity.call(this, 'players', player);
                 break;
             }
@@ -3436,6 +3521,7 @@ export class Game {
         const nextRoom = Game.prototype.getExperimentalRoom.call(this, player.roomId);
         if (player.roomId !== previousRoomId && nextRoom?.roomNumber > 0) {
             Game.prototype.showExperimentalSectorMessage.call(this, nextRoom.roomNumber);
+            Game.prototype.showExperimentalObjectiveMessage.call(this);
         }
         if (player.roomId !== previousRoomId
             && currentRoom?.roomNumber > 0
@@ -3561,7 +3647,7 @@ export class Game {
     }
 
     respawnPlayer(player) {
-        player.resetTransientLifeState(this.startingShieldCharges);
+        player.resetTransientLifeState();
 
         const primaryMusicPlayer = Game.prototype.getPrimaryMusicPlayer.call(this);
         if (!player.isNPC && player === primaryMusicPlayer && this.gameState !== GAME_MODE.ARCADE) {
@@ -3834,6 +3920,22 @@ export class Game {
         player.resetControllerAimLock(true);
         this.clearAimLocksForTarget(player);
         player.respawnTimer = player.noRespawn ? 0 : 2;
+
+        if (this.gameState === GAME_MODE.EXPERIMENTAL && player.isNPC && player.isOrdinaryExperimentalNPC) {
+            player.isEliminated = true;
+            player.respawnTimer = 0;
+            Game.prototype.unindexExperimentalEntity.call(this, 'players', player);
+            Game.prototype.evaluateExperimentalRoomClear.call(this, player);
+        }
+
+        if (this.gameState === GAME_MODE.EXPERIMENTAL && !player.isNPC) {
+            const deathArea = Game.prototype.getExperimentalRoom.call(this, player.roomId);
+            const encounterRoomId = deathArea?.roomNumber > 0
+                ? deathArea.id : player.experimentalLastCombatRoomId;
+            if (Game.prototype.getExperimentalEncounterState.call(this, encounterRoomId)) {
+                Game.prototype.resetExperimentalRoomEncounter.call(this, encounterRoomId);
+            }
+        }
 
         const primaryMusicPlayer = Game.prototype.getPrimaryMusicPlayer.call(this);
         if (!player.isNPC && player === primaryMusicPlayer) {
@@ -4995,6 +5097,23 @@ export class Game {
             ctx.shadowBlur = 10;
             ctx.strokeStyle = '#00ffff';
             ctx.lineWidth = room.wallVisualCoreThickness;
+            ctx.stroke();
+            ctx.restore();
+        }
+        for (const door of this.experimentalDoors || []) {
+            if (!Game.prototype.isExperimentalProgressionDoorLocked.call(this, door)) continue;
+            const blocker = door.blocker;
+            const dx = blocker.end.x - blocker.start.x;
+            const dy = blocker.end.y - blocker.start.y;
+            ctx.save();
+            camera.apply(ctx, blocker.start.x, blocker.start.y);
+            ctx.strokeStyle = '#ff5a5a';
+            ctx.shadowColor = '#ff2020';
+            ctx.shadowBlur = 18;
+            ctx.lineWidth = 10;
+            ctx.beginPath();
+            ctx.moveTo(0, 0);
+            ctx.lineTo(dx, dy);
             ctx.stroke();
             ctx.restore();
         }

@@ -55,7 +55,7 @@ export class HUD {
     }
 
     getLevelUpgradeBoxes(centerX, topY) {
-        const width = 132;
+        const width = 160;
         const height = 52;
         const gap = 16;
         const choices = ['projectile', 'speed', 'shield'];
@@ -85,9 +85,16 @@ export class HUD {
             ctx.lineWidth = 2;
             ctx.fillRect(box.x, box.y, box.width, box.height);
             ctx.strokeRect(box.x, box.y, box.width, box.height);
-            ctx.font = 'bold 13px Orbitron';
+            ctx.font = 'bold 12px Orbitron';
             ctx.fillStyle = selectable ? '#fff' : '#999';
-            ctx.fillText(box.choice.toUpperCase(), box.x + box.width / 2, box.y + 32);
+            const labels = ['PROJECTILE', 'SPEED', 'SHIELD RECHARGE'];
+            const counts = [
+                `${player.projectileUpgradeCount}/${player.maxProjectileUpgrades}`,
+                `${player.speedUpgradeCount}/${player.maxSpeedUpgrades}`,
+                `${player.shieldRechargeUpgradeCount}/${player.maxShieldRechargeUpgrades} · ${player.shieldRechargeDelay.toFixed(1)}s`
+            ];
+            ctx.fillText(labels[index], box.x + box.width / 2, box.y + 23);
+            ctx.fillText(counts[index], box.x + box.width / 2, box.y + 41);
         });
         ctx.font = 'bold 15px Orbitron';
         ctx.fillStyle = '#fff';
@@ -214,6 +221,7 @@ export class HUD {
             ['Hull Strength', stats.hullStrength],
             ['Shields', stats.shields],
             ['Projectile', stats.projectile],
+            ['Shield Recharge', stats.shieldRecharge],
             ['Speed', stats.speed],
             ['Deaths', stats.deaths]
         ];

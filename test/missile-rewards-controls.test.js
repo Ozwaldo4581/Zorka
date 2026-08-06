@@ -126,7 +126,7 @@ test('controller face buttons dispatch distinct player intents on press edges', 
     assert.equal(player.powerUpCapsules, 1, 'contextual A is suppressed while choosing a level upgrade');
     player.handleGamepadPowerUpIntents(pad());
     player.handleGamepadPowerUpIntents(pad(1));
-    assert.equal(player.levelShieldUpgradeCount, 1);
+    assert.equal(player.shieldRechargeUpgradeCount, 1);
     assert.equal(player.pendingLevelUps, 0);
 
     player.handleGamepadPowerUpIntents(pad());

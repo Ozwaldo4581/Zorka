@@ -23,18 +23,18 @@ test('XP uses cumulative quadratic per-level requirements and queues every cross
     assert.equal(player.addXP(Number.NaN), 0);
 });
 
-test('level choices validate caps, consume only successful choices, and share Shield capacity', () => {
+test('level choices validate ten-level caps and Shield Recharge leaves capacity unchanged', () => {
     const player = new Player(0, 0);
-    player.pendingLevelUps = 17;
-    for (let i = 0; i < 5; i++) assert.equal(player.applyLevelUpgrade('projectile'), true);
+    player.pendingLevelUps = 22;
+    for (let i = 0; i < 10; i++) assert.equal(player.applyLevelUpgrade('projectile'), true);
     assert.equal(player.applyLevelUpgrade('projectile'), false);
     for (let i = 0; i < 10; i++) assert.equal(player.applyLevelUpgrade('speed'), true);
     assert.equal(player.getSpeedMultiplier(), 2);
     assert.equal(player.applyLevelUpgrade('speed'), false);
     assert.equal(player.pendingLevelUps, 2);
     assert.equal(player.applyLevelUpgrade('shield'), true);
-    assert.equal(player.maxShieldCharges, 1);
-    assert.equal(player.shieldCharges, 1);
+    assert.equal(player.maxShieldCharges, 0);
+    assert.equal(player.shieldRechargeUpgradeCount, 1);
     assert.equal(player.pendingLevelUps, 1);
 });
 
@@ -43,7 +43,7 @@ test('Projectile state clamps legacy values and Speed scales thrust without chan
     legacyPlayer.projectileUpgradeCount = 10;
     legacyPlayer.pendingLevelUps = 1;
     assert.equal(legacyPlayer.applyLevelUpgrade('projectile'), false);
-    assert.equal(legacyPlayer.projectileUpgradeCount, 5);
+    assert.equal(legacyPlayer.projectileUpgradeCount, 10);
     assert.equal(legacyPlayer.pendingLevelUps, 1);
 
     const speeds = [0, 5, 10].map(speedUpgradeCount => {
@@ -65,12 +65,12 @@ test('Projectile state clamps legacy values and Speed scales thrust without chan
 test('NPCs immediately resolve every queued choice from selectable upgrades', () => {
     const npc = new Player(0, 0);
     npc.isNPC = true;
-    npc.projectileUpgradeCount = 5;
+    npc.projectileUpgradeCount = 10;
     npc.speedUpgradeCount = 10;
     npc.pendingLevelUps = 3;
     assert.equal(npc.resolveNPCLevelUps(() => 0), 3);
     assert.equal(npc.pendingLevelUps, 0);
-    assert.equal(npc.maxShieldCharges, 3);
+    assert.equal(npc.shieldRechargeUpgradeCount, 3);
 });
 
 test('new NPCs initialize at a target level with consistent XP and resolved upgrades', () => {
@@ -81,9 +81,9 @@ test('new NPCs initialize at a target level with consistent XP and resolved upgr
         assert.equal(npc.level, targetLevel);
         assert.equal(npc.totalXP, npc.getLevelThreshold(targetLevel));
         assert.equal(npc.pendingLevelUps, 0);
-        assert.equal(npc.projectileUpgradeCount, Math.min(5, targetLevel));
-        assert.equal(npc.speedUpgradeCount, Math.min(10, Math.max(0, targetLevel - 5)));
-        assert.equal(npc.levelShieldUpgradeCount, Math.max(0, targetLevel - 15));
+        assert.equal(npc.projectileUpgradeCount, Math.min(10, targetLevel));
+        assert.equal(npc.speedUpgradeCount, Math.min(10, Math.max(0, targetLevel - 10)));
+        assert.equal(npc.shieldRechargeUpgradeCount, Math.min(10, Math.max(0, targetLevel - 20)));
         assert.equal(npc.score, 0);
         assert.equal(npc.prestigeLevel, 0);
     }
@@ -203,6 +203,7 @@ test('level reset clears level bonuses while preserving non-level shield capacit
     player.applyLevelUpgrade('shield');
     player.totalXP = 600;
     player.level = 3;
+    player.maxShieldCharges += 3;
 
     player.resetLevelProgress();
 
@@ -211,7 +212,7 @@ test('level reset clears level bonuses while preserving non-level shield capacit
     assert.equal(player.pendingLevelUps, 0);
     assert.equal(player.projectileUpgradeCount, 0);
     assert.equal(player.speedUpgradeCount, 0);
-    assert.equal(player.levelShieldUpgradeCount, 0);
+    assert.equal(player.shieldRechargeUpgradeCount, 0);
     assert.equal(player.maxShieldCharges, 3);
     assert.equal(player.shieldCharges, 3);
 });
