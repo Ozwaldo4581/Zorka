@@ -46,8 +46,8 @@ test('Experimental setup uses its dedicated state while reusing the unchanged So
             calls.push('clear-experimental');
             this.experimentalRooms = [];
         },
-        initializeExperimentalRooms() {
-            calls.push('initialize-rooms');
+        initializeExperimentalWorldState() {
+            calls.push('initialize-world');
             this.experimentalRooms = [{ id: 'experimental-room-1', npcCount: 1 }];
         },
         spawnPlayers(mode, count) {
@@ -64,11 +64,33 @@ test('Experimental setup uses its dedicated state while reusing the unchanged So
     assert.equal(game.gameState, GAME_MODE.EXPERIMENTAL);
     assert.deepEqual(game.experimentalRooms, [{ id: 'experimental-room-1', npcCount: 1 }]);
     assert.deepEqual(calls, [
-        'clear-experimental',
-        'initialize-rooms',
         ['spawn-players', GAME_MODE.SOLO, 2],
-        'setup-room-populations'
+        'initialize-world'
     ]);
+});
+
+test('Experimental world-loop reset retains the human and persistent progression', t => {
+    const human = Object.assign(new Player(10, 20, 1), {
+        name: 'Veteran', level: 6, totalXP: 777, pendingLevelUps: 2,
+        projectileUpgradeCount: 2, speedUpgradeCount: 1, shieldRechargeUpgradeCount: 1,
+        maxShieldCharges: 9, deaths: 4, experimentalWorldResetPending: true
+    });
+    const game = {
+        gameState: GAME_MODE.EXPERIMENTAL,
+        players: [human, Object.assign(new Player(30, 40, 2), { isNPC: true })]
+    };
+    const progressionBefore = human.getPersistentProgressionSnapshot();
+    let initialized = 0;
+    t.mock.method(Game.prototype, 'initializeExperimentalWorldState', function () {
+        initialized++;
+        this.players = this.players.filter(player => !player.isNPC);
+    });
+
+    assert.equal(Game.prototype.resetExperimentalWorldLoop.call(game, human), true);
+    assert.equal(initialized, 1);
+    assert.deepEqual(game.players, [human]);
+    assert.deepEqual(human.getPersistentProgressionSnapshot(), progressionBefore);
+    assert.equal(human.experimentalWorldResetPending, false);
 });
 
 test('base world dimensions and wrapping remain unchanged by the mode shell', () => {
