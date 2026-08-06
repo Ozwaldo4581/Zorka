@@ -203,7 +203,7 @@ Confirmed enemy ship kills:
 - update High Tide
 - grant level-based XP when the victim is an NPC
 
-Death clears capsule and temporary weapon/transformation-related state. Hardcore death also resets XP/level upgrade progress and level-derived HP/shield capacity.
+Death clears capsule and temporary weapon/transformation-related state. Hardcore death also resets XP/level upgrade progress and level-derived HP/shield capacity in standard modes. Experimental human death instead preserves profile progression while rebuilding the complete run-scoped world, including encounters, doors, populations, indexes, effects, and replacement generations, before the normal Sector 1 respawn.
 
 ## Mode-Specific Systems
 

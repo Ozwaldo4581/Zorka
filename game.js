@@ -2285,15 +2285,32 @@ export class Game {
     }
 
     setupExperimentalMatch() {
-        this.clearExperimentalState();
-        this.initializeExperimentalRooms();
         // Reuse the shared Solo human contract; room-configured NPCs are added below.
         this.spawnPlayers(GAME_MODE.SOLO, 2);
         this.gameState = GAME_MODE.EXPERIMENTAL;
-        this.setupExperimentalPopulations();
+        this.initializeExperimentalWorldState();
+    }
+
+    initializeExperimentalWorldState() {
+        // World/run state is rebuilt independently from the retained human's profile progression.
+        Game.prototype.clearExperimentalState.call(this);
+        this.players = (this.players || []).filter(player => !player.isNPC);
+        this.asteroids = [];
+        this.hazards = [];
+        this.projectiles = [];
+        this.vfx = [];
+        Game.prototype.initializeExperimentalRooms.call(this);
+        Game.prototype.setupExperimentalPopulations.call(this);
         const startingRoom = this.experimentalRooms.find(area => area.roomNumber === 1) || this.experimentalRooms[0];
         Game.prototype.showExperimentalSectorMessage.call(this, startingRoom?.roomNumber || 1);
         Game.prototype.showExperimentalObjectiveMessage.call(this);
+    }
+
+    resetExperimentalWorldLoop(player) {
+        if (this.gameState !== GAME_MODE.EXPERIMENTAL || !player || player.isNPC) return false;
+        Game.prototype.initializeExperimentalWorldState.call(this);
+        player.experimentalWorldResetPending = false;
+        return true;
     }
 
 
@@ -3360,6 +3377,10 @@ export class Game {
             } else if (player.respawnTimer > 0) {
                 player.respawnTimer -= dt;
                 if (player.respawnTimer <= 0) {
+                    if (this.gameState === GAME_MODE.EXPERIMENTAL
+                        && !player.isNPC && player.experimentalWorldResetPending) {
+                        Game.prototype.resetExperimentalWorldLoop.call(this, player);
+                    }
                     this.respawnPlayer(player);
                 }
             }
@@ -3954,12 +3975,7 @@ export class Game {
         }
 
         if (this.gameState === GAME_MODE.EXPERIMENTAL && !player.isNPC) {
-            const deathArea = Game.prototype.getExperimentalRoom.call(this, player.roomId);
-            const encounterRoomId = deathArea?.roomNumber > 0
-                ? deathArea.id : player.experimentalLastCombatRoomId;
-            if (Game.prototype.getExperimentalEncounterState.call(this, encounterRoomId)) {
-                Game.prototype.resetExperimentalRoomEncounter.call(this, encounterRoomId);
-            }
+            player.experimentalWorldResetPending = true;
         }
 
         const primaryMusicPlayer = Game.prototype.getPrimaryMusicPlayer.call(this);
@@ -3998,7 +4014,8 @@ export class Game {
             totalCapsulesGained: player.totalCapsulesGained
         } : null;
 
-        if (Game.prototype.isHardcoreActive.call(this)) player.resetLevelProgress();
+        const preservesExperimentalProfile = this.gameState === GAME_MODE.EXPERIMENTAL && !player.isNPC;
+        if (Game.prototype.isHardcoreActive.call(this) && !preservesExperimentalProfile) player.resetLevelProgress();
         
         // Reset ALL power-up progress on death
         player.powerUpCapsules = 0;
