@@ -6,6 +6,8 @@ const BASE_GUN_COOLDOWN = 0.75;
 const BURST_INTERVAL = 0.05;
 const BASE_PROJECTILE_SPEED = 1200;
 const MARTIAN_PARALLEL_OFFSET = 30;
+export const SPAWN_IMMUNITY_DURATION = 1;
+export const EXPERIMENTAL_RESPAWN_PHASE_DURATION = 3;
 export const MAX_STACKABLE_WEAPON_STREAMS = 3;
 export const STACKABLE_CAPSULE_GUNS = Object.freeze(['Antigun', 'Double', 'Laser', 'Orb']);
 export const MAX_PROJECTILE_UPGRADES = 10;
@@ -86,7 +88,12 @@ export class Player {
         this.isEliminated = false; 
 
         // Spawn immunity
-        this.spawnImmunityTimer = 1.0; 
+        this.spawnImmunityTimer = SPAWN_IMMUNITY_DURATION;
+        this.experimentalRespawnPhaseTimer = 0;
+        this.experimentalRespawnPhaseDuration = EXPERIMENTAL_RESPAWN_PHASE_DURATION;
+        this.experimentalRespawnAnchorX = null;
+        this.experimentalRespawnAnchorY = null;
+        this.experimentalSpawnProtectionPending = false;
 
         // NPC accuracy: 1-5 scale (1 = 60%, 5 = 95%). Lower accuracy means the NPC
         // will aim at a random offset near the target instead of directly at it.
@@ -271,7 +278,11 @@ export class Player {
         this.respawnTimer = 0;
         this.vx = 0;
         this.vy = 0;
-        this.spawnImmunityTimer = 1;
+        this.spawnImmunityTimer = SPAWN_IMMUNITY_DURATION;
+        this.experimentalRespawnPhaseTimer = 0;
+        this.experimentalRespawnAnchorX = null;
+        this.experimentalRespawnAnchorY = null;
+        this.experimentalSpawnProtectionPending = false;
         this.restoreHP();
         this.powerUpCapsules = 0;
         this.activeGun = 'Normal';
@@ -285,6 +296,55 @@ export class Player {
         this.resetEvolutionForm();
         this.bonusSpeed = 0;
         this.restoreShieldCharges(this.maxShieldCharges);
+    }
+
+    startExperimentalRespawnPhase(x = this.x, y = this.y) {
+        this.cancelBurstFire();
+        this.experimentalRespawnPhaseTimer = this.experimentalRespawnPhaseDuration;
+        this.experimentalRespawnAnchorX = x;
+        this.experimentalRespawnAnchorY = y;
+        this.experimentalSpawnProtectionPending = true;
+        this.spawnImmunityTimer = 0;
+        this.x = x;
+        this.y = y;
+        this.vx = 0;
+        this.vy = 0;
+    }
+
+    isExperimentalRespawnPhaseActive() {
+        return this.experimentalRespawnPhaseTimer > 0;
+    }
+
+    isTranslationLocked() {
+        return this.isExperimentalRespawnPhaseActive();
+    }
+
+    isWeaponLocked() {
+        return this.isExperimentalRespawnPhaseActive();
+    }
+
+    isDamageImmune() {
+        return this.isExperimentalRespawnPhaseActive() || this.spawnImmunityTimer > 0;
+    }
+
+    getExperimentalRespawnTintProgress() {
+        if (!this.isExperimentalRespawnPhaseActive()) return 1;
+        return Math.max(0, Math.min(1,
+            1 - this.experimentalRespawnPhaseTimer / this.experimentalRespawnPhaseDuration));
+    }
+
+    updateExperimentalRespawnPhase(dt) {
+        if (!this.isExperimentalRespawnPhaseActive()) return false;
+        this.experimentalRespawnPhaseTimer = Math.max(0, this.experimentalRespawnPhaseTimer - dt);
+        if (this.experimentalRespawnPhaseTimer > 0) return false;
+
+        this.experimentalRespawnAnchorX = null;
+        this.experimentalRespawnAnchorY = null;
+        if (this.experimentalSpawnProtectionPending) {
+            this.experimentalSpawnProtectionPending = false;
+            this.spawnImmunityTimer = SPAWN_IMMUNITY_DURATION;
+        }
+        return true;
     }
 
     getBurstRoundCount() {
@@ -460,8 +520,13 @@ export class Player {
         this.updateShieldRecharge(dt);
         this.updateHPRecharge(dt);
 
-        // Update immunity
-        if (this.spawnImmunityTimer > 0) {
+        const translationLocked = this.isTranslationLocked();
+        const respawnAnchorX = this.experimentalRespawnAnchorX;
+        const respawnAnchorY = this.experimentalRespawnAnchorY;
+        const standardImmunityStarted = this.updateExperimentalRespawnPhase(dt);
+
+        // Update standard immunity only when it was active at frame start.
+        if (!standardImmunityStarted && this.spawnImmunityTimer > 0) {
             this.spawnImmunityTimer -= dt;
         }
 
@@ -474,7 +539,9 @@ export class Player {
         this.updateGhosts(dt, worldRules);
 
         // Handle Burst Fire Logic
-        if (this.burstCount > 0) {
+        if (translationLocked) {
+            this.cancelBurstFire();
+        } else if (this.burstCount > 0) {
             this.burstTimer -= dt;
             if (this.burstTimer <= 0) {
                 this.burstCount--;
@@ -612,7 +679,15 @@ export class Player {
             // NO KEYBOARD FALLBACK FOR P2
         }
 
-        updateNewtonian(this, dt, { x: fx, y: fy }, worldRules);
+        if (translationLocked) {
+            this.x = respawnAnchorX;
+            this.y = respawnAnchorY;
+            this.vx = 0;
+            this.vy = 0;
+            this.isThrusting = false;
+        } else {
+            updateNewtonian(this, dt, { x: fx, y: fy }, worldRules);
+        }
         
         // Speed cap
         let maxSpeed = 800;
@@ -1284,7 +1359,7 @@ export class Player {
 
     fire(isBurstShot = false) {
         if (this.isEventHorizon) return null; // Event Horizon Horror does not shoot projectiles
-        if (this.spawnImmunityTimer > 0) return null; // Cannot shoot during immunity
+        if (this.spawnImmunityTimer > 0 || this.isWeaponLocked()) return null; // Cannot shoot during immunity
 
         if (this.fireCooldown <= 0 || isBurstShot) {
             // Main weapon logic
@@ -1545,13 +1620,19 @@ export class Player {
                 this._whiteTintCache.set(cacheKey, tintedCanvas);
             }
 
-            ctx.drawImage(
-                tintedCanvas,
-                -size / 2,
-                -size / 2,
-                size,
-                size
-            );
+            const tintProgress = this.getExperimentalRespawnTintProgress();
+            if (tintProgress < 1) {
+                ctx.save();
+                ctx.globalAlpha *= 1 - tintProgress;
+                ctx.drawImage(img, -size / 2, -size / 2, size, size);
+                ctx.restore();
+            }
+            if (tintProgress > 0) {
+                ctx.save();
+                ctx.globalAlpha *= tintProgress;
+                ctx.drawImage(tintedCanvas, -size / 2, -size / 2, size, size);
+                ctx.restore();
+            }
 
             return;
         }
