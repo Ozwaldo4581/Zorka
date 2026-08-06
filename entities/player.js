@@ -1624,6 +1624,10 @@ export class Player {
             if (tintProgress < 1) {
                 ctx.save();
                 ctx.globalAlpha *= 1 - tintProgress;
+                // The materialization phase begins with a neutral ship silhouette.
+                // Remove any baked-in source color so the new player tint has a
+                // clearly visible fade instead of crossfading between two colors.
+                ctx.filter = 'grayscale(1)';
                 ctx.drawImage(img, -size / 2, -size / 2, size, size);
                 ctx.restore();
             }

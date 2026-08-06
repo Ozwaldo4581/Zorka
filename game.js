@@ -2588,6 +2588,15 @@ export class Game {
         human.name = selectedProfile.name;
         human.applyPersistentProgression(selectedProfile);
         human.resetTransientLifeState();
+
+        // Adventure/Experimental mode entry uses the same human materialization
+        // sequence as a post-death respawn. setupExperimentalPopulations() has
+        // already placed the player at the center of Sector 1.
+        human.previousX = human.x;
+        human.previousY = human.y;
+        human.color = chooseDifferentPlayerColor(human.color);
+        human.startExperimentalRespawnPhase(human.x, human.y);
+
         human.onPersistentProgressionChanged = player => Game.prototype.saveExperimentalProfile.call(this, player);
         document.getElementById('menu-overlay').classList.add('hidden');
         this.experimentalCameraState = { previousZoom: this.camera.zoom };
