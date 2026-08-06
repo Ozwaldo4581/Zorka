@@ -1,7 +1,7 @@
 import { EXPERIMENTAL_SHORTCUT_ID } from '../world/experimental_rooms.js';
 
 export const EXPERIMENTAL_PROFILE_STORAGE_KEY = 'zorka.experimentalProfiles.v1';
-export const EXPERIMENTAL_PROFILE_SCHEMA_VERSION = 4;
+export const EXPERIMENTAL_PROFILE_SCHEMA_VERSION = 5;
 export const EXPERIMENTAL_PROFILE_SLOT_COUNT = 5;
 export const EXPERIMENTAL_PROFILE_NAME_MAX_LENGTH = 20;
 
@@ -36,6 +36,7 @@ export function normalizeExperimentalProfile(profile, slot) {
         speedUpgradeCount,
         shieldRechargeUpgradeCount,
         deaths: integer(profile.deaths),
+        newGamePlusCycle: integer(profile.newGamePlusCycle),
         unlockedShortcutIds: Object.freeze(unlockedShortcutIds)
     });
 }
@@ -112,7 +113,8 @@ export class ExperimentalProfileStore {
             level: 0,
             totalXP: 0,
             pendingLevelUps: 0,
-            deaths: 0
+            deaths: 0,
+            newGamePlusCycle: 0
         }, slot);
         if (!profile) throw new Error('Enter a profile name.');
         slots[slot] = profile;
@@ -125,7 +127,7 @@ export class ExperimentalProfileStore {
         const slots = this.loadSlots();
         const current = slots[slot];
         if (!current) throw new Error('The selected profile no longer exists.');
-        const profile = normalizeExperimentalProfile({ ...snapshot, name: current.name }, slot);
+        const profile = normalizeExperimentalProfile({ ...current, ...snapshot, name: current.name }, slot);
         slots[slot] = profile;
         this.persist(slots);
         return { ...profile };

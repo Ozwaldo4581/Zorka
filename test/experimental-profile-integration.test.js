@@ -75,6 +75,7 @@ test('autosave accepts only the selected Experimental human', () => {
         selectedExperimentalProfileSlot: 2,
         experimentalProfiles: { updateProfile(slot, snapshot) { writes.push({ slot, snapshot }); } }
     };
+    game.experimentalNewGamePlusCycle = 2;
     assert.equal(Game.prototype.saveExperimentalProfile.call(game, human), true);
     assert.equal(Game.prototype.saveExperimentalProfile.call(game, npc), false);
     human.pendingLevelUps = 1;
@@ -86,6 +87,7 @@ test('autosave accepts only the selected Experimental human', () => {
     assert.equal(writes.length, 2);
     assert.equal(writes[0].slot, 2);
     assert.deepEqual(writes[0].snapshot.unlockedShortcutIds, []);
+    assert.equal(writes[0].snapshot.newGamePlusCycle, 2);
 });
 
 test('locked shortcut collision, remote human activation, immediate save, and message use separate runtime state', () => {
