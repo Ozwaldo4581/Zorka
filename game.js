@@ -249,8 +249,8 @@ export class Game {
             explosion: await this.loadImage('assets/explosion_vfx.webp'),
             squidScenery: await this.loadImage('assets/Squid.png'),
             cranioidScenery: await this.loadImage('assets/Cranioid.png'),
-            schoolDeskBackground: await this.loadImage('assets/SchoolDeskZorka5.png'),
-            schoolDeskVisor: await this.loadImage('assets/SchoolDeskZorkaVisor2.png'),
+            schoolDeskBackground: await this.loadImage('assets/SchoolDeskZorka7.png'),
+            schoolDeskVisor: await this.loadImage('assets/SchoolDeskZorkaVisor3.png'),
             bbgScenery: await this.loadImage(SECTOR_9_BBG_ENCOUNTER.imagePath)
         };
     }
@@ -3809,6 +3809,11 @@ export class Game {
             }
             player.x = spawn.x;
             player.y = spawn.y;
+            // A respawn is a teleport, not a movement sweep. Keep the wall-collision
+            // baseline at the new position so stale pre-death coordinates cannot
+            // pull the player back toward another room boundary this frame.
+            player.previousX = spawn.x;
+            player.previousY = spawn.y;
             player.roomId = roomId;
             Game.prototype.indexExperimentalEntity.call(this, 'players', player);
 
