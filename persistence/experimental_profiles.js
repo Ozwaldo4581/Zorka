@@ -1,5 +1,5 @@
 export const EXPERIMENTAL_PROFILE_STORAGE_KEY = 'zorka.experimentalProfiles.v1';
-export const EXPERIMENTAL_PROFILE_SCHEMA_VERSION = 2;
+export const EXPERIMENTAL_PROFILE_SCHEMA_VERSION = 3;
 export const EXPERIMENTAL_PROFILE_SLOT_COUNT = 5;
 export const EXPERIMENTAL_PROFILE_NAME_MAX_LENGTH = 20;
 
@@ -13,10 +13,12 @@ export function normalizeExperimentalProfile(profile, slot) {
     const name = String(profile.name ?? '').trim().slice(0, EXPERIMENTAL_PROFILE_NAME_MAX_LENGTH);
     if (!name) return null;
     const level = integer(profile.level);
-    const projectileUpgradeCount = Math.min(5, integer(profile.projectileUpgradeCount));
+    const projectileUpgradeCount = Math.min(10, integer(profile.projectileUpgradeCount));
     const speedUpgradeCount = Math.min(10, integer(profile.speedUpgradeCount));
-    const levelShieldUpgradeCount = integer(profile.levelShieldUpgradeCount);
-    const usedLevelUps = projectileUpgradeCount + speedUpgradeCount + levelShieldUpgradeCount;
+    const shieldRechargeUpgradeCount = Math.min(10, integer(
+        profile.shieldRechargeUpgradeCount ?? profile.levelShieldUpgradeCount
+    ));
+    const usedLevelUps = projectileUpgradeCount + speedUpgradeCount + shieldRechargeUpgradeCount;
     return Object.freeze({
         version: EXPERIMENTAL_PROFILE_SCHEMA_VERSION,
         slot,
@@ -26,7 +28,7 @@ export function normalizeExperimentalProfile(profile, slot) {
         pendingLevelUps: integer(profile.pendingLevelUps, Math.max(0, level - usedLevelUps)),
         projectileUpgradeCount,
         speedUpgradeCount,
-        levelShieldUpgradeCount,
+        shieldRechargeUpgradeCount,
         deaths: integer(profile.deaths)
     });
 }
@@ -138,7 +140,11 @@ export class ExperimentalProfileStore {
 
     getSummaries() {
         return this.loadSlots().map(profile => profile
-            ? Object.freeze({ slot: profile.slot, name: profile.name, level: profile.level })
+            ? Object.freeze({
+                slot: profile.slot, name: profile.name, level: profile.level,
+                projectileUpgradeCount: profile.projectileUpgradeCount,
+                shieldRechargeUpgradeCount: profile.shieldRechargeUpgradeCount
+            })
             : null);
     }
 

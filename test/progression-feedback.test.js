@@ -19,8 +19,9 @@ test('Solo and Experimental leaderboards read Player progression stats while oth
     player.projectileUpgradeCount = 1;
     player.speedUpgradeCount = 2;
     const expectedStats = {
-        name: 'Nova', level: 0, hullStrength: 10, shields: 3,
-        projectile: 4, speed: 3, deaths: 0
+        name: 'Nova', level: 0, hullStrength: 10, shields: '3/3',
+        projectile: '1/10', shieldRecharge: '0/10', shieldRechargeDelay: 6,
+        speed: 3, deaths: 0
     };
     assert.deepEqual(player.getLeaderboardStats(), expectedStats);
 

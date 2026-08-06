@@ -1,4 +1,4 @@
-import { Player } from './entities/player.js';
+import { Player, MAX_PROJECTILE_UPGRADES, MAX_SHIELD_RECHARGE_UPGRADES } from './entities/player.js';
 import { Asteroid } from './entities/asteroid.js';
 import { SpaceDebris, Satellite } from './entities/hazards.js';
 import { Projectile } from './entities/projectile.js';
@@ -2130,7 +2130,7 @@ export class Game {
                 name.textContent = summary.name;
                 const level = document.createElement('span');
                 level.className = 'profile-slot-level';
-                level.textContent = `Lvl ${summary.level}`;
+                level.textContent = `Lvl ${summary.level} · Projectile ${summary.projectileUpgradeCount}/${MAX_PROJECTILE_UPGRADES} · Shield Recharge ${summary.shieldRechargeUpgradeCount}/${MAX_SHIELD_RECHARGE_UPGRADES}`;
                 button.append(name, level);
                 button.addEventListener('click', () => this.selectExperimentalProfile(slot));
             } else {
@@ -2406,7 +2406,7 @@ export class Game {
         }
         human.name = selectedProfile.name;
         human.applyPersistentProgression(selectedProfile);
-        human.resetTransientLifeState(this.startingShieldCharges);
+        human.resetTransientLifeState();
         human.onPersistentProgressionChanged = player => Game.prototype.saveExperimentalProfile.call(this, player);
         document.getElementById('menu-overlay').classList.add('hidden');
         this.experimentalCameraState = { previousZoom: this.camera.zoom };
@@ -3647,7 +3647,7 @@ export class Game {
     }
 
     respawnPlayer(player) {
-        player.resetTransientLifeState(this.startingShieldCharges);
+        player.resetTransientLifeState();
 
         const primaryMusicPlayer = Game.prototype.getPrimaryMusicPlayer.call(this);
         if (!player.isNPC && player === primaryMusicPlayer && this.gameState !== GAME_MODE.ARCADE) {

@@ -6,7 +6,9 @@ const BASE_GUN_COOLDOWN = 0.75;
 const BURST_INTERVAL = 0.05;
 const BASE_PROJECTILE_SPEED = 1200;
 const MARTIAN_PARALLEL_OFFSET = 30;
-const MAX_PROJECTILE_UPGRADES = 5;
+export const MAX_PROJECTILE_UPGRADES = 10;
+export const MAX_SHIELD_RECHARGE_UPGRADES = 10;
+export const MIN_SHIELD_RECHARGE_DELAY = 1;
 export const BASE_PLAYER_HP = 5;
 const HUMAN_STARTING_HP_BONUS = 5;
 export const DAMAGE_PULSE_DURATION = 0.35;
@@ -48,6 +50,8 @@ export class Player {
         this.hasForcefield = false;
         this.shieldCharges = 0;
         this.maxShieldCharges = 0;
+        this.baselineMaxShieldCharges = 0;
+        this.baseShieldRechargeDelay = 6;
         this.shieldRechargeDelay = 6;
         this.shieldRechargeTimer = 0;
         this.maxHP = BASE_PLAYER_HP + HUMAN_STARTING_HP_BONUS;
@@ -100,9 +104,10 @@ export class Player {
         this.pendingLevelUps = 0;
         this.projectileUpgradeCount = 0;
         this.speedUpgradeCount = 0;
-        this.levelShieldUpgradeCount = 0;
+        this.shieldRechargeUpgradeCount = 0;
         this.maxProjectileUpgrades = MAX_PROJECTILE_UPGRADES;
         this.maxSpeedUpgrades = 10;
+        this.maxShieldRechargeUpgrades = MAX_SHIELD_RECHARGE_UPGRADES;
 
         // NPC Personality / Behavior state
         this.npcBehaviorTimer = 0;
@@ -145,6 +150,7 @@ export class Player {
         while (this.totalXP >= this.getLevelThreshold(this.level + 1)) {
             this.level++;
             this.increaseMaxHP();
+            if (!this.isNPC) this.increaseMaxShields();
             this.pendingLevelUps++;
             levelsGained++;
         }
@@ -155,7 +161,7 @@ export class Player {
         if (this.pendingLevelUps <= 0) return false;
         if (choice === 'projectile') return this.projectileUpgradeCount < this.maxProjectileUpgrades;
         if (choice === 'speed') return this.speedUpgradeCount < this.maxSpeedUpgrades;
-        return choice === 'shield';
+        return choice === 'shield' && this.shieldRechargeUpgradeCount < this.maxShieldRechargeUpgrades;
     }
 
     applyLevelUpgrade(choice) {
@@ -166,8 +172,8 @@ export class Player {
         if (choice === 'projectile') this.projectileUpgradeCount++;
         else if (choice === 'speed') this.speedUpgradeCount++;
         else if (choice === 'shield') {
-            this.levelShieldUpgradeCount++;
-            this.applyShieldUpgrade();
+            this.shieldRechargeUpgradeCount++;
+            this.updateShieldRechargeDelay();
         }
         this.pendingLevelUps--;
         this.onPersistentProgressionChanged?.(this);
@@ -180,7 +186,11 @@ export class Player {
         while (this.pendingLevelUps > 0) {
             const choices = ['projectile', 'speed', 'shield'].filter(choice => this.canSelectLevelUpgrade(choice));
             const index = Math.min(choices.length - 1, Math.floor(random() * choices.length));
-            if (!choices[index] || !this.applyLevelUpgrade(choices[index])) break;
+            if (!choices[index]) {
+                this.pendingLevelUps = 0;
+                break;
+            }
+            if (!this.applyLevelUpgrade(choices[index])) break;
             applied++;
         }
         return applied;
@@ -211,7 +221,7 @@ export class Player {
             pendingLevelUps: this.pendingLevelUps,
             projectileUpgradeCount: this.projectileUpgradeCount,
             speedUpgradeCount: this.speedUpgradeCount,
-            levelShieldUpgradeCount: this.levelShieldUpgradeCount,
+            shieldRechargeUpgradeCount: this.shieldRechargeUpgradeCount,
             deaths: this.deaths
         };
     }
@@ -221,8 +231,10 @@ export class Player {
             name: this.name,
             level: this.level,
             hullStrength: this.maxHP,
-            shields: this.maxShieldCharges,
-            projectile: 3 + this.projectileUpgradeCount,
+            shields: `${this.shieldCharges}/${this.maxShieldCharges}`,
+            projectile: `${this.projectileUpgradeCount}/${this.maxProjectileUpgrades}`,
+            shieldRecharge: `${this.shieldRechargeUpgradeCount}/${this.maxShieldRechargeUpgrades}`,
+            shieldRechargeDelay: this.shieldRechargeDelay,
             speed: 1 + this.speedUpgradeCount,
             deaths: this.deaths
         };
@@ -232,24 +244,24 @@ export class Player {
         const integer = (value, minimum = 0) => Number.isFinite(Number(value))
             ? Math.max(minimum, Math.floor(Number(value)))
             : minimum;
-        const previousLevelShieldCapacity = integer(this.levelShieldUpgradeCount);
         this.level = integer(snapshot?.level);
         this.totalXP = integer(snapshot?.totalXP);
         this.projectileUpgradeCount = Math.min(this.maxProjectileUpgrades, integer(snapshot?.projectileUpgradeCount));
         this.speedUpgradeCount = Math.min(this.maxSpeedUpgrades, integer(snapshot?.speedUpgradeCount));
-        this.levelShieldUpgradeCount = integer(snapshot?.levelShieldUpgradeCount);
+        this.shieldRechargeUpgradeCount = Math.min(this.maxShieldRechargeUpgrades,
+            integer(snapshot?.shieldRechargeUpgradeCount ?? snapshot?.levelShieldUpgradeCount));
         this.deaths = integer(snapshot?.deaths);
-        const usedChoices = this.projectileUpgradeCount + this.speedUpgradeCount + this.levelShieldUpgradeCount;
+        const usedChoices = this.projectileUpgradeCount + this.speedUpgradeCount + this.shieldRechargeUpgradeCount;
         this.pendingLevelUps = integer(snapshot?.pendingLevelUps, Math.max(0, this.level - usedChoices));
         this.maxHP = BASE_PLAYER_HP + HUMAN_STARTING_HP_BONUS + this.level;
         this.restoreHP();
-        this.maxShieldCharges = Math.max(0, this.maxShieldCharges - previousLevelShieldCapacity)
-            + this.levelShieldUpgradeCount;
+        this.maxShieldCharges = this.baselineMaxShieldCharges + (this.isNPC ? 0 : this.level);
+        this.updateShieldRechargeDelay();
         this.restoreShieldCharges(this.maxShieldCharges);
         return this.getPersistentProgressionSnapshot();
     }
 
-    resetTransientLifeState(startingShieldCharges = 0) {
+    resetTransientLifeState() {
         this.cancelBurstFire();
         this.resetControllerAimLock(true);
         this.isDead = false;
@@ -267,7 +279,7 @@ export class Player {
         this.missileReloadLevel = 0;
         this.martianParallelGuns = 1;
         this.bonusSpeed = 0;
-        this.restoreShieldCharges(startingShieldCharges);
+        this.restoreShieldCharges(this.maxShieldCharges);
     }
 
     getBurstRoundCount() {
@@ -281,17 +293,19 @@ export class Player {
     }
 
     resetLevelProgress() {
+        const automaticShieldCapacity = this.isNPC ? 0 : this.level;
         this.totalXP = 0;
         this.level = 0;
         this.pendingLevelUps = 0;
         this.projectileUpgradeCount = 0;
         this.speedUpgradeCount = 0;
-        this.maxHP = BASE_PLAYER_HP;
+        this.maxHP = BASE_PLAYER_HP + (this.isNPC ? 0 : HUMAN_STARTING_HP_BONUS);
         this.restoreHP();
 
-        const levelShieldCapacity = Math.max(0, this.levelShieldUpgradeCount || 0);
-        this.maxShieldCharges = Math.max(0, this.maxShieldCharges - levelShieldCapacity);
-        this.levelShieldUpgradeCount = 0;
+        this.maxShieldCharges = Math.max(this.baselineMaxShieldCharges,
+            this.maxShieldCharges - automaticShieldCapacity);
+        this.shieldRechargeUpgradeCount = 0;
+        this.updateShieldRechargeDelay();
         this.shieldCharges = Math.min(this.shieldCharges, this.maxShieldCharges);
         this.hasForcefield = this.shieldCharges > 0;
         this.shieldRechargeTimer = 0;
@@ -611,25 +625,43 @@ export class Player {
     }
 
     configureShields(maxShieldCharges, rechargeDelay) {
-        this.maxShieldCharges = Math.max(0, maxShieldCharges || 0);
-        this.shieldRechargeDelay = Math.max(0, rechargeDelay || 0);
+        this.baselineMaxShieldCharges = Math.max(0, maxShieldCharges || 0);
+        this.maxShieldCharges = this.baselineMaxShieldCharges + (this.isNPC ? 0 : this.level);
+        this.baseShieldRechargeDelay = Math.max(0, rechargeDelay || 0);
+        this.updateShieldRechargeDelay();
         this.shieldCharges = this.maxShieldCharges;
         this.hasForcefield = this.shieldCharges > 0;
         this.shieldRechargeTimer = 0;
     }
 
-    applyShieldUpgrade() {
-        const currentMaximum = Number.isFinite(this.maxShieldCharges)
-            ? Math.max(0, this.maxShieldCharges)
-            : 0;
-        const currentCharges = Number.isFinite(this.shieldCharges)
-            ? Math.max(0, this.shieldCharges)
-            : 0;
+    getShieldRechargeDelay() {
+        const baseDelay = Math.max(0, Number(this.baseShieldRechargeDelay) || 0);
+        if (baseDelay === 0) return 0;
+        const level = Math.min(this.maxShieldRechargeUpgrades,
+            Math.max(0, Math.floor(Number(this.shieldRechargeUpgradeCount) || 0)));
+        return Math.max(MIN_SHIELD_RECHARGE_DELAY,
+            baseDelay - (baseDelay - MIN_SHIELD_RECHARGE_DELAY) * level / this.maxShieldRechargeUpgrades);
+    }
 
-        this.maxShieldCharges = currentMaximum + 1;
-        this.shieldCharges = Math.min(this.maxShieldCharges, currentCharges + 1);
+    updateShieldRechargeDelay() {
+        this.shieldRechargeDelay = this.getShieldRechargeDelay();
+        this.shieldRechargeTimer = 0;
+        return this.shieldRechargeDelay;
+    }
+
+    increaseMaxShields(amount = 1) {
+        const increase = Math.max(0, Math.floor(Number(amount) || 0));
+        this.maxShieldCharges += increase;
+        this.shieldCharges = Math.min(this.shieldCharges, this.maxShieldCharges);
+        return this.maxShieldCharges;
+    }
+
+    // Capsule Shield remains a match-local capacity bonus; selectable level
+    // progression uses Shield Recharge instead.
+    applyShieldUpgrade() {
+        this.maxShieldCharges += 1;
+        this.shieldCharges = Math.min(this.maxShieldCharges, this.shieldCharges + 1);
         this.hasForcefield = this.shieldCharges > 0;
-        // An immediate charge starts a fresh interval before automatic recharge.
         this.shieldRechargeTimer = 0;
     }
 
@@ -643,6 +675,11 @@ export class Player {
         this.shieldCharges = Math.min(safeMaximum, safeCharges);
         this.hasForcefield = this.shieldCharges > 0;
         this.shieldRechargeTimer = 0;
+    }
+
+    restoreShieldsToMaximum() {
+        this.restoreShieldCharges(this.maxShieldCharges);
+        return this.shieldCharges;
     }
 
     grantShieldCharge() {
@@ -708,13 +745,16 @@ export class Player {
     }
 
     updateHPRecharge(dt) {
-        if (this.isDead || this.currentHP >= this.maxHP) {
+        if (this.isDead) {
             this.hpRechargeTimer = 0;
             return;
         }
-
+        if (this.hpRechargeTimer <= 0) return;
         this.hpRechargeTimer = Math.max(0, this.hpRechargeTimer - dt);
-        if (this.hpRechargeTimer === 0) this.restoreHP();
+        if (this.hpRechargeTimer === 0) {
+            this.restoreHP();
+            this.restoreShieldsToMaximum();
+        }
     }
 
     updateShieldRecharge(dt) {

@@ -55,7 +55,7 @@ test('number keys dispatch ordered upgrades only to an eligible keyboard player'
     assert.equal(Game.prototype.handleLevelUpgradeKey.call(game, 'Digit1'), true);
     assert.equal(Game.prototype.handleLevelUpgradeKey.call(game, 'Digit2'), true);
     assert.equal(Game.prototype.handleLevelUpgradeKey.call(game, 'Digit3'), true);
-    assert.deepEqual([keyboard.projectileUpgradeCount, keyboard.speedUpgradeCount, keyboard.levelShieldUpgradeCount], [1, 1, 1]);
+    assert.deepEqual([keyboard.projectileUpgradeCount, keyboard.speedUpgradeCount, keyboard.shieldRechargeUpgradeCount], [1, 1, 1]);
     assert.equal(gamepad.pendingLevelUps, 3);
     assert.equal(Game.prototype.handleLevelUpgradeKey.call(game, 'Digit1'), false);
     game.isPauseMenuOpen = true;
