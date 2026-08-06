@@ -46,6 +46,61 @@ export const PLAYER_COLORS = Object.freeze([
 ]);
 export const DEFAULT_P1_CONTROL_MODE = 'KEYBOARD';
 
+export const PROJECTILE_COMBAT_CATEGORY = Object.freeze({
+    MISSILE: 'MISSILE',
+    SKINNY_MISSILE: 'SKINNY_MISSILE',
+    LASER: 'LASER',
+    ORB: 'ORB',
+    ORDINARY_GUN: 'ORDINARY_GUN',
+    OTHER: 'OTHER'
+});
+
+export const PROJECTILE_CONSUMPTION = Object.freeze({
+    FIRST: 'FIRST',
+    SECOND: 'SECOND',
+    BOTH: 'BOTH',
+    NEITHER: 'NEITHER'
+});
+
+export function getProjectileCombatCategory(projectile) {
+    if (!projectile) return PROJECTILE_COMBAT_CATEGORY.OTHER;
+    if (projectile.isSkinnyMissile) return PROJECTILE_COMBAT_CATEGORY.SKINNY_MISSILE;
+    if (projectile.isMissile) return PROJECTILE_COMBAT_CATEGORY.MISSILE;
+    if (projectile.isLaser) return PROJECTILE_COMBAT_CATEGORY.LASER;
+    if (projectile.isOrb) return PROJECTILE_COMBAT_CATEGORY.ORB;
+    if (projectile.isTentacle || projectile.isOrbital || projectile.isDecoy) {
+        return PROJECTILE_COMBAT_CATEGORY.OTHER;
+    }
+    return PROJECTILE_COMBAT_CATEGORY.ORDINARY_GUN;
+}
+
+export function resolveProjectileConsumption(firstCategory, secondCategory) {
+    const { MISSILE, SKINNY_MISSILE, LASER, ORB, ORDINARY_GUN } = PROJECTILE_COMBAT_CATEGORY;
+    const isMissile = category => category === MISSILE || category === SKINNY_MISSILE;
+    const isDamaging = category => isMissile(category)
+        || category === LASER || category === ORB || category === ORDINARY_GUN;
+
+    if (isMissile(firstCategory) && isMissile(secondCategory)) return PROJECTILE_CONSUMPTION.BOTH;
+    if (isMissile(firstCategory) && isDamaging(secondCategory)) {
+        return secondCategory === ORDINARY_GUN ? PROJECTILE_CONSUMPTION.BOTH : PROJECTILE_CONSUMPTION.FIRST;
+    }
+    if (isMissile(secondCategory) && isDamaging(firstCategory)) {
+        return firstCategory === ORDINARY_GUN ? PROJECTILE_CONSUMPTION.BOTH : PROJECTILE_CONSUMPTION.SECOND;
+    }
+    if ((firstCategory === LASER && secondCategory === ORB)
+        || (firstCategory === ORB && secondCategory === LASER)
+        || (firstCategory === ORB && secondCategory === ORB)) {
+        return PROJECTILE_CONSUMPTION.BOTH;
+    }
+    if ((firstCategory === LASER || firstCategory === ORB) && secondCategory === ORDINARY_GUN) {
+        return PROJECTILE_CONSUMPTION.SECOND;
+    }
+    if ((secondCategory === LASER || secondCategory === ORB) && firstCategory === ORDINARY_GUN) {
+        return PROJECTILE_CONSUMPTION.FIRST;
+    }
+    return PROJECTILE_CONSUMPTION.NEITHER;
+}
+
 export function chooseRandomPlayerColor(random = Math.random) {
     return PLAYER_COLORS[Math.floor(random() * PLAYER_COLORS.length)];
 }
@@ -4197,6 +4252,21 @@ export class Game {
             && Game.prototype.isExperimentalDoorAdjacent.call(this, other, door, human.radius || 0));
     }
 
+    areProjectilesColliding(first, second) {
+        if (this.gameState === GAME_MODE.EXPERIMENTAL) return checkCollision(first, second);
+        const delta = nearestWrappedDisplacement(first.x, first.y, second.x, second.y);
+        return Math.hypot(delta.x, delta.y) < first.radius + second.radius;
+    }
+
+    consumeCollidingProjectile(projectile) {
+        if (!projectile || projectile.isRemoved) return;
+        if ((projectile.isMissile || projectile.isSkinnyMissile) && !projectile.hasDetonated) {
+            if (projectile.isSkinnyMissile) this.detonateAoEProjectile(projectile);
+            else this.detonateMissile(projectile);
+        }
+        if (!projectile.isRemoved) this.removeProjectile(projectile);
+    }
+
     checkCollisions() {
         // Projectiles vs Asteroids and Hazards
         for (let i = this.projectiles.length - 1; i >= 0; i--) {
@@ -4290,28 +4360,42 @@ export class Game {
             }
         }
 
-        // Projectiles vs Missiles
-        for (let i = this.projectiles.length - 1; i >= 0; i--) {
-            const p1 = this.projectiles[i];
+        // Projectile consumption hierarchy. A stable snapshot makes every unordered
+        // pair eligible once even though authoritative removal mutates this.projectiles.
+        const projectilePairs = [...this.projectiles];
+        for (let i = 0; i < projectilePairs.length; i++) {
+            const p1 = projectilePairs[i];
             if (!p1 || p1.isRemoved || p1.hasDetonated) continue;
-            if (p1.isMissile || p1.isSkinnyMissile) {
-                const localProjectiles = Game.prototype.getExperimentalCandidates.call(this, p1, 'projectiles', this.projectiles);
-                for (let j = localProjectiles.length - 1; j >= 0; j--) {
-                    const p2 = localProjectiles[j];
-                    if (p1 === p2) continue;
-                    if (!p2 || p2.isRemoved || p2.hasDetonated) continue;
-                    if (!Game.prototype.areExperimentalEntitiesCoLocated.call(this, p1, p2)) continue;
-                    if (p1.owner && p1.owner === p2.owner) continue;
-                    if (p1.owner && p2.owner
-                        && !Game.prototype.isHostileTarget.call(this, p1.owner, p2.owner)) continue;
-                    if (!p2.isMissile && !p2.isSkinnyMissile && checkCollision(p1, p2)) {
-                        if (p1.isSkinnyMissile) this.detonateAoEProjectile(p1);
-                        else this.detonateMissile(p1);
-                        this.removeProjectile(p1);
-                        this.removeProjectile(p2);
-                        break;
-                    }
-                }
+            const localProjectiles = this.gameState === GAME_MODE.EXPERIMENTAL
+                ? new Set(Game.prototype.getExperimentalCandidates.call(this, p1, 'projectiles', this.projectiles))
+                : null;
+            for (let j = i + 1; j < projectilePairs.length; j++) {
+                const p2 = projectilePairs[j];
+                if (!p2 || p2.isRemoved || p2.hasDetonated) continue;
+                if (localProjectiles && !localProjectiles.has(p2)) continue;
+                if (!Game.prototype.areExperimentalEntitiesCoLocated.call(this, p1, p2)) continue;
+                if (p1.owner && p1.owner === p2.owner) continue;
+                if (p1.owner && p2.owner
+                    && !Game.prototype.isHostileTarget.call(this, p1.owner, p2.owner)) continue;
+
+                const firstCategory = getProjectileCombatCategory(p1);
+                const secondCategory = getProjectileCombatCategory(p2);
+                const outcome = resolveProjectileConsumption(firstCategory, secondCategory);
+                if (outcome === PROJECTILE_CONSUMPTION.NEITHER
+                    || !Game.prototype.areProjectilesColliding.call(this, p1, p2)) continue;
+
+                const consumeFirst = outcome === PROJECTILE_CONSUMPTION.FIRST
+                    || outcome === PROJECTILE_CONSUMPTION.BOTH;
+                const consumeSecond = outcome === PROJECTILE_CONSUMPTION.SECOND
+                    || outcome === PROJECTILE_CONSUMPTION.BOTH;
+                const hasNonMissileImpact = consumeFirst && consumeSecond
+                    && !p1.isMissile && !p1.isSkinnyMissile
+                    && !p2.isMissile && !p2.isSkinnyMissile;
+                if (hasNonMissileImpact) this.createExplosion(p1.x, p1.y, 24, p1.roomId);
+
+                if (consumeFirst) Game.prototype.consumeCollidingProjectile.call(this, p1);
+                if (consumeSecond && !p2.isRemoved) Game.prototype.consumeCollidingProjectile.call(this, p2);
+                if (p1.isRemoved || p1.hasDetonated) break;
             }
         }
 
