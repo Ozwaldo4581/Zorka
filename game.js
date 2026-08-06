@@ -29,6 +29,10 @@ export const DESIGN_WIDTH = 1920;
 export const DESIGN_HEIGHT = 1080;
 export const WORLD_WIDTH = DESIGN_WIDTH * 9;
 export const WORLD_HEIGHT = DESIGN_HEIGHT * 9;
+export const EXPERIMENTAL_ROOM_GRID_WIDTH = 5;
+export const EXPERIMENTAL_ROOM_GRID_HEIGHT = 5;
+export const EXPERIMENTAL_ROOM_WIDTH = DESIGN_WIDTH * EXPERIMENTAL_ROOM_GRID_WIDTH;
+export const EXPERIMENTAL_ROOM_HEIGHT = DESIGN_HEIGHT * EXPERIMENTAL_ROOM_GRID_HEIGHT;
 export const GAME_MODE = Object.freeze({
     SOLO: 'SOLO',
     PVP: 'PVP',
@@ -83,6 +87,15 @@ export function getArenaPopulationTargets(asteroidLevel, debrisLevel, satelliteL
         debris: DEBRIS_DENSITY_COUNTS[debrisLevel] || 0,
         satellites: SATELLITE_DENSITY_COUNTS[satelliteLevel] || 0
     };
+}
+
+export function getExperimentalPopulationTargets(asteroidLevel, debrisLevel, satelliteLevel) {
+    const sharedTargets = getArenaPopulationTargets(asteroidLevel, debrisLevel, satelliteLevel);
+    const areaScale = (EXPERIMENTAL_ROOM_GRID_WIDTH * EXPERIMENTAL_ROOM_GRID_HEIGHT) / (9 * 9);
+    return Object.fromEntries(Object.entries(sharedTargets).map(([kind, target]) => [
+        kind,
+        target === 0 ? 0 : Math.max(1, Math.round(target * areaScale))
+    ]));
 }
 
 export function getShieldRechargeDelay(optionValue) {
@@ -1780,10 +1793,10 @@ export class Game {
     }
 
     initializeExperimentalRooms() {
-        this.experimentalRooms = createExperimentalAreas(WORLD_WIDTH, WORLD_HEIGHT);
+        this.experimentalRooms = createExperimentalAreas(EXPERIMENTAL_ROOM_WIDTH, EXPERIMENTAL_ROOM_HEIGHT);
         this.experimentalDoors = createExperimentalDoors(this.experimentalRooms);
         Game.prototype.initializeExperimentalAreaIndexes.call(this);
-        const desired = getArenaPopulationTargets(
+        const desired = getExperimentalPopulationTargets(
             this.asteroidDensityLevel,
             this.debrisDensityLevel,
             this.satelliteDensityLevel
@@ -1969,7 +1982,7 @@ export class Game {
         this.hazards = [];
         for (const populationRoom of this.experimentalRooms.filter(area => area.isPopulationEligible)) {
             const targets = this.experimentalRoomPopulations?.get(populationRoom.id)?.desired
-                || getArenaPopulationTargets(this.asteroidDensityLevel, this.debrisDensityLevel, this.satelliteDensityLevel);
+                || getExperimentalPopulationTargets(this.asteroidDensityLevel, this.debrisDensityLevel, this.satelliteDensityLevel);
             for (let index = 0; index < targets.asteroids; index++) this.spawnAsteroid('large', undefined, undefined, populationRoom.id);
             for (let index = 0; index < targets.debris; index++) this.spawnSpaceDebris(populationRoom.id);
             for (let index = 0; index < targets.satellites; index++) this.spawnSatellite(populationRoom.id);
@@ -4815,8 +4828,9 @@ export class Game {
         const drawWidth = image.naturalWidth * imageScale;
         const drawHeight = image.naturalHeight * imageScale;
 
-        const offsetX = -373;
-        const offsetY = 60;
+        // Preserve the original room-local placement as normalized offsets.
+        const offsetX = width * -0.02158564814814815;
+        const offsetY = height * 0.006172839506172839;
 
         ctx.drawImage(
             image,
