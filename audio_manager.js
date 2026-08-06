@@ -9,6 +9,8 @@ const COMBAT_FADE_OUT_SECONDS = 1.75;
 const CRITICAL_HEALTH_FADE_SECONDS = 0.5;
 const CRITICAL_HEALTH_GAIN = 1.5;
 const CRITICAL_HEALTH_PLAYBACK_RATE = 1.8;
+export const EXPLOSION_BURST_WINDOW_SECONDS = 0.2;
+export const EXPLOSION_BURST_MAX_VOICES = 3;
 
 export class AudioManager {
     constructor() {
@@ -20,6 +22,7 @@ export class AudioManager {
         this.gameplayMusic = null;
         this.musicVolumeLevel = DEFAULT_MUSIC_VOLUME_LEVEL;
         this.sfxVolumeLevel = DEFAULT_SFX_VOLUME_LEVEL;
+        this.explosionVoiceTimes = [];
         
         this.assetPaths = {
             'laser_fire': 'assets/audio/laser_fire.mp3',
@@ -303,6 +306,17 @@ export class AudioManager {
         source.start(0);
     }
 
+    allowSpatialSfxVoice(name) {
+        if (name !== 'explosion') return true;
+        const now = this.ctx.currentTime;
+        this.explosionVoiceTimes = this.explosionVoiceTimes.filter(
+            startedAt => now - startedAt < EXPLOSION_BURST_WINDOW_SECONDS
+        );
+        if (this.explosionVoiceTimes.length >= EXPLOSION_BURST_MAX_VOICES) return false;
+        this.explosionVoiceTimes.push(now);
+        return true;
+    }
+
     playSpatial(name, x, y, cameras, worldWidth, worldHeight) {
         if (!this.isUnlocked || !this.buffers[name]) return;
 
@@ -325,6 +339,7 @@ export class AudioManager {
         });
 
         if (!visible) return;
+        if (!this.allowSpatialSfxVoice(name)) return;
 
         const avgPan = pannedX / count;
         

@@ -4438,6 +4438,33 @@ export class Game {
         Game.prototype.playSpatialEvent.call(this, 'explosion', missile.x, missile.y, missile.roomId, cameras);
         this.createExplosion(missile.x, missile.y, radius, missile.roomId);
 
+        // Collect missiles before detonating them because recursive detonation and
+        // removal mutate the canonical projectile collection.
+        const chainedMissiles = [];
+        const localProjectiles = Game.prototype.getExperimentalCandidates.call(
+            this, missile, 'projectiles', this.projectiles
+        );
+        for (let j = localProjectiles.length - 1; j >= 0; j--) {
+            const candidate = localProjectiles[j];
+            if (!candidate || candidate === missile || candidate.isRemoved || candidate.hasDetonated) continue;
+            if (!candidate.isMissile && !candidate.isSkinnyMissile) continue;
+            if (!Game.prototype.areExperimentalEntitiesCoLocated.call(this, missile, candidate)) continue;
+            const delta = this.gameState === GAME_MODE.EXPERIMENTAL
+                ? { x: candidate.x - missile.x, y: candidate.y - missile.y }
+                : nearestWrappedDisplacement(missile.x, missile.y, candidate.x, candidate.y);
+            const dist = Math.hypot(delta.x, delta.y);
+            if (dist < radius + candidate.radius && !this.isExperimentalBlastBlocked(missile, candidate)) {
+                chainedMissiles.push(candidate);
+            }
+        }
+
+        for (const chainedMissile of chainedMissiles) {
+            if (!chainedMissile || chainedMissile.isRemoved || chainedMissile.hasDetonated) continue;
+            if (chainedMissile.isSkinnyMissile) this.detonateAoEProjectile(chainedMissile);
+            else this.detonateMissile(chainedMissile);
+            this.removeProjectile(chainedMissile);
+        }
+
         // Instantly destroy every asteroid caught in the blast radius
         const impactedAsteroids = [];
         const localAsteroids = Game.prototype.getExperimentalCandidates.call(this, missile, 'asteroids', this.asteroids);
