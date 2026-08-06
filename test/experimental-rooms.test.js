@@ -1,7 +1,16 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { GAME_MODE, Game, WORLD_HEIGHT, WORLD_WIDTH, getArenaPopulationTargets } from '../game.js';
+import {
+    EXPERIMENTAL_ROOM_HEIGHT,
+    EXPERIMENTAL_ROOM_WIDTH,
+    GAME_MODE,
+    Game,
+    WORLD_HEIGHT,
+    WORLD_WIDTH,
+    getArenaPopulationTargets,
+    getExperimentalPopulationTargets
+} from '../game.js';
 import { Asteroid } from '../entities/asteroid.js';
 import { SpaceDebris, Satellite } from '../entities/hazards.js';
 import { isPointInRoom } from '../physics.js';
@@ -101,7 +110,7 @@ test('Experimental room 2 is equal-sized and physically separated from room 1 by
     assert.equal(hallway.bounds.bottom, room2.bounds.top);
     assert.deepEqual(room2.bounds, { left: 0, top: 13720, right: 17280, bottom: 23440 });
     assert.deepEqual(room2.spawnRegion, { left: 120, top: 13840, right: 17160, bottom: 23320 });
-    assert.equal(room2.npcCount, 2);
+    assert.equal(room2.npcCount, 3);
     assert.equal(room2.npcLevel, 2);
     assert.equal(hallway.roomNumber, 0);
     assert.equal(hallway.population, null);
@@ -139,7 +148,7 @@ test('nine-room layout uses exact continuous coordinates, progression, safe spaw
         });
         assert.deepEqual(room.bounds, { left, top, right: left + 17280, bottom: top + 9720 });
         assert.deepEqual(room.spawnRegion, { left: left + 120, top: top + 120, right: left + 17160, bottom: top + 9600 });
-        assert.deepEqual([room.width, room.height, room.npcCount, room.npcLevel], [17280, 9720, number, number]);
+        assert.deepEqual([room.width, room.height, room.npcCount, room.npcLevel], [17280, 9720, 1 + 2 * (number - 1), number]);
     });
 
     assert.equal(createExperimentalHallways(WORLD_WIDTH, WORLD_HEIGHT).length, 8);
@@ -193,6 +202,22 @@ test('each hallway gap exceeds the maximum camera span along its travel axis', (
     }
 });
 
+test('active Experimental geometry uses 5x5 rooms without changing standard or hallway dimensions', () => {
+    assert.deepEqual([WORLD_WIDTH, WORLD_HEIGHT], [17280, 9720]);
+    assert.deepEqual([EXPERIMENTAL_ROOM_WIDTH, EXPERIMENTAL_ROOM_HEIGHT], [9600, 5400]);
+
+    const areas = createExperimentalAreas(EXPERIMENTAL_ROOM_WIDTH, EXPERIMENTAL_ROOM_HEIGHT);
+    const rooms = areas.filter(area => area.areaType === EXPERIMENTAL_AREA_TYPE.ROOM);
+    const hallways = areas.filter(area => area.areaType === EXPERIMENTAL_AREA_TYPE.HALLWAY);
+    assert.ok(rooms.every(room => room.width === 9600 && room.height === 5400));
+    assert.ok(hallways.every(hallway => (
+        hallway.width === EXPERIMENTAL_HALLWAY_LENGTH && hallway.height === EXPERIMENTAL_HALLWAY_WIDTH
+    ) || (
+        hallway.width === EXPERIMENTAL_HALLWAY_WIDTH && hallway.height === EXPERIMENTAL_HALLWAY_LENGTH
+    )));
+    assert.ok(createExperimentalDoors(areas).every(door => door.openingWidth === EXPERIMENTAL_ENTRANCE_WIDTH));
+});
+
 test('Experimental and standard setup share one density resolver for every option level', () => {
     assert.deepEqual(
         Array.from({ length: 6 }, (_, level) => getArenaPopulationTargets(level, level, level)),
@@ -207,7 +232,21 @@ test('Experimental and standard setup share one density resolver for every optio
     );
 });
 
-test('Experimental population setup applies the shared targets through room-local spawn methods', () => {
+test('Experimental environmental targets preserve density at the 25/81 room-area ratio', () => {
+    assert.deepEqual(
+        Array.from({ length: 6 }, (_, level) => getExperimentalPopulationTargets(level, level, level)),
+        [
+            { asteroids: 0, debris: 0, satellites: 0 },
+            { asteroids: 25, debris: 1, satellites: 1 },
+            { asteroids: 49, debris: 2, satellites: 2 },
+            { asteroids: 74, debris: 3, satellites: 2 },
+            { asteroids: 99, debris: 5, satellites: 3 },
+            { asteroids: 123, debris: 6, satellites: 4 }
+        ]
+    );
+});
+
+test('Experimental population setup applies area-scaled targets through room-local spawn methods', () => {
     for (let level = 0; level <= 5; level++) {
         const calls = { asteroids: 0, debris: 0, satellites: 0 };
         const roomCalls = new Map();
@@ -231,7 +270,7 @@ test('Experimental population setup applies the shared targets through room-loca
             }
         };
         Game.prototype.setupExperimentalPopulations.call(game);
-        const targets = getArenaPopulationTargets(level, level, level);
+        const targets = getExperimentalPopulationTargets(level, level, level);
         assert.deepEqual(calls, {
             asteroids: targets.asteroids * 9,
             debris: targets.debris * 9,
@@ -298,7 +337,7 @@ test('only the Experimental initialization seam adds room definitions', () => {
     assert.equal(game.experimentalRooms.length, 17);
     assert.equal(game.experimentalDoors.length, 16);
     for (const room of game.experimentalRooms) {
-        if (room.isPopulationEligible) assert.deepEqual(game.experimentalRoomPopulations.get(room.id)?.desired, { asteroids: 160, debris: 10, satellites: 9 });
+        if (room.isPopulationEligible) assert.deepEqual(game.experimentalRoomPopulations.get(room.id)?.desired, { asteroids: 49, debris: 3, satellites: 3 });
         else assert.equal(game.experimentalRoomPopulations.has(room.id), false);
     }
     Game.prototype.clearExperimentalState.call(game);
@@ -396,17 +435,21 @@ test('Experimental composition follows each room NPC count and level', () => {
     game.gameState = GAME_MODE.EXPERIMENTAL;
     Game.prototype.setupExperimentalPopulations.call(game);
 
-    assert.equal(game.players.length, 46);
+    assert.equal(game.players.length, 72);
     assert.equal(game.players.filter(player => !player.isNPC).length, 1);
-    assert.equal(game.players.filter(player => player.isNPC).length, 45);
+    assert.equal(game.players.filter(player => player.isNPC).length, 71);
     assert.equal(game.players[0].controlMode, 'KEYBOARD');
     assert.equal(game.players[0].level, 0);
-    assert.deepEqual(game.players.filter(player => player.isNPC).map(player => [player.roomId, player.level]),
-        game.experimentalRooms.flatMap(room => Array.from({ length: room.roomNumber }, () => [room.id, room.roomNumber])));
+    const ordinaryNPCs = game.players.filter(player => player.isNPC && !player.isSector9BBGEncounterNPC);
+    assert.deepEqual(ordinaryNPCs.map(player => [player.roomId, player.level]),
+        game.experimentalRooms.filter(room => room.ordinaryNPCsAllowed).flatMap(room => (
+            Array.from({ length: room.npcCount }, () => [room.id, room.npcLevel])
+        )));
+    assert.equal(game.players.filter(player => player.isSector9BBGEncounterNPC).length, 7);
     assert.ok(game.players.slice(1).every(player => Math.hypot(game.players[0].x - player.x, game.players[0].y - player.y) > 120));
 });
 
 test('future Experimental room progression scales count and level from explicit room number', () => {
-    assert.deepEqual(createExperimentalRoomProgression(3), { roomNumber: 3, npcCount: 3, npcLevel: 3 });
-    assert.deepEqual(createExperimentalRoomProgression(12), { roomNumber: 12, npcCount: 12, npcLevel: 12 });
+    assert.deepEqual(createExperimentalRoomProgression(3), { roomNumber: 3, npcCount: 5, npcLevel: 3 });
+    assert.deepEqual(createExperimentalRoomProgression(12), { roomNumber: 12, npcCount: 23, npcLevel: 12 });
 });

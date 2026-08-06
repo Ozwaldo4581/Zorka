@@ -115,11 +115,11 @@ const point = (x, y) => Object.freeze({ x, y });
 const boundsAt = (left, top, width, height) => Object.freeze({ left, top, right: left + width, bottom: top + height });
 const wall = (id, x1, y1, x2, y2) => Object.freeze({ id, start: point(x1, y1), end: point(x2, y2) });
 
-function nextRoomOrigin(source, direction, worldWidth, worldHeight) {
-    if (direction === 'DOWN') return { left: source.left, top: source.top + worldHeight + EXPERIMENTAL_HALLWAY_LENGTH };
-    if (direction === 'UP') return { left: source.left, top: source.top - worldHeight - EXPERIMENTAL_HALLWAY_LENGTH };
-    if (direction === 'LEFT') return { left: source.left - worldWidth - EXPERIMENTAL_HALLWAY_LENGTH, top: source.top };
-    return { left: source.left + worldWidth + EXPERIMENTAL_HALLWAY_LENGTH, top: source.top };
+function nextRoomOrigin(source, direction, roomWidth, roomHeight) {
+    if (direction === 'DOWN') return { left: source.left, top: source.top + roomHeight + EXPERIMENTAL_HALLWAY_LENGTH };
+    if (direction === 'UP') return { left: source.left, top: source.top - roomHeight - EXPERIMENTAL_HALLWAY_LENGTH };
+    if (direction === 'LEFT') return { left: source.left - roomWidth - EXPERIMENTAL_HALLWAY_LENGTH, top: source.top };
+    return { left: source.left + roomWidth + EXPERIMENTAL_HALLWAY_LENGTH, top: source.top };
 }
 
 function hallwayBounds(source, direction) {
@@ -171,11 +171,11 @@ function buildWalls(shell, entranceShells) {
     return walls;
 }
 
-export function createExperimentalAreas(worldWidth, worldHeight) {
+export function createExperimentalAreas(roomWidth, roomHeight) {
     const roomOrigins = new Map([[1, { left: 0, top: 0 }]]);
     for (const [from, to, direction] of ROUTE) {
         const source = roomOrigins.get(from);
-        roomOrigins.set(to, nextRoomOrigin(source, direction, worldWidth, worldHeight));
+        roomOrigins.set(to, nextRoomOrigin(source, direction, roomWidth, roomHeight));
     }
     const shells = [];
     for (let roomNumber = 1; roomNumber <= 9; roomNumber++) {
@@ -183,7 +183,7 @@ export function createExperimentalAreas(worldWidth, worldHeight) {
         shells.push({
             ...createExperimentalRoomProgression(roomNumber), id: `experimental-room-${roomNumber}`,
             areaType: EXPERIMENTAL_AREA_TYPE.ROOM, origin: point(origin.left, origin.top),
-            width: worldWidth, height: worldHeight, bounds: boundsAt(origin.left, origin.top, worldWidth, worldHeight),
+            width: roomWidth, height: roomHeight, bounds: boundsAt(origin.left, origin.top, roomWidth, roomHeight),
             population: roomNumber === SECTOR_9_BBG_ENCOUNTER.roomNumber ? BBG_ONLY_POPULATION : FULL_ARENA_POPULATION,
             npcAggressionSource: 'ARENA_OPTIONS'
         });
