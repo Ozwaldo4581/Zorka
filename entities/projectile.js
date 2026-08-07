@@ -69,6 +69,10 @@ export class Projectile {
 
         if (!this.isMissile && !this.isTentacle) {
             this.lifeSpan -= dt;
+        } else if (this.isMissile) {
+            // Missiles otherwise live forever and accumulate under sustained fire,
+            // eventually overwhelming update and collision candidate passes.
+            this.lifeSpan -= dt;
         }
     }
 
