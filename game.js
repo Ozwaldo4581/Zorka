@@ -25,6 +25,7 @@ import {
     getSector9BBGImageRect,
     getSector9BBGAnchorWorldPosition
 } from './world/experimental_rooms.js';
+import { CircleSpatialHash, forEachNearbyCirclePair } from './world/spatial_hash.js';
 
 export const DESIGN_WIDTH = 1920;
 export const DESIGN_HEIGHT = 1080;
@@ -4295,13 +4296,19 @@ export class Game {
     }
 
     checkCollisions() {
+        const hasProjectiles = this.projectiles.length > 0;
+        const asteroidCollisionIndex = hasProjectiles
+            ? Game.prototype.createCollisionSpatialHash.call(this, this.asteroids) : null;
+        const hazardCollisionIndex = hasProjectiles
+            ? Game.prototype.createCollisionSpatialHash.call(this, this.hazards) : null;
+
         // Projectiles vs Asteroids and Hazards
         for (let i = this.projectiles.length - 1; i >= 0; i--) {
             const p = this.projectiles[i];
             if (!p || p.isRemoved || p.hasDetonated) continue;
 
             // Check against Asteroids
-            const projectileAsteroids = Game.prototype.getExperimentalCandidates.call(this, p, 'asteroids', this.asteroids);
+            const projectileAsteroids = asteroidCollisionIndex.queryNearby(p);
             for (let j = projectileAsteroids.length - 1; j >= 0; j--) {
                 const a = projectileAsteroids[j];
                 if (!a || a.isDestroyed) continue;
@@ -4328,7 +4335,7 @@ export class Game {
             if (p.isRemoved || p.hasDetonated) continue;
 
             // Check against Hazards (Space Debris and Satellites)
-            const projectileHazards = Game.prototype.getExperimentalCandidates.call(this, p, 'hazards', this.hazards);
+            const projectileHazards = hazardCollisionIndex.queryNearby(p);
             for (let j = projectileHazards.length - 1; j >= 0; j--) {
                 const h = projectileHazards[j];
                 if (!h || h.isDestroyed) continue;
@@ -4390,41 +4397,33 @@ export class Game {
         // Projectile consumption hierarchy. A stable snapshot makes every unordered
         // pair eligible once even though authoritative removal mutates this.projectiles.
         const projectilePairs = [...this.projectiles];
-        for (let i = 0; i < projectilePairs.length; i++) {
-            const p1 = projectilePairs[i];
-            if (!p1 || p1.isRemoved || p1.hasDetonated) continue;
-            const localProjectiles = this.gameState === GAME_MODE.EXPERIMENTAL
-                ? new Set(Game.prototype.getExperimentalCandidates.call(this, p1, 'projectiles', this.projectiles))
-                : null;
-            for (let j = i + 1; j < projectilePairs.length; j++) {
-                const p2 = projectilePairs[j];
-                if (!p2 || p2.isRemoved || p2.hasDetonated) continue;
-                if (localProjectiles && !localProjectiles.has(p2)) continue;
-                if (!Game.prototype.areExperimentalEntitiesCoLocated.call(this, p1, p2)) continue;
-                if (p1.owner && p1.owner === p2.owner) continue;
-                if (p1.owner && p2.owner
-                    && !Game.prototype.isHostileTarget.call(this, p1.owner, p2.owner)) continue;
+        Game.prototype.forEachProjectileCollisionCandidate.call(this, projectilePairs, (p1, p2) => {
+            if (!p1 || p1.isRemoved || p1.hasDetonated) return false;
+            if (!p2 || p2.isRemoved || p2.hasDetonated) return;
+            if (!Game.prototype.areExperimentalEntitiesCoLocated.call(this, p1, p2)) return;
+            if (p1.owner && p1.owner === p2.owner) return;
+            if (p1.owner && p2.owner
+                && !Game.prototype.isHostileTarget.call(this, p1.owner, p2.owner)) return;
 
-                const firstCategory = getProjectileCombatCategory(p1);
-                const secondCategory = getProjectileCombatCategory(p2);
-                const outcome = resolveProjectileConsumption(firstCategory, secondCategory);
-                if (outcome === PROJECTILE_CONSUMPTION.NEITHER
-                    || !Game.prototype.areProjectilesColliding.call(this, p1, p2)) continue;
+            const firstCategory = getProjectileCombatCategory(p1);
+            const secondCategory = getProjectileCombatCategory(p2);
+            const outcome = resolveProjectileConsumption(firstCategory, secondCategory);
+            if (outcome === PROJECTILE_CONSUMPTION.NEITHER
+                || !Game.prototype.areProjectilesColliding.call(this, p1, p2)) return;
 
-                const consumeFirst = outcome === PROJECTILE_CONSUMPTION.FIRST
-                    || outcome === PROJECTILE_CONSUMPTION.BOTH;
-                const consumeSecond = outcome === PROJECTILE_CONSUMPTION.SECOND
-                    || outcome === PROJECTILE_CONSUMPTION.BOTH;
-                const hasNonMissileImpact = consumeFirst && consumeSecond
-                    && !p1.isMissile && !p1.isSkinnyMissile
-                    && !p2.isMissile && !p2.isSkinnyMissile;
-                if (hasNonMissileImpact) this.createExplosion(p1.x, p1.y, 24, p1.roomId);
+            const consumeFirst = outcome === PROJECTILE_CONSUMPTION.FIRST
+                || outcome === PROJECTILE_CONSUMPTION.BOTH;
+            const consumeSecond = outcome === PROJECTILE_CONSUMPTION.SECOND
+                || outcome === PROJECTILE_CONSUMPTION.BOTH;
+            const hasNonMissileImpact = consumeFirst && consumeSecond
+                && !p1.isMissile && !p1.isSkinnyMissile
+                && !p2.isMissile && !p2.isSkinnyMissile;
+            if (hasNonMissileImpact) this.createExplosion(p1.x, p1.y, 24, p1.roomId);
 
-                if (consumeFirst) Game.prototype.consumeCollidingProjectile.call(this, p1);
-                if (consumeSecond && !p2.isRemoved) Game.prototype.consumeCollidingProjectile.call(this, p2);
-                if (p1.isRemoved || p1.hasDetonated) break;
-            }
-        }
+            if (consumeFirst) Game.prototype.consumeCollidingProjectile.call(this, p1);
+            if (consumeSecond && !p2.isRemoved) Game.prototype.consumeCollidingProjectile.call(this, p2);
+            if (p1.isRemoved || p1.hasDetonated) return false;
+        });
 
         // Players vs Asteroids and Hazards
         this.asteroidPlayerContacts ??= new WeakMap();
@@ -4486,6 +4485,23 @@ export class Game {
                 }
             }
         }
+    }
+
+    forEachProjectileCollisionCandidate(projectiles, callback) {
+        const isExperimental = this.gameState === GAME_MODE.EXPERIMENTAL;
+        return forEachNearbyCirclePair(projectiles, callback, {
+            wrap: !isExperimental,
+            width: WORLD_WIDTH,
+            height: WORLD_HEIGHT,
+            getPartition: isExperimental ? projectile => projectile.roomId || '' : undefined
+        });
+    }
+
+    createCollisionSpatialHash(entities) {
+        const isExperimental = this.gameState === GAME_MODE.EXPERIMENTAL;
+        return new CircleSpatialHash([...entities], {
+            getPartition: isExperimental ? entity => entity.roomId || '' : undefined
+        });
     }
 
     // Standard AoE projectile detonation (e.g. Orbs)
