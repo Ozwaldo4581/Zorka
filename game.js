@@ -315,6 +315,8 @@ export class Game {
             squidScenery: await this.loadImage('assets/Squid.png'),
             cranioidScenery: await this.loadImage('assets/Cranioid.png'),
             schoolDeskBackground: await this.loadImage('assets/SchoolDeskZorka7.png'),
+            schoolDeskTutorial1: await this.loadImage('assets/SchoolDeskFullTutorial1.png'),
+            schoolDeskTutorial2: await this.loadImage('assets/SchoolDeskFullTutorial2.png'),
             schoolDeskVisor: await this.loadImage('assets/SchoolDeskZorkaVisor3.png'),
             bbgScenery: await this.loadImage(SECTOR_9_BBG_ENCOUNTER.imagePath)
         };
@@ -2813,12 +2815,12 @@ export class Game {
         // Ensure menu music starts playing (space_ambient)
         this.audio.startBGM('space_ambient');
 
-        // Visual selection focus
-        const buttons = Array.from(document.getElementById('main-menu').querySelectorAll('button:not([disabled])'));
-        buttons.forEach((btn, i) => {
-            if (i === 0) btn.classList.add('focused');
-            else btn.classList.remove('focused');
-        });
+        // Main Menu launches with no controller/navigation focus.
+        // A menu item becomes focused only after actual navigation input.
+        document
+            .getElementById('main-menu')
+            .querySelectorAll('.focused')
+            .forEach(element => element.classList.remove('focused'));
 
         Game.prototype.hideVictoryScreen.call(this);
         this.clearExperimentalState();
@@ -5298,6 +5300,24 @@ export class Game {
         const offsetX = width * -0.03858564814814815;
         const offsetY = height * 0.0806172839506172839;
 
+        // Keep the original desk fixed and place the two tutorial desks at
+        // equal room-local spacing to its left and right.
+        const sideDeskSpacing = width / 3;
+        const drawSideDesk = (sideImage, centerOffsetX) => {
+            if (!sideImage) return;
+            const sideDrawWidth = sideImage.naturalWidth * imageScale;
+            const sideDrawHeight = sideImage.naturalHeight * imageScale;
+            ctx.drawImage(
+                sideImage,
+                -sideDrawWidth / 2 + offsetX + centerOffsetX,
+                -sideDrawHeight / 2 + offsetY,
+                sideDrawWidth,
+                sideDrawHeight
+            );
+        };
+
+        drawSideDesk(this.assets.schoolDeskTutorial1, -sideDeskSpacing);
+
         ctx.drawImage(
             image,
             -drawWidth / 2 + offsetX,
@@ -5305,6 +5325,8 @@ export class Game {
             drawWidth,
             drawHeight
         );
+
+        drawSideDesk(this.assets.schoolDeskTutorial2, sideDeskSpacing);
 
         const localPlayer = this.players.find(player => !player.isNPC);
         const visorImage = this.assets.schoolDeskVisor;

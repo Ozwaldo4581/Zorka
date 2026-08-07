@@ -340,8 +340,21 @@ export class Player {
 
     getExperimentalRespawnTintProgress() {
         if (!this.isExperimentalRespawnPhaseActive()) return 1;
-        return Math.max(0, Math.min(1,
-            1 - this.experimentalRespawnPhaseTimer / this.experimentalRespawnPhaseDuration));
+
+        const fadeDuration = 1;
+        const fadeStartRemaining = fadeDuration;
+
+        if (this.experimentalRespawnPhaseTimer > fadeStartRemaining) {
+            return 0;
+        }
+
+        return Math.max(
+            0,
+            Math.min(
+                1,
+                1 - this.experimentalRespawnPhaseTimer / fadeDuration
+            )
+        );
     }
 
     updateExperimentalRespawnPhase(dt) {

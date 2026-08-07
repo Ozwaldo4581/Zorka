@@ -142,6 +142,8 @@
         color: #00ffff;
       }
       #main-menu {
+        --notebook-height: min(110vh, 140vw);
+
         position: relative;
         display: flex;
         flex-direction: column;
@@ -149,11 +151,11 @@
         isolation: isolate;
       }
       .notebook-menu-background {
-        display: none;
+        display: block;
         position: absolute;
-        left: 41%;
+        left: 50%;
         top: 50%;
-        height: min(94vh, 122vw);
+        height: var(--notebook-height);
         width: auto;
         max-width: 94vw;
         transform: translate(-50%, -50%);
@@ -163,11 +165,53 @@
         -webkit-user-drag: none;
         z-index: -1;
       }
+      .main-menu-title {
+        display: block;
+        width: calc(var(--notebook-height) * 0.40);
+        max-width: 80vw;
+        height: auto;
+        margin-bottom: calc(var(--notebook-height) * 0.02);
+        pointer-events: none;
+        user-select: none;
+        -webkit-user-drag: none;
+      }
+      .main-menu-title,
+      .main-menu-actions {
+        position: relative;
+        top: calc(var(--notebook-height) * -0.035);
+        left: calc(var(--notebook-height) * 0.02);
+      }
       .main-menu-actions {
         display: flex;
         flex-direction: column;
         align-items: center;
-        gap: 26px;
+        gap: calc(var(--notebook-height) * 0.01);
+      }
+      #main-menu .menu-button {
+        width: auto;
+        height: auto;
+        padding: 0;
+        margin: 0;
+        border: 0;
+        background: transparent;
+        line-height: 0;
+      }
+      #main-menu .menu-button img {
+        display: block;
+        width: calc(var(--notebook-height) * 0.31);
+        max-width: 70vw;
+        height: auto;
+        pointer-events: none;
+        user-select: none;
+        -webkit-user-drag: none;
+      }
+      #main-menu .menu-button:hover,
+      #main-menu .menu-button.focused {
+        background: transparent;
+        color: inherit;
+        box-shadow: none;
+        outline: none;
+        transform: scale(1.04);
       }
       #experimental-profile-menu {
         width: min(760px, calc(100% - 2rem));
@@ -546,22 +590,35 @@
     <div id="custom-cursor"></div>
     <div id="menu-overlay">
       <div id="main-menu">
-        <img class="notebook-menu-background" src="assets/NotebookMenu.png" alt="" aria-hidden="true" draggable="false">
-        <h1>ZORKA</h1>
-        <h2 style="color: #00ffff; font-size: 1.2rem; margin-top: -1.5rem; margin-bottom: 2rem; letter-spacing: 0.5rem;">BATTLE FOR THE SOLAR TIDES</h2>
-        
+        <img
+          class="notebook-menu-background"
+          src="assets/NoteBookBlankSquared.png"
+          alt=""
+          aria-hidden="true"
+          draggable="false"
+        >
+        <img
+          class="main-menu-title"
+          src="assets/SharpieTitle.png"
+          alt="Zorka: Battle for the Solar Tides"
+          draggable="false"
+        >
         <div class="main-menu-actions">
-          <button class="menu-button" id="btn-arcade">ARCADE</button>
-          <button class="menu-button" id="btn-experimental-start">ADVENTURE</button>
-          <button class="menu-button" id="btn-solo-open">ARENA</button>
-
-          <button class="menu-button" id="btn-pvp">
-          LOCAL PVP<br>ARENA
-           </button>
-
-          <button class="menu-button" id="btn-main-options-open">
-           OPTIONS
-           </button>
+          <button class="menu-button" id="btn-experimental-start" aria-label="Adventure">
+            <img src="assets/SharpieAdventure.png" alt="" draggable="false">
+          </button>
+          <button class="menu-button" id="btn-arcade" aria-label="Arcade">
+            <img src="assets/SharpieArcade.png" alt="" draggable="false">
+          </button>
+          <button class="menu-button" id="btn-solo-open" aria-label="Arena">
+            <img src="assets/SharpieArena.png" alt="" draggable="false">
+          </button>
+          <button class="menu-button" id="btn-pvp" aria-label="Local PvP Arena">
+            <img src="assets/SharpieLocalPVPArena.png" alt="" draggable="false">
+          </button>
+          <button class="menu-button" id="btn-main-options-open" aria-label="Options">
+            <img src="assets/SharpieOptions.png" alt="" draggable="false">
+          </button>
         </div>
       </div>
 
