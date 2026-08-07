@@ -227,7 +227,7 @@ test('confirmed human room changes clear tier 1-4 bonuses once while preserving 
     const player = new Player(8640, WORLD_HEIGHT, 1);
     Object.assign(player, {
         roomId: 'experimental-room-1', activeGun: 'Laser', hasMissile: true,
-        missileReloadLevel: 3, missileCooldown: 2, martianParallelGuns: 2,
+        missileLevel: 3, missileShotCounter: 2, martianParallelGuns: 2,
         ghosts: [{ x: 1, y: 2 }], history: [{ x: 1, y: 2 }], powerUpCapsules: 4,
         maxShieldCharges: 5, shieldCharges: 3, hasForcefield: true,
         level: 4, totalXP: 1400, score: 7, currentHP: 4,
@@ -243,11 +243,11 @@ test('confirmed human room changes clear tier 1-4 bonuses once while preserving 
     assert.equal(cleanupCalls, 1);
     assert.deepEqual({
         roomId: player.roomId, activeGun: player.activeGun, hasMissile: player.hasMissile,
-        missileReloadLevel: player.missileReloadLevel, missileCooldown: player.missileCooldown,
+        missileLevel: player.missileLevel, missileShotCounter: player.missileShotCounter,
         martianParallelGuns: player.martianParallelGuns, ghosts: player.ghosts, history: player.history
     }, {
         roomId: 'experimental-hallway-1-2', activeGun: 'Normal', hasMissile: false,
-        missileReloadLevel: 0, missileCooldown: 0, martianParallelGuns: 1, ghosts: [], history: []
+        missileLevel: 0, missileShotCounter: 0, martianParallelGuns: 1, ghosts: [], history: []
     });
     assert.deepEqual({
         capsules: player.powerUpCapsules, maxShields: player.maxShieldCharges, shields: player.shieldCharges,
@@ -287,7 +287,7 @@ test('all eight hallways purge once on Room 0 entry and never on numbered-room e
     ]) {
         const player = new Player(0, 0, 1);
         Object.assign(player, {
-            roomId: sourceId, activeGun: 'Laser', hasMissile: true, missileReloadLevel: 3,
+            roomId: sourceId, activeGun: 'Laser', hasMissile: true, missileLevel: 3,
             powerUpCapsules: 4, maxShieldCharges: 5, shieldCharges: 3, hasForcefield: true,
             level: 6, totalXP: 4200, score: 11, currentHP: 5,
             vx: 123, vy: -45, rotation: 1.75

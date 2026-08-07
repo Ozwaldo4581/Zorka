@@ -4250,6 +4250,8 @@ export class Game {
         player.weaponStreamCounts = { Laser: 0, Antigun: 0, Double: 0, Orb: 0 };
         player.ghosts = []; 
         player.hasMissile = false;
+        player.missileLevel = 0;
+        player.missileShotCounter = 0;
         player.restoreShieldCharges(0);
         player.history = []; // Clear history so ghosts don't snap back to old positions on respawn
         player.martianParallelGuns = 1;
@@ -4625,23 +4627,36 @@ export class Game {
         Game.prototype.playSpatialEvent.call(this, 'explosion', missile.x, missile.y, missile.roomId, cameras);
         this.createExplosion(missile.x, missile.y, radius, missile.roomId);
 
-        // Collect missiles before detonating them because recursive detonation and
-        // removal mutate the canonical projectile collection.
+        // Collect blast-affected projectiles before recursive detonation and removal
+        // mutate the canonical projectile collection.
         const chainedMissiles = [];
+        const impactedWeaponProjectiles = [];
         const localProjectiles = Game.prototype.getExperimentalCandidates.call(
             this, missile, 'projectiles', this.projectiles
         );
         for (let j = localProjectiles.length - 1; j >= 0; j--) {
             const candidate = localProjectiles[j];
             if (!candidate || candidate === missile || candidate.isRemoved || candidate.hasDetonated) continue;
-            if (!candidate.isMissile && !candidate.isSkinnyMissile) continue;
             if (!Game.prototype.areExperimentalEntitiesCoLocated.call(this, missile, candidate)) continue;
             const delta = this.gameState === GAME_MODE.EXPERIMENTAL
                 ? { x: candidate.x - missile.x, y: candidate.y - missile.y }
                 : nearestWrappedDisplacement(missile.x, missile.y, candidate.x, candidate.y);
             const dist = Math.hypot(delta.x, delta.y);
             if (dist < radius + candidate.radius && !this.isExperimentalBlastBlocked(missile, candidate)) {
-                chainedMissiles.push(candidate);
+                if (candidate.isMissile || candidate.isSkinnyMissile) {
+                    chainedMissiles.push(candidate);
+                } else {
+                    const category = getProjectileCombatCategory(candidate);
+                    const isEligibleWeapon = category === PROJECTILE_COMBAT_CATEGORY.ORDINARY_GUN
+                        || category === PROJECTILE_COMBAT_CATEGORY.ORB;
+                    const isFriendly = missile.owner && (candidate.owner === missile.owner
+                        || (candidate.owner && !Game.prototype.isHostileTarget.call(
+                            this, missile.owner, candidate.owner
+                        )));
+                    if (isEligibleWeapon && !isFriendly) {
+                        impactedWeaponProjectiles.push(candidate);
+                    }
+                }
             }
         }
 
@@ -4650,6 +4665,10 @@ export class Game {
             if (chainedMissile.isSkinnyMissile) this.detonateAoEProjectile(chainedMissile);
             else this.detonateMissile(chainedMissile);
             this.removeProjectile(chainedMissile);
+        }
+
+        for (const projectile of impactedWeaponProjectiles) {
+            if (!projectile.isRemoved && !projectile.hasDetonated) this.removeProjectile(projectile);
         }
 
         // Instantly destroy every asteroid caught in the blast radius
