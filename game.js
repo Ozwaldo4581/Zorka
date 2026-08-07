@@ -4250,6 +4250,7 @@ export class Game {
         player.weaponStreamCounts = { Laser: 0, Antigun: 0, Double: 0, Orb: 0 };
         player.ghosts = []; 
         player.hasMissile = false;
+        player.missileLevel = 0;
         player.restoreShieldCharges(0);
         player.history = []; // Clear history so ghosts don't snap back to old positions on respawn
         player.martianParallelGuns = 1;
@@ -4651,6 +4652,25 @@ export class Game {
             else this.detonateMissile(chainedMissile);
             this.removeProjectile(chainedMissile);
         }
+
+        // Missile blasts remove ordinary gun streams (Normal, Antigun, and Double)
+        // and Orb shots without changing the existing missile chain behavior.
+        const interceptedProjectiles = [];
+        for (const candidate of localProjectiles) {
+            if (!candidate || candidate === missile || candidate.isRemoved) continue;
+            const category = getProjectileCombatCategory(candidate);
+            if (category !== PROJECTILE_COMBAT_CATEGORY.ORDINARY_GUN
+                && category !== PROJECTILE_COMBAT_CATEGORY.ORB) continue;
+            if (!Game.prototype.areExperimentalEntitiesCoLocated.call(this, missile, candidate)) continue;
+            const delta = this.gameState === GAME_MODE.EXPERIMENTAL
+                ? { x: candidate.x - missile.x, y: candidate.y - missile.y }
+                : nearestWrappedDisplacement(missile.x, missile.y, candidate.x, candidate.y);
+            const dist = Math.hypot(delta.x, delta.y);
+            if (dist < radius + candidate.radius && !this.isExperimentalBlastBlocked(missile, candidate)) {
+                interceptedProjectiles.push(candidate);
+            }
+        }
+        for (const candidate of interceptedProjectiles) this.removeProjectile(candidate);
 
         // Instantly destroy every asteroid caught in the blast radius
         const impactedAsteroids = [];
