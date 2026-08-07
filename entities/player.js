@@ -1425,7 +1425,9 @@ export class Player {
         const speed = this.getMaximumNormalSpeed() * MISSILE_SPEED_RATIO;
         const vx = Math.sin(rotation) * speed;
         const vy = -Math.cos(rotation) * speed;
-        const p = new Projectile(x, y, vx, vy, this.color);
+        const spawnX = x + Math.cos(rotation) * lateralOffset;
+        const spawnY = y + Math.sin(rotation) * lateralOffset;
+        const p = new Projectile(spawnX, spawnY, vx, vy, this.color);
         p.owner = this;
         p.isMissile = true;
         p.radius = 14; // Larger missile body/hitbox
