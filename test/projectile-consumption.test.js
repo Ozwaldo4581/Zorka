@@ -159,3 +159,12 @@ test('sandbox projectile interception is wrap-aware', () => {
     Game.prototype.checkCollisions.call(game);
     assert.deepEqual(game.projectiles, [laser, ordinary]);
 });
+
+test('sandbox projectile broad phase resolves missile interception across the wrap seam', () => {
+    const laser = projectile(CATEGORY.LASER, { id: 1 }, 4);
+    const missile = projectile(CATEGORY.MISSILE, { id: 2 }, WORLD_WIDTH - 4);
+    const game = collisionGame([laser, missile]).game;
+    Game.prototype.checkCollisions.call(game);
+    assert.deepEqual(game.projectiles, [laser]);
+    assert.equal(missile.hasDetonated, true);
+});

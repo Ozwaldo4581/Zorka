@@ -120,3 +120,47 @@ test('active Experimental areas retain NPC, Satellite, VFX, and audio behavior',
     assert.equal(Game.prototype.playSpatialEvent.call(game, 'explosion', 100, 100, human.roomId), true);
     assert.equal(audioRequests, 2);
 });
+
+test('Experimental simulation collections materialize active areas only', () => {
+    const game = createGame();
+    const activeAsteroid = Object.assign(new Asteroid(100, 100, 'small'), {
+        roomId: 'experimental-room-1'
+    });
+    const dormantAsteroid = Object.assign(new Asteroid(100, 100, 'small'), {
+        roomId: 'experimental-room-2'
+    });
+    game.asteroids.push(activeAsteroid, dormantAsteroid);
+    Game.prototype.indexExperimentalEntity.call(game, 'asteroids', activeAsteroid);
+    Game.prototype.indexExperimentalEntity.call(game, 'asteroids', dormantAsteroid);
+
+    const simulationAsteroids = Game.prototype.getExperimentalEntitiesInAreas.call(
+        game,
+        'asteroids',
+        new Set(['experimental-room-1'])
+    );
+    assert.deepEqual(simulationAsteroids, [activeAsteroid]);
+    assert.deepEqual(game.asteroids, [activeAsteroid, dormantAsteroid]);
+});
+
+test('Experimental collision pass ignores dormant-area projectiles and targets', () => {
+    const game = createGame({
+        hitTarget() { throw new Error('dormant target entered collision resolution'); }
+    });
+    game.createCollisionSpatialHash = entities => Game.prototype.createCollisionSpatialHash.call(game, entities);
+    const dormantProjectile = Object.assign(new Projectile(100, 100, 0, 0), {
+        roomId: 'experimental-room-2'
+    });
+    const dormantAsteroid = Object.assign(new Asteroid(100, 100, 'small'), {
+        roomId: 'experimental-room-2'
+    });
+    game.projectiles.push(dormantProjectile);
+    game.asteroids.push(dormantAsteroid);
+
+    Game.prototype.checkCollisions.call(game, {
+        projectiles: [],
+        asteroids: [],
+        hazards: []
+    });
+    assert.deepEqual(game.projectiles, [dormantProjectile]);
+    assert.equal(dormantAsteroid.isDestroyed, false);
+});

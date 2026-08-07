@@ -25,6 +25,7 @@ import {
     getSector9BBGImageRect,
     getSector9BBGAnchorWorldPosition
 } from './world/experimental_rooms.js';
+import { CircleSpatialHash, forEachNearbyCirclePair } from './world/spatial_hash.js';
 
 export const DESIGN_WIDTH = 1920;
 export const DESIGN_HEIGHT = 1080;
@@ -2573,6 +2574,14 @@ export class Game {
         return active;
     }
 
+    getExperimentalEntitiesInAreas(kind, areaIds) {
+        const entities = [];
+        for (const areaId of areaIds || []) {
+            entities.push(...Game.prototype.getExperimentalAreaEntities.call(this, areaId, kind));
+        }
+        return entities;
+    }
+
     startExperimentalMode(profile = null, options = {}) {
         const selectedProfile = profile || (Number.isInteger(this.selectedExperimentalProfileSlot)
             ? this.experimentalProfiles.getProfile(this.selectedExperimentalProfileSlot)
@@ -3415,9 +3424,24 @@ export class Game {
         const gamepads = this.getGamepads();
         const prestigeTriggers = [];
         const worldRules = this.getWorldRules();
+        const activeExperimentalAreaIds = worldRules.usesRooms
+            ? Game.prototype.getExperimentalActiveAreaIds.call(this) : null;
+        const simulationAsteroids = worldRules.usesRooms
+            ? Game.prototype.getExperimentalEntitiesInAreas.call(this, 'asteroids', activeExperimentalAreaIds)
+            : this.asteroids;
+        const simulationHazards = worldRules.usesRooms
+            ? Game.prototype.getExperimentalEntitiesInAreas.call(this, 'hazards', activeExperimentalAreaIds)
+            : this.hazards;
 
         for (let player of this.players) {
             if (player.isEliminated) continue; // Skip eliminated players completely
+            if (player.isNPC && worldRules.usesRooms
+                && !activeExperimentalAreaIds.has(player.roomId)) {
+                player.npcTarget = null;
+                player.shouldFire = false;
+                player.isThrusting = false;
+                continue;
+            }
 
             if (!player.isDead) {
                 player.previousX = player.x;
@@ -3565,22 +3589,30 @@ export class Game {
                 .forEach(player => this.resolveExperimentalSlide(player));
         }
 
-        this.asteroids.forEach(a => {
+        simulationAsteroids.forEach(a => {
             a.previousX = a.x;
             a.previousY = a.y;
             a.update(dt, worldRules);
         });
-        this.hazards.forEach(h => {
+        simulationHazards.forEach(h => {
             h.previousX = h.x;
             h.previousY = h.y;
             h.update(dt, this, worldRules);
         });
-        if (worldRules.usesRooms) this.resolveExperimentalEntityWalls();
+        if (worldRules.usesRooms) this.resolveExperimentalEntityWalls({
+            asteroids: simulationAsteroids,
+            hazards: simulationHazards
+        });
         
+        // Materialize after firing and Satellite updates so newly inserted shots
+        // retain the existing same-frame update and collision behavior.
+        const simulationProjectiles = worldRules.usesRooms
+            ? Game.prototype.getExperimentalEntitiesInAreas.call(this, 'projectiles', activeExperimentalAreaIds)
+            : this.projectiles;
         const activeCameras = this.getActiveCameras();
         
-        for (let i = this.projectiles.length - 1; i >= 0; i--) {
-            const p = this.projectiles[i];
+        for (let i = simulationProjectiles.length - 1; i >= 0; i--) {
+            const p = simulationProjectiles[i];
             if (p.isOrbital && (!p.owner || p.owner.isEliminated || p.owner.isDead)) {
                 this.removeProjectile(p);
                 continue;
@@ -3612,18 +3644,26 @@ export class Game {
             }
         }
 
-        for (let i = this.vfx.length - 1; i >= 0; i--) {
-            const v = this.vfx[i];
+        const simulationVfx = worldRules.usesRooms
+            ? Game.prototype.getExperimentalEntitiesInAreas.call(this, 'vfx', activeExperimentalAreaIds)
+            : this.vfx;
+        for (let i = simulationVfx.length - 1; i >= 0; i--) {
+            const v = simulationVfx[i];
             v.update(dt);
             if (v.finished) {
                 Game.prototype.unindexExperimentalEntity.call(this, 'vfx', v);
-                this.vfx.splice(i, 1);
+                const canonicalIndex = this.vfx.indexOf(v);
+                if (canonicalIndex !== -1) this.vfx.splice(canonicalIndex, 1);
             }
         }
 
         // Thruster Sounds Removed
 
-        this.checkCollisions();
+        this.checkCollisions({
+            projectiles: simulationProjectiles,
+            asteroids: simulationAsteroids,
+            hazards: simulationHazards
+        });
 
         if (worldRules.usesRooms) {
             this.players.filter(player => !player.isDead && !player.isNPC)
@@ -3788,11 +3828,13 @@ export class Game {
         return collided;
     }
 
-    resolveExperimentalEntityWalls() {
+    resolveExperimentalEntityWalls(simulationEntities = null) {
         const fallbackRoom = this.experimentalRooms[0];
         if (!fallbackRoom) return;
         const destroyedSmall = [];
-        for (const asteroid of this.asteroids) {
+        const asteroids = simulationEntities?.asteroids || this.asteroids;
+        const hazards = simulationEntities?.hazards || this.hazards;
+        for (const asteroid of asteroids) {
             const room = Game.prototype.getExperimentalRoom.call(this, asteroid.roomId) || fallbackRoom;
             const walls = Game.prototype.getExperimentalCollisionWalls.call(this, asteroid);
             const swept = Game.prototype.findExperimentalSweptWallHit.call(this, asteroid, walls, room.wallCollisionThickness);
@@ -3823,7 +3865,7 @@ export class Game {
             this.hitTarget(asteroid, null);
             if (replenish && this.gameState === GAME_MODE.EXPERIMENTAL) this.spawnAsteroid('small', undefined, undefined, roomId);
         }
-        for (const hazard of this.hazards) {
+        for (const hazard of hazards) {
             const room = Game.prototype.getExperimentalRoom.call(this, hazard.roomId) || fallbackRoom;
             const walls = Game.prototype.getExperimentalCollisionWalls.call(this, hazard);
             const swept = Game.prototype.findExperimentalSweptWallHit.call(this, hazard, walls, room.wallCollisionThickness);
@@ -4294,14 +4336,23 @@ export class Game {
         if (!projectile.isRemoved) this.removeProjectile(projectile);
     }
 
-    checkCollisions() {
+    checkCollisions(simulationEntities = null) {
+        const activeProjectiles = simulationEntities?.projectiles || this.projectiles;
+        const activeAsteroids = simulationEntities?.asteroids || this.asteroids;
+        const activeHazards = simulationEntities?.hazards || this.hazards;
+        const hasProjectiles = activeProjectiles.length > 0;
+        const asteroidCollisionIndex = hasProjectiles
+            ? Game.prototype.createCollisionSpatialHash.call(this, activeAsteroids) : null;
+        const hazardCollisionIndex = hasProjectiles
+            ? Game.prototype.createCollisionSpatialHash.call(this, activeHazards) : null;
+
         // Projectiles vs Asteroids and Hazards
-        for (let i = this.projectiles.length - 1; i >= 0; i--) {
-            const p = this.projectiles[i];
+        for (let i = activeProjectiles.length - 1; i >= 0; i--) {
+            const p = activeProjectiles[i];
             if (!p || p.isRemoved || p.hasDetonated) continue;
 
             // Check against Asteroids
-            const projectileAsteroids = Game.prototype.getExperimentalCandidates.call(this, p, 'asteroids', this.asteroids);
+            const projectileAsteroids = asteroidCollisionIndex.queryNearby(p);
             for (let j = projectileAsteroids.length - 1; j >= 0; j--) {
                 const a = projectileAsteroids[j];
                 if (!a || a.isDestroyed) continue;
@@ -4328,7 +4379,7 @@ export class Game {
             if (p.isRemoved || p.hasDetonated) continue;
 
             // Check against Hazards (Space Debris and Satellites)
-            const projectileHazards = Game.prototype.getExperimentalCandidates.call(this, p, 'hazards', this.hazards);
+            const projectileHazards = hazardCollisionIndex.queryNearby(p);
             for (let j = projectileHazards.length - 1; j >= 0; j--) {
                 const h = projectileHazards[j];
                 if (!h || h.isDestroyed) continue;
@@ -4354,8 +4405,8 @@ export class Game {
         }
 
         // Projectiles vs Players (PvP)
-        for (let i = this.projectiles.length - 1; i >= 0; i--) {
-            const p = this.projectiles[i];
+        for (let i = activeProjectiles.length - 1; i >= 0; i--) {
+            const p = activeProjectiles[i];
             if (!p || p.isRemoved || p.hasDetonated) continue;
             for (let player of Game.prototype.getExperimentalCandidates.call(this, p, 'players', this.players)) {
                 if (!player || player.isDead || player.isEliminated || p.owner === player) continue;
@@ -4389,42 +4440,34 @@ export class Game {
 
         // Projectile consumption hierarchy. A stable snapshot makes every unordered
         // pair eligible once even though authoritative removal mutates this.projectiles.
-        const projectilePairs = [...this.projectiles];
-        for (let i = 0; i < projectilePairs.length; i++) {
-            const p1 = projectilePairs[i];
-            if (!p1 || p1.isRemoved || p1.hasDetonated) continue;
-            const localProjectiles = this.gameState === GAME_MODE.EXPERIMENTAL
-                ? new Set(Game.prototype.getExperimentalCandidates.call(this, p1, 'projectiles', this.projectiles))
-                : null;
-            for (let j = i + 1; j < projectilePairs.length; j++) {
-                const p2 = projectilePairs[j];
-                if (!p2 || p2.isRemoved || p2.hasDetonated) continue;
-                if (localProjectiles && !localProjectiles.has(p2)) continue;
-                if (!Game.prototype.areExperimentalEntitiesCoLocated.call(this, p1, p2)) continue;
-                if (p1.owner && p1.owner === p2.owner) continue;
-                if (p1.owner && p2.owner
-                    && !Game.prototype.isHostileTarget.call(this, p1.owner, p2.owner)) continue;
+        const projectilePairs = [...activeProjectiles];
+        Game.prototype.forEachProjectileCollisionCandidate.call(this, projectilePairs, (p1, p2) => {
+            if (!p1 || p1.isRemoved || p1.hasDetonated) return false;
+            if (!p2 || p2.isRemoved || p2.hasDetonated) return;
+            if (!Game.prototype.areExperimentalEntitiesCoLocated.call(this, p1, p2)) return;
+            if (p1.owner && p1.owner === p2.owner) return;
+            if (p1.owner && p2.owner
+                && !Game.prototype.isHostileTarget.call(this, p1.owner, p2.owner)) return;
 
-                const firstCategory = getProjectileCombatCategory(p1);
-                const secondCategory = getProjectileCombatCategory(p2);
-                const outcome = resolveProjectileConsumption(firstCategory, secondCategory);
-                if (outcome === PROJECTILE_CONSUMPTION.NEITHER
-                    || !Game.prototype.areProjectilesColliding.call(this, p1, p2)) continue;
+            const firstCategory = getProjectileCombatCategory(p1);
+            const secondCategory = getProjectileCombatCategory(p2);
+            const outcome = resolveProjectileConsumption(firstCategory, secondCategory);
+            if (outcome === PROJECTILE_CONSUMPTION.NEITHER
+                || !Game.prototype.areProjectilesColliding.call(this, p1, p2)) return;
 
-                const consumeFirst = outcome === PROJECTILE_CONSUMPTION.FIRST
-                    || outcome === PROJECTILE_CONSUMPTION.BOTH;
-                const consumeSecond = outcome === PROJECTILE_CONSUMPTION.SECOND
-                    || outcome === PROJECTILE_CONSUMPTION.BOTH;
-                const hasNonMissileImpact = consumeFirst && consumeSecond
-                    && !p1.isMissile && !p1.isSkinnyMissile
-                    && !p2.isMissile && !p2.isSkinnyMissile;
-                if (hasNonMissileImpact) this.createExplosion(p1.x, p1.y, 24, p1.roomId);
+            const consumeFirst = outcome === PROJECTILE_CONSUMPTION.FIRST
+                || outcome === PROJECTILE_CONSUMPTION.BOTH;
+            const consumeSecond = outcome === PROJECTILE_CONSUMPTION.SECOND
+                || outcome === PROJECTILE_CONSUMPTION.BOTH;
+            const hasNonMissileImpact = consumeFirst && consumeSecond
+                && !p1.isMissile && !p1.isSkinnyMissile
+                && !p2.isMissile && !p2.isSkinnyMissile;
+            if (hasNonMissileImpact) this.createExplosion(p1.x, p1.y, 24, p1.roomId);
 
-                if (consumeFirst) Game.prototype.consumeCollidingProjectile.call(this, p1);
-                if (consumeSecond && !p2.isRemoved) Game.prototype.consumeCollidingProjectile.call(this, p2);
-                if (p1.isRemoved || p1.hasDetonated) break;
-            }
-        }
+            if (consumeFirst) Game.prototype.consumeCollidingProjectile.call(this, p1);
+            if (consumeSecond && !p2.isRemoved) Game.prototype.consumeCollidingProjectile.call(this, p2);
+            if (p1.isRemoved || p1.hasDetonated) return false;
+        });
 
         // Players vs Asteroids and Hazards
         this.asteroidPlayerContacts ??= new WeakMap();
@@ -4473,8 +4516,8 @@ export class Game {
             if (player.isDead) continue;
             
             // Cyborg Decoys
-            for (let i = this.projectiles.length - 1; i >= 0; i--) {
-                const p = this.projectiles[i];
+            for (let i = activeProjectiles.length - 1; i >= 0; i--) {
+                const p = activeProjectiles[i];
                 if (!p || p.isRemoved || p.hasDetonated) continue;
                 if (!Game.prototype.areExperimentalEntitiesCoLocated.call(this, player, p)) continue;
                 if (p.isDecoy && p.owner !== player
@@ -4486,6 +4529,23 @@ export class Game {
                 }
             }
         }
+    }
+
+    forEachProjectileCollisionCandidate(projectiles, callback) {
+        const isExperimental = this.gameState === GAME_MODE.EXPERIMENTAL;
+        return forEachNearbyCirclePair(projectiles, callback, {
+            wrap: !isExperimental,
+            width: WORLD_WIDTH,
+            height: WORLD_HEIGHT,
+            getPartition: isExperimental ? projectile => projectile.roomId || '' : undefined
+        });
+    }
+
+    createCollisionSpatialHash(entities) {
+        const isExperimental = this.gameState === GAME_MODE.EXPERIMENTAL;
+        return new CircleSpatialHash([...entities], {
+            getPartition: isExperimental ? entity => entity.roomId || '' : undefined
+        });
     }
 
     // Standard AoE projectile detonation (e.g. Orbs)
