@@ -62,7 +62,42 @@ test('standard missile blasts recursively detonate and remove nearby missiles on
     assert.equal(second.hasDetonated, true, 'same-owner missiles participate in the chain');
     assert.equal(third.hasDetonated, true, 'the chain reaches missiles outside the first blast');
     assert.equal(ordinaryProjectile.hasDetonated, undefined, 'ordinary projectiles do not chain');
-    assert.deepEqual(game.projectiles, [ordinaryProjectile]);
+    assert.equal(ordinaryProjectile.isRemoved, true, 'ordinary projectiles inside the blast are removed');
+    assert.deepEqual(game.projectiles, []);
+});
+
+test('missile blasts remove ordinary and Orb shots in range with wrapped and room-local filtering', () => {
+    const source = missile(10, 100);
+    const ordinary = new Projectile(WORLD_WIDTH - 10, 100, 0, 0);
+    const orb = new Projectile(80, 100, 0, 0);
+    orb.isOrb = true;
+    const laser = new Projectile(80, 100, 0, 0);
+    laser.isLaser = true;
+    const distant = new Projectile(500, 100, 0, 0);
+    const { game } = createDetonationGame([source, ordinary, orb, laser, distant]);
+
+    game.detonateMissile(source);
+
+    assert.equal(ordinary.isRemoved, true, 'ordinary gun families use wrapped blast distance');
+    assert.equal(orb.isRemoved, true);
+    assert.deepEqual(game.projectiles, [source, laser, distant]);
+
+    const roomSource = missile(100, 100);
+    roomSource.roomId = 'room-1';
+    const localOrb = new Projectile(120, 100, 0, 0); localOrb.isOrb = true; localOrb.roomId = 'room-1';
+    const otherRoomOrb = new Projectile(120, 100, 0, 0); otherRoomOrb.isOrb = true; otherRoomOrb.roomId = 'room-2';
+    const { game: experimental } = createDetonationGame(
+        [roomSource, localOrb, otherRoomOrb], GAME_MODE.EXPERIMENTAL
+    );
+    experimental.experimentalAreaIndexes = new Map([
+        ['room-1', { projectiles: new Set([roomSource, localOrb]) }],
+        ['room-2', { projectiles: new Set([otherRoomOrb]) }]
+    ]);
+
+    experimental.detonateMissile(roomSource);
+
+    assert.equal(localOrb.isRemoved, true);
+    assert.equal(otherRoomOrb.isRemoved, undefined);
 });
 
 test('standard missile blasts dispatch skinny missiles through their existing AoE path', () => {

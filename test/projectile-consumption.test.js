@@ -81,7 +81,7 @@ test('authoritative pair pass enforces survivability and detonates missiles once
     const missile = projectile(CATEGORY.MISSILE, enemyB);
     game.projectiles.push(interceptor, missile);
     Game.prototype.checkCollisions.call(game);
-    assert.deepEqual(game.projectiles, [laser, ordinary, interceptor]);
+    assert.deepEqual(game.projectiles, [laser, interceptor]);
     assert.equal(missile.hasDetonated, true);
 });
 

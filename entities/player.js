@@ -6,6 +6,9 @@ const BASE_GUN_COOLDOWN = 0.75;
 const BURST_INTERVAL = 0.05;
 const BASE_PROJECTILE_SPEED = 1200;
 const MARTIAN_PARALLEL_OFFSET = 30;
+const BASE_MAX_PLAYER_SPEED = 800;
+const MISSILE_SPEED_RATIO = 0.8;
+const MAX_MISSILE_LEVEL = 3;
 export const SPAWN_IMMUNITY_DURATION = 1;
 export const EXPERIMENTAL_RESPAWN_PHASE_DURATION = 3;
 export const MAX_STACKABLE_WEAPON_STREAMS = 3;
@@ -65,8 +68,7 @@ export class Player {
         this.hpRechargeDelay = 20;
         this.hpRechargeTimer = 0;
         this.hasMissile = false;
-        this.missileCooldown = 0;
-        this.missileReloadLevel = 0; // Increases each time Missile capsule is selected
+        this.missileLevel = 0;
         this.martianParallelGuns = 1; // Base is 1 for Martian
         this.bonusSpeed = 0; // For Event Horizon Horror
         
@@ -230,6 +232,11 @@ export class Player {
         return this.thrust * this.getSpeedMultiplier();
     }
 
+    getMaximumNormalSpeed() {
+        // Speed upgrades improve acceleration, while the normal ship speed cap remains fixed.
+        return BASE_MAX_PLAYER_SPEED;
+    }
+
     getPersistentProgressionSnapshot() {
         return {
             level: this.level,
@@ -296,8 +303,7 @@ export class Player {
         this.ghosts = [];
         this.history = [];
         this.hasMissile = false;
-        this.missileCooldown = 0;
-        this.missileReloadLevel = 0;
+        this.missileLevel = 0;
         this.martianParallelGuns = 1;
         this.resetEvolutionForm();
         this.bonusSpeed = 0;
@@ -696,7 +702,7 @@ export class Player {
         }
         
         // Speed cap
-        let maxSpeed = 800;
+        let maxSpeed = this.getMaximumNormalSpeed();
         if (this.isEventHorizon) {
             maxSpeed += this.bonusSpeed;
         }
@@ -707,7 +713,6 @@ export class Player {
         }
 
         if (this.fireCooldown > 0) this.fireCooldown -= dt;
-        if (this.missileCooldown > 0) this.missileCooldown -= dt;
     }
 
     configureShields(maxShieldCharges, rechargeDelay) {
@@ -1233,6 +1238,7 @@ export class Player {
         }
         if (normalizedSlot === 4
             && (this.weaponStreamCounts?.Orb || 0) >= MAX_STACKABLE_WEAPON_STREAMS) return false;
+        if (normalizedSlot === 2 && this.missileLevel >= MAX_MISSILE_LEVEL) return false;
         if (normalizedSlot === 5 && this.ghosts.length >= 2) return false;
         return true;
     }
@@ -1267,6 +1273,7 @@ export class Player {
             if (slot === 1) this.powerUpError = `${this.slot1Type.toUpperCase()} MAXED`;
             else if (slot === 3) this.powerUpError = 'LASER MAXED';
             else if (slot === 4) this.powerUpError = 'ORB MAXED';
+            else if (slot === 2) this.powerUpError = 'MISSILE MAXED';
             else if (slot === 5) this.powerUpError = 'GHOST MAXED';
             return false;
         }
@@ -1278,7 +1285,7 @@ export class Player {
                 break;
             case 2: // Missile
                 this.hasMissile = true;
-                this.missileReloadLevel++;
+                this.missileLevel = Math.min(MAX_MISSILE_LEVEL, this.missileLevel + 1);
                 break;
             case 3: // Laser (or Martian Parallel Guns)
                 if (this.isMartian) {
@@ -1355,8 +1362,7 @@ export class Player {
         this.weaponStreamCounts = { Laser: 0, Antigun: 0, Double: 0, Orb: 0 };
         this.cancelBurstFire();
         this.hasMissile = false;
-        this.missileReloadLevel = 0;
-        this.missileCooldown = 0;
+        this.missileLevel = 0;
         this.martianParallelGuns = 1;
         this.resetEvolutionForm();
         this.ghosts = [];
@@ -1396,17 +1402,18 @@ export class Player {
             });
 
         // Missile Add-on (only on initial shot, not bursts)
-        if (!isBurstShot && this.missileCooldown <= 0 && this.hasMissile) {
-            // Missile reload time tripled from 1.0 to 3.0. 
-            // Every time capsule is selected, reload time decreases by 0.5s (min 0.5s)
-            const baseReload = 3.0;
-            this.missileCooldown = Math.max(0.5, baseReload - (this.missileReloadLevel - 1) * 0.5);
-            const m = this.createMissile(this.x, this.y, this.rotation);
-                projectiles.push(m);
+        if (!isBurstShot && this.hasMissile) {
+            for (let stream = 0; stream < this.missileLevel; stream++) {
+                const lateralOffset = (stream - (this.missileLevel - 1) / 2) * MARTIAN_PARALLEL_OFFSET;
+                projectiles.push(this.createMissile(this.x, this.y, this.rotation, lateralOffset));
+            }
                 
-                this.ghosts.forEach(ghost => {
-                    projectiles.push(this.createMissile(ghost.x, ghost.y, ghost.rotation));
-                });
+            this.ghosts.forEach(ghost => {
+                for (let stream = 0; stream < this.missileLevel; stream++) {
+                    const lateralOffset = (stream - (this.missileLevel - 1) / 2) * MARTIAN_PARALLEL_OFFSET;
+                    projectiles.push(this.createMissile(ghost.x, ghost.y, ghost.rotation, lateralOffset));
+                }
+            });
             }
 
             return projectiles;
@@ -1414,11 +1421,13 @@ export class Player {
         return null;
     }
 
-    createMissile(x, y, rotation) {
-        const speed = 560; // Reduced to 70% (800 -> 560)
+    createMissile(x, y, rotation, lateralOffset = 0) {
+        const speed = this.getMaximumNormalSpeed() * MISSILE_SPEED_RATIO;
         const vx = Math.sin(rotation) * speed;
         const vy = -Math.cos(rotation) * speed;
-        const p = new Projectile(x, y, vx, vy, this.color);
+        const spawnX = x + Math.cos(rotation) * lateralOffset;
+        const spawnY = y + Math.sin(rotation) * lateralOffset;
+        const p = new Projectile(spawnX, spawnY, vx, vy, this.color);
         p.owner = this;
         p.isMissile = true;
         p.radius = 14; // Larger missile body/hitbox
