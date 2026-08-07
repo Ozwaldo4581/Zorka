@@ -42,6 +42,7 @@ export class Player {
         this.respawnTimer = 0;
         this.fireCooldown = 0;
         this.isNPC = false;
+        this.isExperimentalFleeingNPC = false;
         this.lockedAimTarget = null;
         this.controllerAimLockLatched = false;
         this.controllerAimLockArmed = true;
@@ -992,6 +993,11 @@ export class Player {
         }
         this.npcThinkTimer -= dt;
         this.npcBehaviorTimer -= dt;
+        if (this.isExperimentalFleeingNPC) {
+            this.shouldFire = false;
+            this.shouldTriggerBurstFire = false;
+            this.npcBehaviorState = 'FLEE';
+        }
         if (worldRules?.usesRooms && this.npcTarget?.roomId !== this.roomId) this.npcTarget = null;
         if (this.isFixedPositionNPC) {
             this.vx = 0;
@@ -1001,7 +1007,7 @@ export class Player {
         }
 
         // Personality/Behavior state transitions
-        if (this.npcBehaviorTimer <= 0) {
+        if (!this.isExperimentalFleeingNPC && this.npcBehaviorTimer <= 0) {
             if (this.aggressionLevel === 1) { // Timmy
                 // 30% chance to flee for 2-4 seconds
                 if (Math.random() < 0.3 && this.npcBehaviorState === 'NORMAL') {
@@ -1041,18 +1047,19 @@ export class Player {
             // Priority 1: Players
             others.forEach(other => {
                 if (other === this || other.isDead) return;
+                if (this.isExperimentalFleeingNPC && other.isNPC) return;
                 if (this.isSector9BBGEncounterNPC && other.isNPC) return;
                 if (!this.isSector9BBGEncounterNPC && other.isSector9BBGEncounterNPC) return;
                 if (worldRules?.usesRooms && other.roomId !== this.roomId) return;
                 const d = Math.hypot(other.x - this.x, other.y - this.y);
-                if (d < minDist && d <= aggressionRange) {
+                if (d < minDist && (this.isExperimentalFleeingNPC || d <= aggressionRange)) {
                     minDist = d;
                     this.npcTarget = other;
                 }
             });
 
             // Priority 2: Hazards (if no players in range)
-            if (!this.npcTarget) {
+            if (!this.npcTarget && !this.isExperimentalFleeingNPC) {
                 hazards.forEach(h => {
                     if (h.isDestroyed) return;
                     if (worldRules?.usesRooms && h.roomId !== this.roomId) return;
@@ -1154,7 +1161,7 @@ export class Player {
             const accuracyBase = 0.6 + (this.accuracyLevel - 1) * 0.0875; // 0.6 to 0.95
             let targetRot = Math.atan2(dy, dx) + Math.PI / 2;
             
-            if (Math.random() > accuracyBase) {
+            if (!this.isExperimentalFleeingNPC && Math.random() > accuracyBase) {
                 const spread = (1 - accuracyBase) * 1.5; // Max ~0.6 radians spread at lowest accuracy
                 targetRot += (Math.random() - 0.5) * spread;
             }
@@ -1197,7 +1204,7 @@ export class Player {
             }
 
             // NPC Power-up logic: Use if capsules are high or defensive needed
-            if (this.powerUpCapsules > 0) {
+            if (this.powerUpCapsules > 0 && !this.isExperimentalFleeingNPC) {
                 const shouldActivate = (this.powerUpCapsules >= 4) || (this.powerUpCapsules >= 1 && Math.random() < 0.01);
                 if (shouldActivate) {
                     this.activatePowerUp();
@@ -1226,6 +1233,11 @@ export class Player {
         fx += avoidFx;
         fy += avoidFy;
         if (isEvading) this.isThrusting = true;
+
+        if (this.isExperimentalFleeingNPC) {
+            this.shouldFire = false;
+            this.shouldTriggerBurstFire = false;
+        }
 
         setForce({ x: fx, y: fy });
     }
@@ -1570,6 +1582,10 @@ export class Player {
 
     drawSpriteWithTint(ctx, img, size, accentAlpha = .2) {
         if (!img) return;
+        if (this.isExperimentalFleeingNPC) {
+            ctx.drawImage(img, -size / 2, -size / 2, size, size);
+            return;
+        }
 
         const usesBaseShip =
             !this.isMartian &&
