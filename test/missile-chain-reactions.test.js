@@ -61,8 +61,9 @@ test('standard missile blasts recursively detonate and remove nearby missiles on
     assert.equal(first.hasDetonated, true);
     assert.equal(second.hasDetonated, true, 'same-owner missiles participate in the chain');
     assert.equal(third.hasDetonated, true, 'the chain reaches missiles outside the first blast');
-    assert.equal(ordinaryProjectile.hasDetonated, undefined, 'ordinary projectiles do not chain');
-    assert.deepEqual(game.projectiles, [ordinaryProjectile]);
+    assert.equal(ordinaryProjectile.hasDetonated, undefined, 'ordinary projectiles are removed without detonating');
+    assert.equal(ordinaryProjectile.isRemoved, true);
+    assert.deepEqual(game.projectiles, []);
 });
 
 test('standard missile blasts dispatch skinny missiles through their existing AoE path', () => {
@@ -106,6 +107,51 @@ test('Experimental missile chains stay room-local and respect blast obstruction'
 
     assert.equal(blocked.hasDetonated, undefined, 'walls block otherwise eligible missiles');
     assert.equal(otherRoom.hasDetonated, undefined, 'other-room missiles are not candidates');
+});
+
+test('missile blasts remove hostile ordinary gun variants and Orbs but preserve other projectiles', () => {
+    const owner = { id: 1 };
+    const enemy = { id: 2 };
+    const first = missile(100, 100, { owner });
+    const normal = new Projectile(120, 100, 0, 0); normal.owner = enemy;
+    const antigun = new Projectile(130, 100, 0, 0); antigun.owner = enemy;
+    const doubleGun = new Projectile(140, 100, 0, 0); doubleGun.owner = enemy;
+    const orb = new Projectile(150, 100, 0, 0); orb.owner = enemy; orb.isOrb = true;
+    const laser = new Projectile(160, 100, 0, 0); laser.owner = enemy; laser.isLaser = true;
+    const friendly = new Projectile(170, 100, 0, 0); friendly.owner = owner;
+    const outside = new Projectile(300, 100, 0, 0); outside.owner = enemy;
+    const { game } = createDetonationGame([
+        first, normal, antigun, doubleGun, orb, laser, friendly, outside
+    ]);
+
+    game.detonateMissile(first);
+
+    assert.equal(normal.isRemoved, true);
+    assert.equal(antigun.isRemoved, true);
+    assert.equal(doubleGun.isRemoved, true);
+    assert.equal(orb.isRemoved, true);
+    assert.deepEqual(game.projectiles, [first, laser, friendly, outside]);
+});
+
+test('Experimental missile projectile blast removal stays room-local and respects walls', () => {
+    const owner = { id: 1, roomId: 'room-1' };
+    const enemy = { id: 2, roomId: 'room-1' };
+    const first = missile(100, 100, { owner }); first.roomId = 'room-1';
+    const removed = new Projectile(120, 100, 0, 0); removed.owner = enemy; removed.roomId = 'room-1';
+    const blocked = new Projectile(130, 100, 0, 0); blocked.owner = enemy; blocked.roomId = 'room-1';
+    const otherRoom = new Projectile(120, 100, 0, 0); otherRoom.owner = enemy; otherRoom.roomId = 'room-2';
+    const { game } = createDetonationGame([first, removed, blocked, otherRoom], GAME_MODE.EXPERIMENTAL);
+    game.experimentalAreaIndexes = new Map([
+        ['room-1', { projectiles: new Set([first, removed, blocked]) }],
+        ['room-2', { projectiles: new Set([otherRoom]) }]
+    ]);
+    game.isExperimentalBlastBlocked = (source, target) => source === first && target === blocked;
+
+    game.detonateMissile(first);
+
+    assert.equal(removed.isRemoved, true);
+    assert.equal(blocked.isRemoved, undefined);
+    assert.equal(otherRoom.isRemoved, undefined);
 });
 
 test('explosion spatial audio limits only explosion voices within its rolling window', () => {
