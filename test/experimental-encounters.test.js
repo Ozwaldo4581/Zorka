@@ -141,3 +141,89 @@ test('encounter state does not alter frozen hallway dimensions or doorway geomet
     }
     assert.ok(game.experimentalDoors.every(door => Object.isFrozen(door) && door.openingWidth === 960));
 });
+
+test('Sector 1 adds nine level-one Specters to every New Game Plus encounter only', () => {
+    for (const cycle of [0, 1, 2, 3, 12]) {
+        const game = createContext();
+        game.experimentalNewGamePlusCycle = cycle;
+        Game.prototype.initializeExperimentalEncounterStates.call(game);
+        const roomId = 'experimental-room-1';
+        const state = game.experimentalEncounterStates.get(roomId);
+        const spawned = Game.prototype.spawnOrdinaryExperimentalRoomNPCs.call(game, roomId, game.players);
+        const specters = spawned.filter(npc => npc.isExperimentalFleeingNPC);
+        const ordinary = spawned.filter(npc => !npc.isExperimentalFleeingNPC);
+
+        assert.equal(state.specterCount, cycle >= 1 ? 9 : 0);
+        assert.equal(state.requiredPlayerKills, state.npcCount + state.specterCount);
+        assert.equal(ordinary.length, state.npcCount);
+        assert.equal(specters.length, state.specterCount);
+        assert.ok(specters.every(npc => npc.isNPC && npc.isOrdinaryExperimentalNPC
+            && npc.level === 1 && npc.noRespawn && npc.name.startsWith('SPECTER')));
+        assert.ok(ordinary.every(npc => npc.level === 1 + cycle * 10));
+    }
+
+    const game = createContext();
+    game.experimentalNewGamePlusCycle = 3;
+    Game.prototype.initializeExperimentalEncounterStates.call(game);
+    const sector2 = Game.prototype.spawnOrdinaryExperimentalRoomNPCs.call(
+        game, 'experimental-room-2', game.players
+    );
+    assert.equal(sector2.some(npc => npc.isExperimentalFleeingNPC), false);
+});
+
+test('Specter replacement and full encounter reset preserve subtype composition', () => {
+    const game = createContext();
+    game.experimentalNewGamePlusCycle = 2;
+    Game.prototype.initializeExperimentalEncounterStates.call(game);
+    const roomId = 'experimental-room-1';
+    Game.prototype.spawnOrdinaryExperimentalRoomNPCs.call(game, roomId, game.players);
+    const specter = game.players.find(npc => npc.isExperimentalFleeingNPC);
+
+    Game.prototype.resolveExperimentalOrdinaryNPCDeath.call(game, specter, null);
+    let roomNPCs = game.players.filter(npc => npc.isOrdinaryExperimentalNPC && npc.roomId === roomId);
+    assert.equal(roomNPCs.filter(npc => npc.isExperimentalFleeingNPC).length, 9);
+    assert.ok(roomNPCs.filter(npc => npc.isExperimentalFleeingNPC).every(npc => npc.level === 1));
+
+    for (let reset = 0; reset < 3; reset++) {
+        Game.prototype.resetExperimentalRoomEncounter.call(game, roomId);
+        roomNPCs = game.players.filter(npc => npc.isOrdinaryExperimentalNPC && npc.roomId === roomId);
+        assert.equal(roomNPCs.length, 10);
+        assert.equal(roomNPCs.filter(npc => npc.isExperimentalFleeingNPC).length, 9);
+    }
+});
+
+test('Specters flee the nearest human without firing and render the base sprite untinted', () => {
+    const specter = Object.assign(new Player(0, 0, 2, '#ff0000'), {
+        isNPC: true, isExperimentalFleeingNPC: true, roomId: 'experimental-room-1',
+        shouldFire: true, shouldTriggerBurstFire: true
+    });
+    const fartherHuman = Object.assign(new Player(500, 0, 1), { roomId: specter.roomId });
+    const nearerHuman = Object.assign(new Player(100, 0, 3), { roomId: specter.roomId });
+    let force = null;
+    specter.updateNPC(1, [fartherHuman, nearerHuman], [], value => { force = value; }, [], {
+        usesRooms: true, hasHumanInArea: () => true
+    });
+
+    assert.equal(specter.npcTarget, nearerHuman);
+    assert.equal(specter.shouldFire, false);
+    assert.equal(specter.shouldTriggerBurstFire, false);
+    assert.equal(specter.npcBehaviorState, 'FLEE');
+    assert.ok(force.x < 0, 'flee thrust should point away from a threat to the right');
+
+    const calls = [];
+    const image = {};
+    specter.drawSpriteWithTint({ drawImage: (...args) => calls.push(args) }, image, 50);
+    assert.deepEqual(calls, [[image, -25, -25, 50, 50]]);
+});
+
+test('ordinary Experimental NPCs cannot target Specters, while humans can', () => {
+    const game = createContext();
+    const roomId = 'experimental-room-1';
+    const ordinary = Object.assign(ordinaryNPC(roomId, 2), { color: '#ff0000' });
+    const specter = Object.assign(ordinaryNPC(roomId, 3), {
+        color: '#00ff00', isExperimentalFleeingNPC: true
+    });
+    const human = Object.assign(new Player(0, 0, 1), { roomId });
+    assert.equal(Game.prototype.isHostileTarget.call(game, ordinary, specter), false);
+    assert.equal(Game.prototype.isHostileTarget.call(game, human, specter), true);
+});

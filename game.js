@@ -1912,10 +1912,11 @@ export class Game {
                 && area.connectedAreaIds?.includes(`experimental-room-${room.roomNumber + 1}`));
             const progressionDoor = hallway && this.experimentalDoors.find(door =>
                 door.roomIds.includes(room.id) && door.roomIds.includes(hallway.id));
+            const specterCount = room.roomNumber === 1 && this.experimentalNewGamePlusCycle >= 1 ? 9 : 0;
             this.experimentalEncounterStates.set(room.id, {
                 roomId: room.id, encounterCleared: false, doorUnlocked: false, populationSpawned: false,
-                npcCount: room.npcCount, npcLevel: room.npcLevel,
-                requiredPlayerKills: room.npcCount, playerCreditedKills: 0,
+                npcCount: room.npcCount, npcLevel: room.npcLevel, specterCount,
+                requiredPlayerKills: room.npcCount + specterCount, playerCreditedKills: 0,
                 progressionDoorId: progressionDoor?.id || null,
                 progressionHallwayId: hallway?.id || null
             });
@@ -2055,6 +2056,8 @@ export class Game {
 
         if (this.gameState !== GAME_MODE.EXPERIMENTAL) return true;
         if (attacker.roomId !== candidate.roomId) return false;
+        // Specters are player encounter targets, not participants in NPC faction combat.
+        if (attacker.isNPC && candidate.isExperimentalFleeingNPC) return false;
         if (!attacker.isNPC || !candidate.isNPC) return true;
         return attacker.color !== candidate.color;
     }
@@ -2144,29 +2147,39 @@ export class Game {
         }
     }
 
-    spawnOrdinaryExperimentalRoomNPCs(roomId, placedPlayers = this.players, spawnCount = null) {
+    spawnOrdinaryExperimentalRoomNPCs(roomId, placedPlayers = this.players, spawnCount = null, subtype = null) {
         const room = Game.prototype.getExperimentalRoom.call(this, roomId);
         if (!room || !Game.prototype.allowsOrdinaryExperimentalNPCPopulation.call(this, room)
             || room.roomNumber >= SECTOR_9_BBG_ENCOUNTER.roomNumber) return [];
         const encounter = Game.prototype.getExperimentalEncounterState.call(this, room.id);
-        const count = spawnCount === null ? (encounter?.npcCount ?? room.npcCount) : Math.max(0, spawnCount);
+        const ordinaryCount = spawnCount === null ? (encounter?.npcCount ?? room.npcCount) : Math.max(0, spawnCount);
+        const specterCount = spawnCount === null ? (encounter?.specterCount || 0)
+            : (subtype === 'SPECTER' ? ordinaryCount : 0);
+        const spawnTypes = [
+            ...Array(subtype === 'SPECTER' ? 0 : ordinaryCount).fill('ORDINARY'),
+            ...Array(specterCount).fill('SPECTER')
+        ];
         let nextNpcId = Math.max(1, ...this.players.map(player => player.id || 0)) + 1;
         const spawned = [];
         const humanColor = this.players.find(player => !player.isNPC)?.color;
-        for (let index = 0; index < count; index++) {
+        for (let index = 0; index < spawnTypes.length; index++) {
+            const isSpecter = spawnTypes[index] === 'SPECTER';
             const spawn = Game.prototype.findExperimentalSpawn.call(this, 25, placedPlayers, room.id);
             const npc = new Player(spawn.x, spawn.y, nextNpcId++, chooseOrdinaryNPCColor(humanColor));
             if (typeof this.configurePlayerShields === 'function') this.configurePlayerShields(npc);
             npc.isNPC = true;
-            npc.name = `ROOM ${room.roomNumber} BOT ${index + 1}`;
+            npc.name = isSpecter ? `SPECTER ${index + 1}` : `ROOM ${room.roomNumber} BOT ${index + 1}`;
             npc.roomId = room.id;
             npc.isOrdinaryExperimentalNPC = true;
+            npc.isExperimentalFleeingNPC = isSpecter;
             npc.noRespawn = true;
             if (this.botAggressionLevel > 0) {
                 npc.aggressionLevel = this.botAggressionLevel;
                 npc.rollAccuracy();
             } else npc.rollAggression();
-            npc.initializeNPCLevel(Game.prototype.getExperimentalEnemyLevel.call(this, encounter?.npcLevel ?? room.npcLevel));
+            npc.initializeNPCLevel(isSpecter
+                ? 1
+                : Game.prototype.getExperimentalEnemyLevel.call(this, encounter?.npcLevel ?? room.npcLevel));
             npc.applyOrdinaryNPCCapsulePowerUps(Math.floor(npc.level * 0.75));
             this.players.push(npc);
             Game.prototype.indexExperimentalEntity.call(this, 'players', npc);
@@ -2213,7 +2226,10 @@ export class Game {
 
         if (!credited) {
             if (!encounter.doorUnlocked) {
-                Game.prototype.spawnOrdinaryExperimentalRoomNPCs.call(this, deadNPC.roomId, this.players, 1);
+                Game.prototype.spawnOrdinaryExperimentalRoomNPCs.call(
+                    this, deadNPC.roomId, this.players, 1,
+                    deadNPC.isExperimentalFleeingNPC ? 'SPECTER' : 'ORDINARY'
+                );
             }
             return false;
         }
