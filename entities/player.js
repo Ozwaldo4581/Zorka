@@ -1422,7 +1422,7 @@ export class Player {
     }
 
     createMissile(x, y, rotation) {
-        const speed = this.getNormalShipSpeedCap() * 0.8;
+        const speed = this.getNormalShipSpeedCap() * 1.8;
         const vx = Math.sin(rotation) * speed;
         const vy = -Math.cos(rotation) * speed;
         const p = new Projectile(x, y, vx, vy, this.color);
