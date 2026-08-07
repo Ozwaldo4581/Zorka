@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { forEachNearbyCirclePair } from '../world/spatial_hash.js';
+import { CircleSpatialHash, forEachNearbyCirclePair } from '../world/spatial_hash.js';
 
 function collectPairs(entities, options = {}) {
     const pairs = [];
@@ -78,4 +78,19 @@ test('spatial hash retains every brute-force circle overlap', () => {
             }
         }
     }
+});
+
+test('reusable spatial hash returns nearby cross-collection candidates in source order', () => {
+    const targets = [
+        { x: 20, y: 20, radius: 40, roomId: 'one' },
+        { x: 3000, y: 3000, radius: 40, roomId: 'one' },
+        { x: 22, y: 20, radius: 40, roomId: 'two' },
+        { x: 30, y: 20, radius: 80, roomId: 'one' }
+    ];
+    const index = new CircleSpatialHash(targets, {
+        cellSize: 128,
+        getPartition: entity => entity.roomId
+    });
+    const projectile = { x: 10, y: 20, radius: 8, roomId: 'one' };
+    assert.deepEqual(index.queryNearby(projectile), [targets[0], targets[3]]);
 });

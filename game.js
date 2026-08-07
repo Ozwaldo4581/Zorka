@@ -25,7 +25,7 @@ import {
     getSector9BBGImageRect,
     getSector9BBGAnchorWorldPosition
 } from './world/experimental_rooms.js';
-import { forEachNearbyCirclePair } from './world/spatial_hash.js';
+import { CircleSpatialHash, forEachNearbyCirclePair } from './world/spatial_hash.js';
 
 export const DESIGN_WIDTH = 1920;
 export const DESIGN_HEIGHT = 1080;
@@ -4296,13 +4296,19 @@ export class Game {
     }
 
     checkCollisions() {
+        const hasProjectiles = this.projectiles.length > 0;
+        const asteroidCollisionIndex = hasProjectiles
+            ? Game.prototype.createCollisionSpatialHash.call(this, this.asteroids) : null;
+        const hazardCollisionIndex = hasProjectiles
+            ? Game.prototype.createCollisionSpatialHash.call(this, this.hazards) : null;
+
         // Projectiles vs Asteroids and Hazards
         for (let i = this.projectiles.length - 1; i >= 0; i--) {
             const p = this.projectiles[i];
             if (!p || p.isRemoved || p.hasDetonated) continue;
 
             // Check against Asteroids
-            const projectileAsteroids = Game.prototype.getExperimentalCandidates.call(this, p, 'asteroids', this.asteroids);
+            const projectileAsteroids = asteroidCollisionIndex.queryNearby(p);
             for (let j = projectileAsteroids.length - 1; j >= 0; j--) {
                 const a = projectileAsteroids[j];
                 if (!a || a.isDestroyed) continue;
@@ -4329,7 +4335,7 @@ export class Game {
             if (p.isRemoved || p.hasDetonated) continue;
 
             // Check against Hazards (Space Debris and Satellites)
-            const projectileHazards = Game.prototype.getExperimentalCandidates.call(this, p, 'hazards', this.hazards);
+            const projectileHazards = hazardCollisionIndex.queryNearby(p);
             for (let j = projectileHazards.length - 1; j >= 0; j--) {
                 const h = projectileHazards[j];
                 if (!h || h.isDestroyed) continue;
@@ -4488,6 +4494,13 @@ export class Game {
             width: WORLD_WIDTH,
             height: WORLD_HEIGHT,
             getPartition: isExperimental ? projectile => projectile.roomId || '' : undefined
+        });
+    }
+
+    createCollisionSpatialHash(entities) {
+        const isExperimental = this.gameState === GAME_MODE.EXPERIMENTAL;
+        return new CircleSpatialHash([...entities], {
+            getPartition: isExperimental ? entity => entity.roomId || '' : undefined
         });
     }
 
