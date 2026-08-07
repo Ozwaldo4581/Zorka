@@ -1663,20 +1663,68 @@ export class Player {
             }
 
             const tintProgress = this.getExperimentalRespawnTintProgress();
+
             if (tintProgress < 1) {
-                ctx.save();
-                ctx.globalAlpha *= 1 - tintProgress;
-                // The materialization phase begins with a neutral ship silhouette.
-                // Remove any baked-in source color so the new player tint has a
-                // clearly visible fade instead of crossfading between two colors.
-                ctx.filter = 'grayscale(1)';
-                ctx.drawImage(img, -size / 2, -size / 2, size, size);
-                ctx.restore();
+                const respawnTintCanvas = document.createElement('canvas');
+                respawnTintCanvas.width = spriteSize;
+                respawnTintCanvas.height = spriteSize;
+
+                const respawnTintCtx = respawnTintCanvas.getContext('2d');
+
+                if (respawnTintCtx) {
+                    respawnTintCtx.drawImage(
+                        img,
+                        0,
+                        0,
+                        spriteSize,
+                        spriteSize
+                    );
+
+                    respawnTintCtx.globalCompositeOperation = 'multiply';
+                    respawnTintCtx.globalAlpha = 0.6;
+                    respawnTintCtx.fillStyle = '#717171';
+                    respawnTintCtx.fillRect(
+                        0,
+                        0,
+                        spriteSize,
+                        spriteSize
+                    );
+
+                    respawnTintCtx.globalAlpha = 1;
+                    respawnTintCtx.globalCompositeOperation = 'destination-in';
+                    respawnTintCtx.drawImage(
+                        img,
+                        0,
+                        0,
+                        spriteSize,
+                        spriteSize
+                    );
+
+                    respawnTintCtx.globalCompositeOperation = 'source-over';
+
+                    ctx.save();
+                    ctx.globalAlpha *= 1 - tintProgress;
+                    ctx.drawImage(
+                        respawnTintCanvas,
+                        -size / 2,
+                        -size / 2,
+                        size,
+                        size
+                    );
+                    ctx.restore();
+                }
             }
+
             if (tintProgress > 0) {
                 ctx.save();
                 ctx.globalAlpha *= tintProgress;
-                ctx.drawImage(tintedCanvas, -size / 2, -size / 2, size, size);
+                ctx.drawImage(
+                    tintedCanvas,
+                    -size / 2,
+                    -size / 2,
+                    size,
+                    size
+                );
                 ctx.restore();
             }
 
