@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import {
     Game,
     GAME_MODE,
+    MISSILE_DAMAGE,
     WORLD_WIDTH
 } from '../game.js';
 import { Projectile } from '../entities/projectile.js';
@@ -41,10 +42,58 @@ function createDetonationGame(projectiles, gameState = GAME_MODE.SOLO) {
         detonateMissile(projectile) { return Game.prototype.detonateMissile.call(game, projectile); },
         detonateAoEProjectile(projectile) { return Game.prototype.detonateAoEProjectile.call(game, projectile); },
         removeProjectile(projectile) { return Game.prototype.removeProjectile.call(game, projectile); },
+        applyStandardTargetDamage(target, amount, owner) {
+            return Game.prototype.applyStandardTargetDamage.call(game, target, amount, owner);
+        },
+        hitTarget(target) {
+            target.hits++;
+            if (target.hits >= target.maxHits) target.isDestroyed = true;
+        },
+        resolvePlayerDamage(player, amount, owner) {
+            player.damageEvents ??= [];
+            player.damageEvents.push({ amount, owner });
+        },
         clearAimLocksForTarget() {}
     };
     return { game, explosions };
 }
+
+test('standard target damage repeats authoritative hits and stops at destruction', () => {
+    const { game } = createDetonationGame([]);
+    for (const [remainingHits, expectedHits, expectedDestroyed] of [
+        [1, 1, true],
+        [2, 2, true],
+        [3, 3, true],
+        [4, 3, false]
+    ]) {
+        const target = { hits: 0, maxHits: remainingHits, isDestroyed: false };
+        game.applyStandardTargetDamage(target, MISSILE_DAMAGE, null);
+        assert.deepEqual(
+            [target.hits, target.isDestroyed],
+            [expectedHits, expectedDestroyed],
+            `target with ${remainingHits} remaining hits consumes only its valid damage budget`
+        );
+    }
+});
+
+test('standard missile blast routes three damage through target-specific damage seams', () => {
+    const owner = { id: 1 };
+    const enemy = { id: 2, x: 120, y: 100, radius: 10, isDead: false };
+    const asteroid = { x: 110, y: 100, radius: 10, hits: 0, maxHits: 5, isDestroyed: false };
+    const hazard = { x: 115, y: 100, radius: 10, hits: 0, maxHits: 5, isDestroyed: false };
+    const first = missile(100, 100, { owner });
+    const { game } = createDetonationGame([first]);
+    game.players = [owner, enemy];
+    game.asteroids = [asteroid];
+    game.hazards = [hazard];
+
+    game.detonateMissile(first);
+
+    assert.equal(asteroid.hits, MISSILE_DAMAGE);
+    assert.equal(hazard.hits, MISSILE_DAMAGE);
+    assert.deepEqual(enemy.damageEvents, [{ amount: MISSILE_DAMAGE, owner }]);
+    assert.equal(owner.damageEvents, undefined, 'the missile owner remains immune');
+});
 
 test('standard missile blasts recursively detonate and remove nearby missiles once', () => {
     const sharedOwner = { id: 1 };
@@ -152,6 +201,27 @@ test('Experimental missile projectile blast removal stays room-local and respect
     assert.equal(removed.isRemoved, true);
     assert.equal(blocked.isRemoved, undefined);
     assert.equal(otherRoom.isRemoved, undefined);
+});
+
+test('Experimental missile entity damage stays room-local and respects walls', () => {
+    const owner = { id: 1, roomId: 'room-1' };
+    const first = missile(100, 100, { owner }); first.roomId = 'room-1';
+    const clear = { x: 120, y: 100, radius: 10, hits: 0, maxHits: 5, roomId: 'room-1' };
+    const blocked = { x: 130, y: 100, radius: 10, hits: 0, maxHits: 5, roomId: 'room-1' };
+    const otherRoom = { x: 120, y: 100, radius: 10, hits: 0, maxHits: 5, roomId: 'room-2' };
+    const { game } = createDetonationGame([first], GAME_MODE.EXPERIMENTAL);
+    game.asteroids = [clear, blocked, otherRoom];
+    game.experimentalAreaIndexes = new Map([
+        ['room-1', { projectiles: new Set([first]), asteroids: new Set([clear, blocked]) }],
+        ['room-2', { projectiles: new Set(), asteroids: new Set([otherRoom]) }]
+    ]);
+    game.isExperimentalBlastBlocked = (source, target) => target === blocked;
+
+    game.detonateMissile(first);
+
+    assert.equal(clear.hits, MISSILE_DAMAGE);
+    assert.equal(blocked.hits, 0);
+    assert.equal(otherRoom.hits, 0);
 });
 
 test('explosion spatial audio limits only explosion voices within its rolling window', () => {

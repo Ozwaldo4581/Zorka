@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import { getHPBlockLayout, Player } from '../entities/player.js';
-import { Game } from '../game.js';
+import { Game, MISSILE_DAMAGE } from '../game.js';
 
 const makeDamageGame = players => ({
     players,
@@ -89,6 +89,41 @@ test('Game resolves a multi-point hit as one shield-first damage event', () => {
         assert.equal(result.shieldsConsumed + result.hpLost, Math.min(5, shields + hp));
         assert.equal(result.died, expected[2]);
     }
+});
+
+test('Missile damage budget resolves shields, hull, immunity, and Specter hull uniformly', () => {
+    globalThis.window = globalThis.window || {};
+    const cases = [
+        { shields: 3, hp: 5, expected: [0, 5, false] },
+        { shields: 1, hp: 5, expected: [0, 3, false] },
+        { shields: 0, hp: 5, expected: [0, 2, false] },
+        { shields: 0, hp: 2, expected: [0, 0, true] }
+    ];
+
+    for (const { shields, hp, expected } of cases) {
+        const player = new Player(0, 0);
+        player.spawnImmunityTimer = 0;
+        player.configureShields(shields, 6);
+        player.currentHP = hp;
+        const result = Game.prototype.resolvePlayerDamage.call(
+            makeDamageGame([player]), player, MISSILE_DAMAGE
+        );
+        assert.deepEqual([player.shieldCharges, player.currentHP, player.isDead], expected);
+        assert.equal(result.shieldsConsumed + result.hpLost, Math.min(MISSILE_DAMAGE, shields + hp));
+    }
+
+    const immune = new Player(0, 0);
+    immune.configureShields(3, 6);
+    Game.prototype.resolvePlayerDamage.call(makeDamageGame([immune]), immune, MISSILE_DAMAGE);
+    assert.deepEqual([immune.shieldCharges, immune.currentHP, immune.isDead], [3, 10, false]);
+
+    const specter = new Player(0, 0);
+    specter.isExperimentalFleeingNPC = true;
+    specter.spawnImmunityTimer = 0;
+    specter.configureShields(0, 6);
+    specter.currentHP = 4;
+    Game.prototype.resolvePlayerDamage.call(makeDamageGame([specter]), specter, MISSILE_DAMAGE);
+    assert.deepEqual([specter.shieldCharges, specter.currentHP, specter.isDead], [0, 1, false]);
 });
 
 test('damage starts and refreshes Player-owned shield and hull pulses that expire with updates', () => {
