@@ -2103,7 +2103,10 @@ export class Game {
         const room = Game.prototype.getExperimentalRoom.call(this, roomId) || this.experimentalRooms[0];
         if (!room) return { x: DESIGN_WIDTH / 2, y: DESIGN_HEIGHT / 2 };
         const region = room.spawnRegion;
-        const isValid = point => room.walls.every(wall => !circleThickSegmentContact(
+        const isOutsideExclusions = point => (room.spawnExclusionRegions || []).every(exclusion =>
+            point.x + radius < exclusion.left || point.x - radius > exclusion.right
+            || point.y + radius < exclusion.top || point.y - radius > exclusion.bottom);
+        const isValid = point => isOutsideExclusions(point) && room.walls.every(wall => !circleThickSegmentContact(
             { ...point, radius }, wall, room.wallCollisionThickness
         )) && occupants.every(player => player.isDead
             || Math.hypot(player.x - point.x, player.y - point.y) > player.radius + radius + 120);

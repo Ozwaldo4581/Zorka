@@ -739,17 +739,40 @@ test('Experimental spawn queries stay inside the room-safe region and away from 
     assert.ok(Math.hypot(spawn.x - 960, spawn.y - 540) > 230);
 });
 
-test('Experimental spawn queries reject authoritative interior wall geometry', () => {
-    const room = createExperimentalRooms(WORLD_WIDTH, WORLD_HEIGHT)[4];
+test('Experimental spawn queries reject authoritative walls and enclosed interiors', () => {
+    const room = createExperimentalRooms(WORLD_WIDTH, WORLD_HEIGHT)[7];
     const game = { experimentalRooms: [room], players: [] };
+    const exclusion = room.spawnExclusionRegions[0];
+    const target = { x: (exclusion.left + exclusion.right) / 2, y: (exclusion.top + exclusion.bottom) / 2 };
+    const radius = 80;
+    const region = room.spawnRegion;
+    const randomValues = [
+        (target.x - region.left - radius) / (region.right - region.left - radius * 2),
+        (target.y - region.top - radius) / (region.bottom - region.top - radius * 2)
+    ];
     const originalRandom = Math.random;
-    Math.random = () => 0.5;
+    let call = 0;
+    Math.random = () => randomValues[call++ % 2];
     try {
-        const spawn = Game.prototype.findExperimentalSpawn.call(game, 80, [], room.id);
+        const spawn = Game.prototype.findExperimentalSpawn.call(game, radius, [], room.id);
         assert.equal(room.walls.some(wall => circleThickSegmentContact(
-            { ...spawn, radius: 80 }, wall, room.wallCollisionThickness
+            { ...spawn, radius }, wall, room.wallCollisionThickness
         )), false);
+        assert.ok(room.spawnExclusionRegions.every(candidate =>
+            spawn.x + radius < candidate.left || spawn.x - radius > candidate.right
+            || spawn.y + radius < candidate.top || spawn.y - radius > candidate.bottom));
+        assert.notDeepEqual(spawn, target);
     } finally {
         Math.random = originalRandom;
+    }
+
+    for (let attempt = 0; attempt < 1000; attempt++) {
+        const spawn = Game.prototype.findExperimentalSpawn.call(game, radius, [], room.id);
+        assert.equal(room.walls.some(wall => circleThickSegmentContact(
+            { ...spawn, radius }, wall, room.wallCollisionThickness
+        )), false);
+        assert.ok(room.spawnExclusionRegions.every(candidate =>
+            spawn.x + radius < candidate.left || spawn.x - radius > candidate.right
+            || spawn.y + radius < candidate.top || spawn.y - radius > candidate.bottom));
     }
 });

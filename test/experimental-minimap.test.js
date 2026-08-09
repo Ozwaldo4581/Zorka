@@ -7,12 +7,15 @@ import { createExperimentalAreas, createExperimentalRooms } from '../world/exper
 
 function createContext() {
     const arcs = [];
+    const lines = [];
+    let currentPoint = null;
     const ctx = {
         beginPath() {}, fill() {}, stroke() {}, fillRect() {}, strokeRect() {},
-        moveTo() {}, lineTo() {},
+        moveTo(x, y) { currentPoint = { x, y }; },
+        lineTo(x, y) { if (currentPoint) lines.push({ start: currentPoint, end: { x, y } }); currentPoint = { x, y }; },
         arc(x, y, radius) { arcs.push({ x, y, radius, fillStyle: this.fillStyle }); }
     };
-    return { ctx, arcs };
+    return { ctx, arcs, lines };
 }
 
 function drawMinimap({ owner, players = [owner], asteroids = [], hazards = [], usesRooms = true }) {
@@ -104,4 +107,28 @@ test('Specter minimap markers are white without changing their ship color', () =
     const arcs = drawMinimap({ owner, players: [owner, specter] });
     assert.equal(arcs.at(-1).fillStyle, '#ffffff');
     assert.equal(specter.color, '#f00');
+});
+
+test('Experimental minimap projects authoritative current-room interior walls', () => {
+    const room = createExperimentalRooms(WORLD_WIDTH, WORLD_HEIGHT)[7];
+    const owner = { id: 1, roomId: room.id, x: room.bounds.left, y: room.bounds.top };
+    const { ctx, lines } = createContext();
+    new HUD().drawMinimap(ctx, [owner], [], null, false, {
+        usesRooms: true, owner, rooms: createExperimentalAreas(WORLD_WIDTH, WORLD_HEIGHT), hazards: []
+    });
+    const interior = room.walls.filter(wall => wall.id.includes('-interior-'));
+    assert.equal(interior.length, 80);
+    for (const wall of interior) {
+        const expected = {
+            start: {
+                x: 1580 + (wall.start.x - room.bounds.left) / room.width * 320,
+                y: 880 + (wall.start.y - room.bounds.top) / room.height * 180
+            },
+            end: {
+                x: 1580 + (wall.end.x - room.bounds.left) / room.width * 320,
+                y: 880 + (wall.end.y - room.bounds.top) / room.height * 180
+            }
+        };
+        assert.ok(lines.some(line => JSON.stringify(line) === JSON.stringify(expected)));
+    }
 });

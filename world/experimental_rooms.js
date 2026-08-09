@@ -102,7 +102,7 @@ export function createExperimentalRoomProgression(roomNumber) {
 }
 
 export function createExperimentalArea({
-    id, areaType, roomNumber, bounds, walls = [], entrances = [], connectedAreaIds = [], population = null, ...properties
+    id, areaType, roomNumber, bounds, walls = [], spawnExclusionRegions = [], entrances = [], connectedAreaIds = [], population = null, ...properties
 }) {
     if (!id || !bounds) throw new Error('Experimental areas require a unique ID and bounds.');
     if (!Object.values(EXPERIMENTAL_AREA_TYPE).includes(areaType)) throw new Error(`Unsupported Experimental area type: ${areaType}`);
@@ -115,6 +115,7 @@ export function createExperimentalArea({
         ordinaryNPCsAllowed: areaType === EXPERIMENTAL_AREA_TYPE.ROOM && population?.ordinaryNPCsAllowed !== false,
         specialEncounterNPCsAllowed: areaType === EXPERIMENTAL_AREA_TYPE.ROOM && population?.specialEncounterNPCsAllowed === true,
         bounds: Object.freeze({ ...bounds }), walls: Object.freeze([...walls]),
+        spawnExclusionRegions: Object.freeze(spawnExclusionRegions.map(region => Object.freeze({ ...region }))),
         entrances: Object.freeze([...entrances]), connectedAreaIds: Object.freeze([...connectedAreaIds]),
         population: areaType === EXPERIMENTAL_AREA_TYPE.ROOM ? population : null
     });
@@ -141,14 +142,17 @@ function centeredWall(id, centerX, centerY, angle, length) {
     return interiorWall(id, centerX - halfX, centerY - halfY, centerX + halfX, centerY + halfY);
 }
 
-function squareWalls(id, centerX, centerY, sideLength) {
+function squareGeometry(id, centerX, centerY, sideLength) {
     const half = sideLength / 2;
-    return [
-        interiorWall(`${id}-top`, centerX - half, centerY - half, centerX + half, centerY - half),
-        interiorWall(`${id}-right`, centerX + half, centerY - half, centerX + half, centerY + half),
-        interiorWall(`${id}-bottom`, centerX + half, centerY + half, centerX - half, centerY + half),
-        interiorWall(`${id}-left`, centerX - half, centerY + half, centerX - half, centerY - half)
-    ];
+    return Object.freeze({
+        walls: Object.freeze([
+            interiorWall(`${id}-top`, centerX - half, centerY - half, centerX + half, centerY - half),
+            interiorWall(`${id}-right`, centerX + half, centerY - half, centerX + half, centerY + half),
+            interiorWall(`${id}-bottom`, centerX + half, centerY + half, centerX - half, centerY + half),
+            interiorWall(`${id}-left`, centerX - half, centerY + half, centerX - half, centerY - half)
+        ]),
+        enclosedRegion: Object.freeze({ id, left: centerX - half, top: centerY - half, right: centerX + half, bottom: centerY + half })
+    });
 }
 
 function inwardCornerWalls(id, cornerX, cornerY, horizontalDirection, verticalDirection, length) {
@@ -158,8 +162,9 @@ function inwardCornerWalls(id, cornerX, cornerY, horizontalDirection, verticalDi
     ];
 }
 
-function buildInteriorWalls(shell) {
-    if (shell.areaType !== EXPERIMENTAL_AREA_TYPE.ROOM || shell.roomNumber <= 1) return [];
+function buildInteriorLayout(shell) {
+    const emptyLayout = () => ({ walls: [], spawnExclusionRegions: [] });
+    if (shell.areaType !== EXPERIMENTAL_AREA_TYPE.ROOM || shell.roomNumber <= 1) return emptyLayout();
     const { left, right, top, bottom } = shell.bounds;
     const width = right - left;
     const height = bottom - top;
@@ -171,16 +176,16 @@ function buildInteriorWalls(shell) {
     const diagonalUp = -Math.PI / 4;
 
     if (shell.roomNumber === 2) {
-        const length = height * 0.12;
-        return [
+        const length = height * 0.12 * 3;
+        return { walls: [
             cardinal('top', centerX, centerY - height * 0.22, Math.PI / 2, length),
             cardinal('bottom', centerX, centerY + height * 0.22, Math.PI / 2, length),
             cardinal('left', centerX - width * 0.22, centerY, 0, length),
             cardinal('right', centerX + width * 0.22, centerY, 0, length)
-        ];
+        ], spawnExclusionRegions: [] };
     }
     if (shell.roomNumber === 3 || shell.roomNumber === 4) {
-        const length = height * 0.11;
+        const length = height * 0.11 * 3;
         const xOffset = width * 0.2;
         const yOffset = height * 0.21;
         const diagonals = [
@@ -189,65 +194,71 @@ function buildInteriorWalls(shell) {
             cardinal('lower-left', centerX - xOffset, centerY + yOffset, diagonalUp, length),
             cardinal('lower-right', centerX + xOffset, centerY + yOffset, diagonalDown, length)
         ];
-        if (shell.roomNumber === 3) return diagonals;
-        return [
+        if (shell.roomNumber === 3) return { walls: diagonals, spawnExclusionRegions: [] };
+        return { walls: [
             diagonals[0], cardinal('upper-center', centerX, centerY - yOffset, Math.PI / 2, length), diagonals[1],
             cardinal('middle-left', centerX - xOffset, centerY, 0, length),
             cardinal('middle-right', centerX + xOffset, centerY, 0, length),
             diagonals[2], cardinal('lower-center', centerX, centerY + yOffset, Math.PI / 2, length), diagonals[3]
-        ];
+        ], spawnExclusionRegions: [] };
     }
     if (shell.roomNumber === 5) {
         const length = height * 0.1;
         const xOffset = width * 0.2;
         const yOffset = height * 0.22;
-        return [
-            ...squareWalls(`${prefix}-upper-left-square`, centerX - xOffset, centerY - yOffset, length),
-            ...squareWalls(`${prefix}-upper-right-square`, centerX + xOffset, centerY - yOffset, length),
-            ...squareWalls(`${prefix}-lower-left-square`, centerX - xOffset, centerY + yOffset, length),
-            ...squareWalls(`${prefix}-lower-right-square`, centerX + xOffset, centerY + yOffset, length),
-            cardinal('center-plus-horizontal', centerX, centerY, 0, length),
-            cardinal('center-plus-vertical', centerX, centerY, Math.PI / 2, length)
+        const squares = [
+            squareGeometry(`${prefix}-upper-left-square`, centerX - xOffset, centerY - yOffset, length),
+            squareGeometry(`${prefix}-upper-right-square`, centerX + xOffset, centerY - yOffset, length),
+            squareGeometry(`${prefix}-lower-left-square`, centerX - xOffset, centerY + yOffset, length),
+            squareGeometry(`${prefix}-lower-right-square`, centerX + xOffset, centerY + yOffset, length)
         ];
+        return {
+            walls: [...squares.flatMap(square => square.walls),
+                cardinal('center-plus-horizontal', centerX, centerY, 0, length * 2),
+                cardinal('center-plus-vertical', centerX, centerY, Math.PI / 2, length * 2)],
+            spawnExclusionRegions: squares.map(square => square.enclosedRegion)
+        };
     }
     if (shell.roomNumber === 6 || shell.roomNumber === 7) {
-        const length = height * 0.11;
-        const xOffset = width * 0.22;
-        const yOffset = height * 0.23;
+        const baseLength = height * 0.11;
+        const cornerLength = baseLength * 2;
+        const xOffset = width * 0.28;
+        const yOffset = height * 0.29;
         const corners = [
-            ...inwardCornerWalls(`${prefix}-upper-left-l`, centerX - xOffset, centerY - yOffset, 1, 1, length),
-            ...inwardCornerWalls(`${prefix}-upper-right-l`, centerX + xOffset, centerY - yOffset, -1, 1, length),
-            ...inwardCornerWalls(`${prefix}-lower-left-l`, centerX - xOffset, centerY + yOffset, 1, -1, length),
-            ...inwardCornerWalls(`${prefix}-lower-right-l`, centerX + xOffset, centerY + yOffset, -1, -1, length)
+            ...inwardCornerWalls(`${prefix}-upper-left-l`, centerX - xOffset, centerY - yOffset, 1, 1, cornerLength),
+            ...inwardCornerWalls(`${prefix}-upper-right-l`, centerX + xOffset, centerY - yOffset, -1, 1, cornerLength),
+            ...inwardCornerWalls(`${prefix}-lower-left-l`, centerX - xOffset, centerY + yOffset, 1, -1, cornerLength),
+            ...inwardCornerWalls(`${prefix}-lower-right-l`, centerX + xOffset, centerY + yOffset, -1, -1, cornerLength)
         ];
-        if (shell.roomNumber === 6) return [...corners, ...squareWalls(`${prefix}-center-square`, centerX, centerY, length)];
-        return [
-            ...corners,
-            cardinal('center-x-down', centerX, centerY, diagonalDown, length),
-            cardinal('center-x-up', centerX, centerY, diagonalUp, length)
-        ];
+        if (shell.roomNumber === 6) {
+            const centerSquare = squareGeometry(`${prefix}-center-square`, centerX, centerY, baseLength);
+            return { walls: [...corners, ...centerSquare.walls], spawnExclusionRegions: [centerSquare.enclosedRegion] };
+        }
+        return { walls: [...corners,
+            cardinal('center-x-down', centerX, centerY, diagonalDown, baseLength * 2),
+            cardinal('center-x-up', centerX, centerY, diagonalUp, baseLength * 2)], spawnExclusionRegions: [] };
     }
     if (shell.roomNumber === 8) {
         const length = height * 0.075;
-        const walls = [];
-        for (let row = 0; row < 4; row++) for (let column = 0; column < 4; column++) {
-            const squareX = centerX + (column - 1.5) * width * 0.2;
+        const squares = [];
+        for (let row = 0; row < 4; row++) for (let column = 0; column < 5; column++) {
+            const squareX = centerX + (column - 2) * width * 0.15;
             const squareY = centerY + (row - 1.5) * height * 0.2;
-            walls.push(...squareWalls(`${prefix}-square-${row + 1}-${column + 1}`, squareX, squareY, length));
+            squares.push(squareGeometry(`${prefix}-square-${row + 1}-${column + 1}`, squareX, squareY, length));
         }
-        return walls;
+        return { walls: squares.flatMap(square => square.walls), spawnExclusionRegions: squares.map(square => square.enclosedRegion) };
     }
     if (shell.roomNumber === 9) {
         const length = height * 0.22;
         const gap = EXPERIMENTAL_SECTOR_9_NOOK_DEPTH;
-        return [
+        return { walls: [
             cardinal('top', centerX, top + gap, 0, length),
             cardinal('bottom', centerX, bottom - gap, 0, length),
             cardinal('left', left + gap, centerY, Math.PI / 2, length),
             cardinal('right', right - gap, centerY, Math.PI / 2, length)
-        ];
+        ], spawnExclusionRegions: [] };
     }
-    return [];
+    return emptyLayout();
 }
 
 function nextRoomOrigin(source, direction, roomWidth, roomHeight) {
@@ -301,7 +312,7 @@ function connectionGeometry(first, second) {
     throw new Error(`Experimental areas ${first.id} and ${second.id} are not physically adjacent.`);
 }
 
-function buildWalls(shell, entranceShells) {
+function buildWalls(shell, entranceShells, interiorWalls = []) {
     const b = shell.bounds;
     const sides = [
         ['top', b.left, b.top, b.right, b.top, 'HORIZONTAL', b.top],
@@ -326,7 +337,7 @@ function buildWalls(shell, entranceShells) {
             walls.push(wall(`${shell.id}-wall-${side}-top`, boundary, min, boundary, Math.min(y1, y2)));
         }
     }
-    walls.push(...buildInteriorWalls(shell));
+    walls.push(...interiorWalls);
     return walls;
 }
 
@@ -386,10 +397,11 @@ export function createExperimentalAreas(roomWidth, roomHeight) {
     return shells.map(shell => {
         const areaConnections = connections.filter(connection => connection.first.id === shell.id || connection.second.id === shell.id);
         const connectedAreaIds = areaConnections.map(connection => connection.first.id === shell.id ? connection.second.id : connection.first.id);
-        const walls = buildWalls(shell, areaConnections);
+        const interiorLayout = buildInteriorLayout(shell);
+        const walls = buildWalls(shell, areaConnections, interiorLayout.walls);
         const b = shell.bounds;
         return createExperimentalArea({
-            ...shell, walls, connectedAreaIds,
+            ...shell, walls, spawnExclusionRegions: interiorLayout.spawnExclusionRegions, connectedAreaIds,
             entrances: areaConnections.map(connection => `experimental-entrance-${connection.first.id}-${connection.second.id}`),
             wallCollisionThickness: EXPERIMENTAL_WALL_COLLISION_THICKNESS,
             wallVisualCoreThickness: EXPERIMENTAL_WALL_VISUAL_CORE_THICKNESS,
