@@ -523,7 +523,9 @@ export class HUD {
             if (p.isDead || p.isEliminated) return;
             if (!belongsOnMap(p)) return;
             const point = positionOnMap(p);
-            ctx.fillStyle = p.color || (p.id === 1 ? '#00ffff' : '#ff00ff');
+            ctx.fillStyle = p.isExperimentalFleeingNPC
+                ? '#ffffff'
+                : (p.color || (p.id === 1 ? '#00ffff' : '#ff00ff'));
             if (p.id > 2 && !p.isNPC && !p.color) ctx.fillStyle = '#ffffff'; // Fallback for remote
             
             ctx.beginPath();

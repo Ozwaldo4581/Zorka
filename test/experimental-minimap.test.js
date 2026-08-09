@@ -93,3 +93,15 @@ test('standard minimap keeps global scaling and ignores room IDs', () => {
         { x: 1740, y: 970 }
     ]);
 });
+
+test('Specter minimap markers are white without changing their ship color', () => {
+    const [room] = createExperimentalRooms(WORLD_WIDTH, WORLD_HEIGHT);
+    const owner = { id: 1, roomId: room.id, x: 100, y: 100, color: '#0ff' };
+    const specter = {
+        id: 2, isNPC: true, isExperimentalFleeingNPC: true,
+        roomId: room.id, x: 200, y: 200, color: '#f00'
+    };
+    const arcs = drawMinimap({ owner, players: [owner, specter] });
+    assert.equal(arcs.at(-1).fillStyle, '#ffffff');
+    assert.equal(specter.color, '#f00');
+});

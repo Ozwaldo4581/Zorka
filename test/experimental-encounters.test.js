@@ -142,54 +142,49 @@ test('encounter state does not alter frozen hallway dimensions or doorway geomet
     assert.ok(game.experimentalDoors.every(door => Object.isFrozen(door) && door.openingWidth === 960));
 });
 
-test('Sector 1 adds nine level-one Specters to every New Game Plus encounter only', () => {
-    for (const cycle of [0, 1, 2, 3, 12]) {
-        const game = createContext();
-        game.experimentalNewGamePlusCycle = cycle;
-        Game.prototype.initializeExperimentalEncounterStates.call(game);
-        const roomId = 'experimental-room-1';
-        const state = game.experimentalEncounterStates.get(roomId);
-        const spawned = Game.prototype.spawnOrdinaryExperimentalRoomNPCs.call(game, roomId, game.players);
-        const specters = spawned.filter(npc => npc.isExperimentalFleeingNPC);
-        const ordinary = spawned.filter(npc => !npc.isExperimentalFleeingNPC);
-
-        assert.equal(state.specterCount, cycle >= 1 ? 9 : 0);
-        assert.equal(state.requiredPlayerKills, state.npcCount + state.specterCount);
-        assert.equal(ordinary.length, state.npcCount);
-        assert.equal(specters.length, state.specterCount);
-        assert.ok(specters.every(npc => npc.isNPC && npc.isOrdinaryExperimentalNPC
-            && npc.level === 1 && npc.noRespawn && npc.name.startsWith('SPECTER')));
-        assert.ok(ordinary.every(npc => npc.level === 1 + cycle * 10));
-    }
-
-    const game = createContext();
-    game.experimentalNewGamePlusCycle = 3;
-    Game.prototype.initializeExperimentalEncounterStates.call(game);
-    const sector2 = Game.prototype.spawnOrdinaryExperimentalRoomNPCs.call(
-        game, 'experimental-room-2', game.players
-    );
-    assert.equal(sector2.some(npc => npc.isExperimentalFleeingNPC), false);
-});
-
-test('Specter replacement and full encounter reset preserve subtype composition', () => {
+test('human spawn creates a level-sized evenly spaced Specter ring without legacy encounter Specters', () => {
     const game = createContext();
     game.experimentalNewGamePlusCycle = 2;
     Game.prototype.initializeExperimentalEncounterStates.call(game);
     const roomId = 'experimental-room-1';
-    Game.prototype.spawnOrdinaryExperimentalRoomNPCs.call(game, roomId, game.players);
-    const specter = game.players.find(npc => npc.isExperimentalFleeingNPC);
+    const room = Game.prototype.getExperimentalRoom.call(game, roomId);
+    const human = Object.assign(new Player(
+        (room.bounds.left + room.bounds.right) / 2,
+        (room.bounds.top + room.bounds.bottom) / 2,
+        1
+    ), { roomId, level: 5 });
+    game.players = [human];
+    Game.prototype.indexExperimentalEntity.call(game, 'players', human);
 
-    Game.prototype.resolveExperimentalOrdinaryNPCDeath.call(game, specter, null);
-    let roomNPCs = game.players.filter(npc => npc.isOrdinaryExperimentalNPC && npc.roomId === roomId);
-    assert.equal(roomNPCs.filter(npc => npc.isExperimentalFleeingNPC).length, 9);
-    assert.ok(roomNPCs.filter(npc => npc.isExperimentalFleeingNPC).every(npc => npc.level === 1));
+    const ordinary = Game.prototype.spawnOrdinaryExperimentalRoomNPCs.call(game, roomId, game.players);
+    assert.equal(ordinary.some(npc => npc.isExperimentalFleeingNPC), false);
+    const specters = Game.prototype.spawnExperimentalPlayerSpecterRing.call(game, human);
+    assert.equal(specters.length, 5);
+    assert.ok(specters.every(npc => npc.isExperimentalSpawnSpecter && npc.isExperimentalFleeingNPC
+        && npc.noRespawn && npc.roomId === roomId && npc.level === 1));
+    assert.ok(specters.every(npc => Math.abs(Math.hypot(npc.x - human.x, npc.y - human.y) - 70) < 1e-9));
+    const angles = specters.map(npc => {
+        const angle = Math.atan2(npc.y - human.y, npc.x - human.x);
+        return angle < 0 ? angle + Math.PI * 2 : angle;
+    }).sort((a, b) => a - b);
+    assert.ok(angles.slice(1).every((angle, index) => Math.abs(angle - angles[index] - Math.PI * 2 / 5) < 1e-9));
 
-    for (let reset = 0; reset < 3; reset++) {
-        Game.prototype.resetExperimentalRoomEncounter.call(game, roomId);
-        roomNPCs = game.players.filter(npc => npc.isOrdinaryExperimentalNPC && npc.roomId === roomId);
-        assert.equal(roomNPCs.length, 10);
-        assert.equal(roomNPCs.filter(npc => npc.isExperimentalFleeingNPC).length, 9);
-    }
+    human.level = 3;
+    const replacementRing = Game.prototype.spawnExperimentalPlayerSpecterRing.call(game, human);
+    assert.equal(replacementRing.length, 3);
+    assert.equal(game.players.filter(player => player.isExperimentalSpawnSpecter).length, 3);
+});
+
+test('Specter deaths neither grant encounter credit nor replace a progression enemy', () => {
+    const game = createContext();
+    const roomId = 'experimental-room-2';
+    const human = Object.assign(new Player(0, 0, 1), { roomId, level: 1 });
+    game.players = [human];
+    const [specter] = Game.prototype.spawnExperimentalPlayerSpecterRing.call(game, human);
+    const state = game.experimentalEncounterStates.get(roomId);
+    assert.equal(Game.prototype.resolveExperimentalOrdinaryNPCDeath.call(game, specter, human), false);
+    assert.equal(state.playerCreditedKills, 0);
+    assert.equal(game.players.some(player => player.isExperimentalFleeingNPC), false);
 });
 
 test('Specters flee the nearest human without firing and render the base sprite untinted', () => {
@@ -214,6 +209,26 @@ test('Specters flee the nearest human without firing and render the base sprite 
     const image = {};
     specter.drawSpriteWithTint({ drawImage: (...args) => calls.push(args) }, image, 50);
     assert.deepEqual(calls, [[image, -25, -25, 50, 50]]);
+});
+
+test('Specter wall recovery steers to the supplied room center once, then resumes fleeing', () => {
+    const specter = Object.assign(new Player(0, 0, 2), {
+        isNPC: true, isExperimentalFleeingNPC: true, roomId: 'experimental-room-1'
+    });
+    assert.equal(specter.beginExperimentalSpecterWallRecovery(500, 0), true);
+    assert.equal(specter.beginExperimentalSpecterWallRecovery(900, 0), false);
+    let force;
+    specter.updateNPC(0.1, [], [], value => { force = value; }, [], {
+        usesRooms: true, hasHumanInArea: () => true
+    });
+    assert.equal(specter.experimentalSpecterRecovering, true);
+    assert.ok(force.x > 0);
+    specter.x = 450;
+    specter.updateNPC(0.1, [], [], value => { force = value; }, [], {
+        usesRooms: true, hasHumanInArea: () => true
+    });
+    assert.equal(specter.experimentalSpecterRecovering, false);
+    assert.equal(specter.experimentalSpecterRecoveryTarget, null);
 });
 
 test('ordinary Experimental NPCs cannot target Specters, while humans can', () => {
