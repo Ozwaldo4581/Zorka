@@ -495,6 +495,21 @@ export class HUD {
         }
         ctx.stroke();
 
+        // Experimental minimap geometry is projected directly from the current
+        // area's authoritative wall segments; the HUD owns no duplicate layout.
+        if (usesRoom) {
+            ctx.strokeStyle = '#00ffff';
+            ctx.lineWidth = 1;
+            ctx.beginPath();
+            room.walls.filter(wall => wall.id.includes('-interior-')).forEach(wall => {
+                const start = positionOnMap(wall.start);
+                const end = positionOnMap(wall.end);
+                ctx.moveTo(start.x, start.y);
+                ctx.lineTo(end.x, end.y);
+            });
+            ctx.stroke();
+        }
+
         // Asteroids
         ctx.fillStyle = '#444';
         asteroids.forEach(a => {
