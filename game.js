@@ -47,6 +47,11 @@ export const PLAYER_COLORS = Object.freeze([
 ]);
 export const DEFAULT_P1_CONTROL_MODE = 'KEYBOARD';
 
+export function getExperimentalNPCCapsuleBudget(npcLevel, roomNumber) {
+    return Math.max(1, Math.floor(Number(npcLevel) || 1))
+        + Math.max(0, Math.floor(Number(roomNumber) || 0));
+}
+
 export const PROJECTILE_COMBAT_CATEGORY = Object.freeze({
     MISSILE: 'MISSILE',
     SKINNY_MISSILE: 'SKINNY_MISSILE',
@@ -1698,7 +1703,6 @@ export class Game {
             const position = getSector9BBGAnchorWorldPosition(room, anchor);
             if (!position) continue;
             const npc = new Player(position.x, position.y, nextNpcId++, chooseOrdinaryNPCColor(humanColor));
-            if (typeof this.configurePlayerShields === 'function') this.configurePlayerShields(npc);
             npc.isNPC = true;
             npc.name = `BBG DEFENDER ${anchor.label || anchor.id}`;
             npc.roomId = room.id;
@@ -1712,7 +1716,9 @@ export class Game {
             npc.fixedAnchorY = position.y;
             npc.aggressionLevel = SECTOR_9_BBG_ENCOUNTER.npcAggressionLevel;
             npc.rollAccuracy();
-            npc.initializeNPCLevel(Game.prototype.getExperimentalEnemyLevel.call(this, SECTOR_9_BBG_ENCOUNTER.baseNpcLevel));
+            if (typeof this.configurePlayerShields === 'function') this.configurePlayerShields(npc);
+            const npcLevel = Game.prototype.getExperimentalEnemyLevel.call(this, SECTOR_9_BBG_ENCOUNTER.baseNpcLevel);
+            npc.initializeNPCLevel(npcLevel, Math.random, getExperimentalNPCCapsuleBudget(npcLevel, room.roomNumber));
             this.players.push(npc);
             Game.prototype.indexExperimentalEntity.call(this, 'players', npc);
             state.memberIds.add(npc.id);
@@ -2103,14 +2109,30 @@ export class Game {
         const room = Game.prototype.getExperimentalRoom.call(this, roomId) || this.experimentalRooms[0];
         if (!room) return { x: DESIGN_WIDTH / 2, y: DESIGN_HEIGHT / 2 };
         const region = room.spawnRegion;
+        const isOutsideExclusions = point => (room.spawnExclusionRegions || []).every(exclusion =>
+            point.x + radius < exclusion.left || point.x - radius > exclusion.right
+            || point.y + radius < exclusion.top || point.y - radius > exclusion.bottom);
+        const isValid = point => isOutsideExclusions(point) && room.walls.every(wall => !circleThickSegmentContact(
+            { ...point, radius }, wall, room.wallCollisionThickness
+        )) && occupants.every(player => player.isDead
+            || Math.hypot(player.x - point.x, player.y - point.y) > player.radius + radius + 120);
         for (let attempt = 0; attempt < 40; attempt++) {
             const point = {
                 x: region.left + radius + Math.random() * Math.max(0, region.right - region.left - radius * 2),
                 y: region.top + radius + Math.random() * Math.max(0, region.bottom - region.top - radius * 2)
             };
-            if (occupants.every(player => player.isDead || Math.hypot(player.x - point.x, player.y - point.y) > player.radius + radius + 120)) return point;
+            if (isValid(point)) return point;
         }
-        return { x: (room.bounds.left + room.bounds.right) / 2, y: (room.bounds.top + room.bounds.bottom) / 2 };
+        // A deterministic fallback avoids returning a wall intersection when a
+        // crowded room exhausts its random attempts.
+        for (let row = 1; row <= 7; row++) for (let column = 1; column <= 7; column++) {
+            const point = {
+                x: region.left + (region.right - region.left) * column / 8,
+                y: region.top + (region.bottom - region.top) * row / 8
+            };
+            if (isValid(point)) return point;
+        }
+        return { x: region.left + radius, y: region.top + radius };
     }
 
     setupExperimentalPopulations() {
@@ -2165,20 +2187,21 @@ export class Game {
             const isSpecter = spawnTypes[index] === 'SPECTER';
             const spawn = Game.prototype.findExperimentalSpawn.call(this, 25, placedPlayers, room.id);
             const npc = new Player(spawn.x, spawn.y, nextNpcId++, chooseOrdinaryNPCColor(humanColor));
-            if (typeof this.configurePlayerShields === 'function') this.configurePlayerShields(npc);
             npc.isNPC = true;
             npc.name = isSpecter ? `SPECTER ${index + 1}` : `ROOM ${room.roomNumber} BOT ${index + 1}`;
             npc.roomId = room.id;
             npc.isOrdinaryExperimentalNPC = true;
             npc.isExperimentalFleeingNPC = isSpecter;
             npc.noRespawn = true;
+            if (typeof this.configurePlayerShields === 'function') this.configurePlayerShields(npc);
             if (this.botAggressionLevel > 0) {
                 npc.aggressionLevel = this.botAggressionLevel;
                 npc.rollAccuracy();
             } else npc.rollAggression();
-            npc.initializeNPCLevel(isSpecter
+            const npcLevel = isSpecter
                 ? 1
-                : Game.prototype.getExperimentalEnemyLevel.call(this, encounter?.npcLevel ?? room.npcLevel));
+                : Game.prototype.getExperimentalEnemyLevel.call(this, encounter?.npcLevel ?? room.npcLevel);
+            npc.initializeNPCLevel(npcLevel, Math.random, getExperimentalNPCCapsuleBudget(npcLevel, room.roomNumber));
             this.players.push(npc);
             Game.prototype.indexExperimentalEntity.call(this, 'players', npc);
             if (placedPlayers !== this.players) placedPlayers.push(npc);
@@ -2209,7 +2232,6 @@ export class Game {
                 human.y + Math.sin(angle) * EXPERIMENTAL_SPECTER_SPAWN_RADIUS,
                 nextNpcId++, chooseOrdinaryNPCColor(human.color)
             );
-            if (typeof this.configurePlayerShields === 'function') this.configurePlayerShields(npc);
             npc.isNPC = true;
             npc.name = `SPECTER ${index + 1}`;
             npc.roomId = human.roomId;
@@ -2217,11 +2239,12 @@ export class Game {
             npc.isExperimentalFleeingNPC = true;
             npc.isExperimentalSpawnSpecter = true;
             npc.noRespawn = true;
+            if (typeof this.configurePlayerShields === 'function') this.configurePlayerShields(npc);
             if (this.botAggressionLevel > 0) {
                 npc.aggressionLevel = this.botAggressionLevel;
                 npc.rollAccuracy();
             } else npc.rollAggression();
-            npc.initializeNPCLevel(1);
+            npc.initializeNPCLevel(1, Math.random, getExperimentalNPCCapsuleBudget(1, room.roomNumber));
             this.players.push(npc);
             Game.prototype.indexExperimentalEntity.call(this, 'players', npc);
             spawned.push(npc);
@@ -4018,7 +4041,9 @@ export class Game {
 
             if (player.isNPC) {
                 player.resetLevelProgress();
-                player.initializeNPCLevel(Game.prototype.getExperimentalEnemyLevel.call(this, room.npcLevel));
+                const npcLevel = Game.prototype.getExperimentalEnemyLevel.call(this, room.npcLevel);
+                player.configureShields(this.startingShieldCharges, getShieldRechargeDelay(this.shieldRechargeRate));
+                player.initializeNPCLevel(npcLevel, Math.random, getExperimentalNPCCapsuleBudget(npcLevel, room.roomNumber));
                 const humanColor = this.players.find(candidate => !candidate.isNPC)?.color;
                 player.color = chooseOrdinaryNPCColor(humanColor);
                 player.rollAggression();

@@ -175,6 +175,7 @@ export class Player {
 
     canSelectLevelUpgrade(choice) {
         if (this.pendingLevelUps <= 0) return false;
+        if (choice === 'shield' && this.isExperimentalFleeingNPC) return false;
         if (choice === 'projectile') {
             const projectileUpgradeLimit = this.isNPC
                 ? NPC_MAX_PROJECTILE_UPGRADES
@@ -217,7 +218,7 @@ export class Player {
         return applied;
     }
 
-    initializeNPCLevel(targetLevel, random = Math.random) {
+    initializeNPCLevel(targetLevel, random = Math.random, capsuleBudget = null) {
         if (!this.isNPC || this.level !== 0 || this.totalXP !== 0 || this.pendingLevelUps !== 0) return false;
         const normalizedLevel = Math.max(1, Math.floor(Number(targetLevel) || 1));
         this.maxHP = BASE_PLAYER_HP + (this.isNPC ? 0 : HUMAN_STARTING_HP_BONUS);
@@ -225,7 +226,7 @@ export class Player {
         this.addXP(this.getLevelThreshold(normalizedLevel));
         this.resolveNPCLevelUps(random);
         if (this.level !== normalizedLevel || this.pendingLevelUps !== 0) return false;
-        this.applyNPCCapsuleBudget(this.level, random);
+        this.applyNPCCapsuleBudget(capsuleBudget === null ? this.level : capsuleBudget, random);
         return true;
     }
 
@@ -282,7 +283,9 @@ export class Player {
         this.pendingLevelUps = integer(snapshot?.pendingLevelUps, Math.max(0, this.level - usedChoices));
         this.maxHP = BASE_PLAYER_HP + HUMAN_STARTING_HP_BONUS + this.level;
         this.restoreHP();
-        this.maxShieldCharges = this.baselineMaxShieldCharges + (this.isNPC ? 0 : this.level);
+        if (this.isExperimentalFleeingNPC) this.baselineMaxShieldCharges = 0;
+        this.maxShieldCharges = this.isExperimentalFleeingNPC
+            ? 0 : this.baselineMaxShieldCharges + (this.isNPC ? 0 : this.level);
         this.updateShieldRechargeDelay();
         this.restoreShieldCharges(this.maxShieldCharges);
         return this.getPersistentProgressionSnapshot();
@@ -399,8 +402,9 @@ export class Player {
         this.maxHP = BASE_PLAYER_HP + (this.isNPC ? 0 : HUMAN_STARTING_HP_BONUS);
         this.restoreHP();
 
-        this.maxShieldCharges = Math.max(this.baselineMaxShieldCharges,
+        this.maxShieldCharges = this.isExperimentalFleeingNPC ? 0 : Math.max(this.baselineMaxShieldCharges,
             this.maxShieldCharges - automaticShieldCapacity);
+        if (this.isExperimentalFleeingNPC) this.baselineMaxShieldCharges = 0;
         this.shieldRechargeUpgradeCount = 0;
         this.updateShieldRechargeDelay();
         this.shieldCharges = Math.min(this.shieldCharges, this.maxShieldCharges);
@@ -736,6 +740,14 @@ export class Player {
     }
 
     configureShields(maxShieldCharges, rechargeDelay) {
+        if (this.isExperimentalFleeingNPC) {
+            this.baselineMaxShieldCharges = 0;
+            this.maxShieldCharges = 0;
+            this.shieldCharges = 0;
+            this.hasForcefield = false;
+            this.shieldRechargeTimer = 0;
+            return;
+        }
         this.baselineMaxShieldCharges = Math.max(0, maxShieldCharges || 0);
         this.maxShieldCharges = this.baselineMaxShieldCharges + (this.isNPC ? 0 : this.level);
         this.baseShieldRechargeDelay = Math.max(0, rechargeDelay || 0);
@@ -761,6 +773,7 @@ export class Player {
     }
 
     increaseMaxShields(amount = 1) {
+        if (this.isExperimentalFleeingNPC) return 0;
         const increase = Math.max(0, Math.floor(Number(amount) || 0));
         this.maxShieldCharges += increase;
         this.shieldCharges = Math.min(this.shieldCharges, this.maxShieldCharges);
@@ -770,13 +783,23 @@ export class Player {
     // Capsule Shield remains a match-local capacity bonus; selectable level
     // progression uses Shield Recharge instead.
     applyShieldUpgrade() {
+        if (this.isExperimentalFleeingNPC) return false;
         this.maxShieldCharges += 1;
         this.shieldCharges = Math.min(this.maxShieldCharges, this.shieldCharges + 1);
         this.hasForcefield = this.shieldCharges > 0;
         this.shieldRechargeTimer = 0;
+        return true;
     }
 
     restoreShieldCharges(shieldCharges) {
+        if (this.isExperimentalFleeingNPC) {
+            this.baselineMaxShieldCharges = 0;
+            this.maxShieldCharges = 0;
+            this.shieldCharges = 0;
+            this.hasForcefield = false;
+            this.shieldRechargeTimer = 0;
+            return;
+        }
         const safeMaximum = Number.isFinite(this.maxShieldCharges)
             ? Math.max(0, this.maxShieldCharges)
             : 0;
@@ -1076,8 +1099,7 @@ export class Player {
             
             // Priority 1: Players
             others.forEach(other => {
-                if (other === this || other.isDead) return;
-                if (this.isExperimentalFleeingNPC && other.isNPC) return;
+                if (other === this || other.isDead || other.isEliminated) return;
                 if (this.isSector9BBGEncounterNPC && other.isNPC) return;
                 if (!this.isSector9BBGEncounterNPC && other.isSector9BBGEncounterNPC) return;
                 if (worldRules?.usesRooms && other.roomId !== this.roomId) return;
@@ -1182,7 +1204,16 @@ export class Player {
         const chaseWeight = isEvading ? Math.max(0, 1 - threatLevel) : 1;
 
         let fx = 0, fy = 0;
-        if (this.npcTarget) {
+        const specterAvoidance = this.isExperimentalFleeingNPC
+            ? this.getSpecterShipAvoidance(others, worldRules) : null;
+        if (specterAvoidance?.magnitude > 0) {
+            const targetRot = Math.atan2(specterAvoidance.y, specterAvoidance.x) + Math.PI / 2;
+            const diff = Math.atan2(Math.sin(targetRot - this.rotation), Math.cos(targetRot - this.rotation));
+            this.rotation += Math.max(-4 * dt, Math.min(4 * dt, diff));
+            fx = specterAvoidance.x / specterAvoidance.magnitude * effectiveThrust * chaseWeight;
+            fy = specterAvoidance.y / specterAvoidance.magnitude * effectiveThrust * chaseWeight;
+            if (chaseWeight > 0) this.isThrusting = true;
+        } else if (this.npcTarget) {
             const dx = this.npcTarget.x - this.x;
             const dy = this.npcTarget.y - this.y;
             
@@ -1270,6 +1301,24 @@ export class Player {
         }
 
         setForce({ x: fx, y: fy });
+    }
+
+    getSpecterShipAvoidance(others, worldRules = null) {
+        let x = 0;
+        let y = 0;
+        for (const other of others) {
+            if (other === this || other.isDead || other.isEliminated) continue;
+            if (worldRules?.usesRooms && other.roomId !== this.roomId) continue;
+            const delta = worldRules?.usesRooms
+                ? { x: other.x - this.x, y: other.y - this.y }
+                : nearestWrappedDisplacement(this.x, this.y, other.x, other.y);
+            const distance = Math.hypot(delta.x, delta.y);
+            if (distance <= Number.EPSILON) continue;
+            const weight = 1 / distance;
+            x -= delta.x / distance * weight;
+            y -= delta.y / distance * weight;
+        }
+        return { x, y, magnitude: Math.hypot(x, y) };
     }
 
     beginExperimentalSpecterWallRecovery(x, y) {
