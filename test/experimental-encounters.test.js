@@ -1,7 +1,10 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { Game, GAME_MODE, EXPERIMENTAL_ROOM_WIDTH, EXPERIMENTAL_ROOM_HEIGHT } from '../game.js';
+import {
+    Game, GAME_MODE, EXPERIMENTAL_ROOM_WIDTH, EXPERIMENTAL_ROOM_HEIGHT,
+    getExperimentalNPCCapsuleBudget
+} from '../game.js';
 import { Player } from '../entities/player.js';
 import {
     createExperimentalAreas, createExperimentalDoors,
@@ -209,6 +212,73 @@ test('Specters flee the nearest human without firing and render the base sprite 
     const image = {};
     specter.drawSpriteWithTint({ drawImage: (...args) => calls.push(args) }, image, 50);
     assert.deepEqual(calls, [[image, -25, -25, 50, 50]]);
+});
+
+test('Specter shields remain authoritatively disabled across configuration and progression', () => {
+    const specter = Object.assign(new Player(0, 0, 2), {
+        isNPC: true, isExperimentalFleeingNPC: true, pendingLevelUps: 3
+    });
+    specter.configureShields(5, 2);
+    assert.deepEqual([specter.shieldCharges, specter.maxShieldCharges, specter.baselineMaxShieldCharges], [0, 0, 0]);
+    assert.equal(specter.canSelectLevelUpgrade('shield'), false);
+    assert.equal(specter.applyShieldUpgrade(), false);
+    assert.equal(specter.increaseMaxShields(), 0);
+    specter.restoreShieldCharges(99);
+    specter.resolveNPCLevelUps(() => 0.99);
+    assert.deepEqual([specter.shieldCharges, specter.maxShieldCharges, specter.hasForcefield], [0, 0, false]);
+    assert.equal(specter.shieldRechargeUpgradeCount, 0);
+});
+
+test('Specter social avoidance combines every live same-area ship without replacing no-fire behavior', () => {
+    const roomId = 'experimental-room-5';
+    const specter = Object.assign(new Player(0, 0, 2), {
+        isNPC: true, isExperimentalFleeingNPC: true, roomId
+    });
+    const human = Object.assign(new Player(100, 0, 1), { roomId });
+    const npc = Object.assign(new Player(-200, 0, 3), { isNPC: true, roomId });
+    const otherSpecter = Object.assign(new Player(0, 100, 4), {
+        isNPC: true, isExperimentalFleeingNPC: true, roomId
+    });
+    const ignored = [
+        Object.assign(new Player(-10, 0, 5), { roomId, isDead: true }),
+        Object.assign(new Player(0, -10, 6), { roomId, isEliminated: true }),
+        Object.assign(new Player(0, -10, 7), { roomId: 'experimental-room-6' })
+    ];
+    const pressure = specter.getSpecterShipAvoidance(
+        [specter, human, npc, otherSpecter, ...ignored], { usesRooms: true }
+    );
+    assert.ok(pressure.x < 0, 'nearer human should outweigh the farther NPC');
+    assert.ok(pressure.y < 0, 'the other Specter should add upward-threat avoidance');
+
+    const mutual = otherSpecter.getSpecterShipAvoidance([specter], { usesRooms: true });
+    assert.ok(mutual.y > 0, 'Specters should mutually separate');
+
+    let force;
+    specter.updateNPC(1, [human, npc, otherSpecter, ...ignored], [], value => { force = value; }, [], {
+        usesRooms: true, hasHumanInArea: () => true
+    });
+    assert.ok(force.x < 0 && force.y < 0);
+    assert.equal(specter.shouldFire, false);
+    assert.equal(specter.shouldTriggerBurstFire, false);
+});
+
+test('Experimental NPC capsule budgets combine actual level and numbered room purchasing value', () => {
+    assert.deepEqual([[1, 1], [3, 4], [5, 6], [9, 9]].map(([level, room]) =>
+        getExperimentalNPCCapsuleBudget(level, room)), [2, 7, 11, 18]);
+
+    const npc = Object.assign(new Player(0, 0, 2), { isNPC: true });
+    const spent = npc.applyNPCCapsuleBudget(11, () => 0);
+    assert.ok(spent <= 11);
+    assert.equal(npc.powerUpCapsules, 0);
+    assert.ok(npc.missileLevel <= 3);
+    assert.ok(npc.ghosts.length <= 2);
+
+    const specter = Object.assign(new Player(0, 0, 3), {
+        isNPC: true, isExperimentalFleeingNPC: true
+    });
+    specter.configureShields(5, 2);
+    assert.ok(specter.applyNPCCapsuleBudget(18, () => 0.99) <= 18);
+    assert.deepEqual([specter.shieldCharges, specter.maxShieldCharges], [0, 0]);
 });
 
 test('Specter wall recovery steers to the supplied room center once, then resumes fleeing', () => {
