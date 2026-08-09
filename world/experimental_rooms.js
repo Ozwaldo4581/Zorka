@@ -4,6 +4,10 @@ export const EXPERIMENTAL_WALL_SEPARATION_EPSILON = 0.5;
 export const EXPERIMENTAL_WALL_MAX_CORRECTION_PASSES = 4;
 
 const SPAWN_INSET = 120;
+// A normal ship renders at 3.5 times its 25-unit collision radius. Sector 9's
+// cover clearance is five of those normal physical footprints.
+export const EXPERIMENTAL_NORMAL_SHIP_LENGTH = 25 * 3.5;
+export const EXPERIMENTAL_SECTOR_9_NOOK_DEPTH = EXPERIMENTAL_NORMAL_SHIP_LENGTH * 5;
 export const EXPERIMENTAL_ENTRANCE_WIDTH = 960;
 // At zoom 0.6 the 1920-wide viewport spans 3200 world units. The extra 800
 // units ensure that rooms separated along either axis cannot share a viewport.
@@ -125,7 +129,126 @@ export const EXPERIMENTAL_COLLISION_CATEGORY = Object.freeze({
 
 const point = (x, y) => Object.freeze({ x, y });
 const boundsAt = (left, top, width, height) => Object.freeze({ left, top, right: left + width, bottom: top + height });
-const wall = (id, x1, y1, x2, y2) => Object.freeze({ id, start: point(x1, y1), end: point(x2, y2) });
+const wall = (id, x1, y1, x2, y2, isTwoSided = false) => Object.freeze({
+    id, start: point(x1, y1), end: point(x2, y2), ...(isTwoSided ? { isTwoSided: true } : {})
+});
+
+const interiorWall = (id, x1, y1, x2, y2) => wall(id, x1, y1, x2, y2, true);
+
+function centeredWall(id, centerX, centerY, angle, length) {
+    const halfX = Math.cos(angle) * length / 2;
+    const halfY = Math.sin(angle) * length / 2;
+    return interiorWall(id, centerX - halfX, centerY - halfY, centerX + halfX, centerY + halfY);
+}
+
+function squareWalls(id, centerX, centerY, sideLength) {
+    const half = sideLength / 2;
+    return [
+        interiorWall(`${id}-top`, centerX - half, centerY - half, centerX + half, centerY - half),
+        interiorWall(`${id}-right`, centerX + half, centerY - half, centerX + half, centerY + half),
+        interiorWall(`${id}-bottom`, centerX + half, centerY + half, centerX - half, centerY + half),
+        interiorWall(`${id}-left`, centerX - half, centerY + half, centerX - half, centerY - half)
+    ];
+}
+
+function inwardCornerWalls(id, cornerX, cornerY, horizontalDirection, verticalDirection, length) {
+    return [
+        interiorWall(`${id}-horizontal`, cornerX, cornerY, cornerX + horizontalDirection * length, cornerY),
+        interiorWall(`${id}-vertical`, cornerX, cornerY, cornerX, cornerY + verticalDirection * length)
+    ];
+}
+
+function buildInteriorWalls(shell) {
+    if (shell.areaType !== EXPERIMENTAL_AREA_TYPE.ROOM || shell.roomNumber <= 1) return [];
+    const { left, right, top, bottom } = shell.bounds;
+    const width = right - left;
+    const height = bottom - top;
+    const centerX = (left + right) / 2;
+    const centerY = (top + bottom) / 2;
+    const prefix = `${shell.id}-interior`;
+    const cardinal = (id, x, y, angle, length) => centeredWall(`${prefix}-${id}`, x, y, angle, length);
+    const diagonalDown = Math.PI / 4;
+    const diagonalUp = -Math.PI / 4;
+
+    if (shell.roomNumber === 2) {
+        const length = height * 0.12;
+        return [
+            cardinal('top', centerX, centerY - height * 0.22, Math.PI / 2, length),
+            cardinal('bottom', centerX, centerY + height * 0.22, Math.PI / 2, length),
+            cardinal('left', centerX - width * 0.22, centerY, 0, length),
+            cardinal('right', centerX + width * 0.22, centerY, 0, length)
+        ];
+    }
+    if (shell.roomNumber === 3 || shell.roomNumber === 4) {
+        const length = height * 0.11;
+        const xOffset = width * 0.2;
+        const yOffset = height * 0.21;
+        const diagonals = [
+            cardinal('upper-left', centerX - xOffset, centerY - yOffset, diagonalDown, length),
+            cardinal('upper-right', centerX + xOffset, centerY - yOffset, diagonalUp, length),
+            cardinal('lower-left', centerX - xOffset, centerY + yOffset, diagonalUp, length),
+            cardinal('lower-right', centerX + xOffset, centerY + yOffset, diagonalDown, length)
+        ];
+        if (shell.roomNumber === 3) return diagonals;
+        return [
+            diagonals[0], cardinal('upper-center', centerX, centerY - yOffset, Math.PI / 2, length), diagonals[1],
+            cardinal('middle-left', centerX - xOffset, centerY, 0, length),
+            cardinal('middle-right', centerX + xOffset, centerY, 0, length),
+            diagonals[2], cardinal('lower-center', centerX, centerY + yOffset, Math.PI / 2, length), diagonals[3]
+        ];
+    }
+    if (shell.roomNumber === 5) {
+        const length = height * 0.1;
+        const xOffset = width * 0.2;
+        const yOffset = height * 0.22;
+        return [
+            ...squareWalls(`${prefix}-upper-left-square`, centerX - xOffset, centerY - yOffset, length),
+            ...squareWalls(`${prefix}-upper-right-square`, centerX + xOffset, centerY - yOffset, length),
+            ...squareWalls(`${prefix}-lower-left-square`, centerX - xOffset, centerY + yOffset, length),
+            ...squareWalls(`${prefix}-lower-right-square`, centerX + xOffset, centerY + yOffset, length),
+            cardinal('center-plus-horizontal', centerX, centerY, 0, length),
+            cardinal('center-plus-vertical', centerX, centerY, Math.PI / 2, length)
+        ];
+    }
+    if (shell.roomNumber === 6 || shell.roomNumber === 7) {
+        const length = height * 0.11;
+        const xOffset = width * 0.22;
+        const yOffset = height * 0.23;
+        const corners = [
+            ...inwardCornerWalls(`${prefix}-upper-left-l`, centerX - xOffset, centerY - yOffset, 1, 1, length),
+            ...inwardCornerWalls(`${prefix}-upper-right-l`, centerX + xOffset, centerY - yOffset, -1, 1, length),
+            ...inwardCornerWalls(`${prefix}-lower-left-l`, centerX - xOffset, centerY + yOffset, 1, -1, length),
+            ...inwardCornerWalls(`${prefix}-lower-right-l`, centerX + xOffset, centerY + yOffset, -1, -1, length)
+        ];
+        if (shell.roomNumber === 6) return [...corners, ...squareWalls(`${prefix}-center-square`, centerX, centerY, length)];
+        return [
+            ...corners,
+            cardinal('center-x-down', centerX, centerY, diagonalDown, length),
+            cardinal('center-x-up', centerX, centerY, diagonalUp, length)
+        ];
+    }
+    if (shell.roomNumber === 8) {
+        const length = height * 0.075;
+        const walls = [];
+        for (let row = 0; row < 4; row++) for (let column = 0; column < 4; column++) {
+            const squareX = centerX + (column - 1.5) * width * 0.2;
+            const squareY = centerY + (row - 1.5) * height * 0.2;
+            walls.push(...squareWalls(`${prefix}-square-${row + 1}-${column + 1}`, squareX, squareY, length));
+        }
+        return walls;
+    }
+    if (shell.roomNumber === 9) {
+        const length = height * 0.22;
+        const gap = EXPERIMENTAL_SECTOR_9_NOOK_DEPTH;
+        return [
+            cardinal('top', centerX, top + gap, 0, length),
+            cardinal('bottom', centerX, bottom - gap, 0, length),
+            cardinal('left', left + gap, centerY, Math.PI / 2, length),
+            cardinal('right', right - gap, centerY, Math.PI / 2, length)
+        ];
+    }
+    return [];
+}
 
 function nextRoomOrigin(source, direction, roomWidth, roomHeight) {
     if (direction === 'DOWN') return { left: source.left, top: source.top + roomHeight + EXPERIMENTAL_HALLWAY_LENGTH };
@@ -203,6 +326,7 @@ function buildWalls(shell, entranceShells) {
             walls.push(wall(`${shell.id}-wall-${side}-top`, boundary, min, boundary, Math.min(y1, y2)));
         }
     }
+    walls.push(...buildInteriorWalls(shell));
     return walls;
 }
 
