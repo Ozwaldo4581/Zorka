@@ -4,6 +4,10 @@ export const EXPERIMENTAL_WALL_SEPARATION_EPSILON = 0.5;
 export const EXPERIMENTAL_WALL_MAX_CORRECTION_PASSES = 4;
 
 const SPAWN_INSET = 120;
+// A normal ship renders at 3.5 times its 25-unit collision radius. Sector 9's
+// cover clearance is five of those normal physical footprints.
+export const EXPERIMENTAL_NORMAL_SHIP_LENGTH = 25 * 3.5;
+export const EXPERIMENTAL_SECTOR_9_NOOK_DEPTH = EXPERIMENTAL_NORMAL_SHIP_LENGTH * 5;
 export const EXPERIMENTAL_ENTRANCE_WIDTH = 960;
 // At zoom 0.6 the 1920-wide viewport spans 3200 world units. The extra 800
 // units ensure that rooms separated along either axis cannot share a viewport.
@@ -98,7 +102,7 @@ export function createExperimentalRoomProgression(roomNumber) {
 }
 
 export function createExperimentalArea({
-    id, areaType, roomNumber, bounds, walls = [], entrances = [], connectedAreaIds = [], population = null, ...properties
+    id, areaType, roomNumber, bounds, walls = [], spawnExclusionRegions = [], entrances = [], connectedAreaIds = [], population = null, ...properties
 }) {
     if (!id || !bounds) throw new Error('Experimental areas require a unique ID and bounds.');
     if (!Object.values(EXPERIMENTAL_AREA_TYPE).includes(areaType)) throw new Error(`Unsupported Experimental area type: ${areaType}`);
@@ -111,6 +115,7 @@ export function createExperimentalArea({
         ordinaryNPCsAllowed: areaType === EXPERIMENTAL_AREA_TYPE.ROOM && population?.ordinaryNPCsAllowed !== false,
         specialEncounterNPCsAllowed: areaType === EXPERIMENTAL_AREA_TYPE.ROOM && population?.specialEncounterNPCsAllowed === true,
         bounds: Object.freeze({ ...bounds }), walls: Object.freeze([...walls]),
+        spawnExclusionRegions: Object.freeze(spawnExclusionRegions.map(region => Object.freeze({ ...region }))),
         entrances: Object.freeze([...entrances]), connectedAreaIds: Object.freeze([...connectedAreaIds]),
         population: areaType === EXPERIMENTAL_AREA_TYPE.ROOM ? population : null
     });
@@ -125,7 +130,136 @@ export const EXPERIMENTAL_COLLISION_CATEGORY = Object.freeze({
 
 const point = (x, y) => Object.freeze({ x, y });
 const boundsAt = (left, top, width, height) => Object.freeze({ left, top, right: left + width, bottom: top + height });
-const wall = (id, x1, y1, x2, y2) => Object.freeze({ id, start: point(x1, y1), end: point(x2, y2) });
+const wall = (id, x1, y1, x2, y2, isTwoSided = false) => Object.freeze({
+    id, start: point(x1, y1), end: point(x2, y2), ...(isTwoSided ? { isTwoSided: true } : {})
+});
+
+const interiorWall = (id, x1, y1, x2, y2) => wall(id, x1, y1, x2, y2, true);
+
+function centeredWall(id, centerX, centerY, angle, length) {
+    const halfX = Math.cos(angle) * length / 2;
+    const halfY = Math.sin(angle) * length / 2;
+    return interiorWall(id, centerX - halfX, centerY - halfY, centerX + halfX, centerY + halfY);
+}
+
+function squareGeometry(id, centerX, centerY, sideLength) {
+    const half = sideLength / 2;
+    return Object.freeze({
+        walls: Object.freeze([
+            interiorWall(`${id}-top`, centerX - half, centerY - half, centerX + half, centerY - half),
+            interiorWall(`${id}-right`, centerX + half, centerY - half, centerX + half, centerY + half),
+            interiorWall(`${id}-bottom`, centerX + half, centerY + half, centerX - half, centerY + half),
+            interiorWall(`${id}-left`, centerX - half, centerY + half, centerX - half, centerY - half)
+        ]),
+        enclosedRegion: Object.freeze({ id, left: centerX - half, top: centerY - half, right: centerX + half, bottom: centerY + half })
+    });
+}
+
+function inwardCornerWalls(id, cornerX, cornerY, horizontalDirection, verticalDirection, length) {
+    return [
+        interiorWall(`${id}-horizontal`, cornerX, cornerY, cornerX + horizontalDirection * length, cornerY),
+        interiorWall(`${id}-vertical`, cornerX, cornerY, cornerX, cornerY + verticalDirection * length)
+    ];
+}
+
+function buildInteriorLayout(shell) {
+    const emptyLayout = () => ({ walls: [], spawnExclusionRegions: [] });
+    if (shell.areaType !== EXPERIMENTAL_AREA_TYPE.ROOM || shell.roomNumber <= 1) return emptyLayout();
+    const { left, right, top, bottom } = shell.bounds;
+    const width = right - left;
+    const height = bottom - top;
+    const centerX = (left + right) / 2;
+    const centerY = (top + bottom) / 2;
+    const prefix = `${shell.id}-interior`;
+    const cardinal = (id, x, y, angle, length) => centeredWall(`${prefix}-${id}`, x, y, angle, length);
+    const diagonalDown = Math.PI / 4;
+    const diagonalUp = -Math.PI / 4;
+
+    if (shell.roomNumber === 2) {
+        const length = height * 0.12 * 3;
+        return { walls: [
+            cardinal('top', centerX, centerY - height * 0.22, Math.PI / 2, length),
+            cardinal('bottom', centerX, centerY + height * 0.22, Math.PI / 2, length),
+            cardinal('left', centerX - width * 0.22, centerY, 0, length),
+            cardinal('right', centerX + width * 0.22, centerY, 0, length)
+        ], spawnExclusionRegions: [] };
+    }
+    if (shell.roomNumber === 3 || shell.roomNumber === 4) {
+        const length = height * 0.11 * 3;
+        const xOffset = width * 0.2;
+        const yOffset = height * 0.21;
+        const diagonals = [
+            cardinal('upper-left', centerX - xOffset, centerY - yOffset, diagonalDown, length),
+            cardinal('upper-right', centerX + xOffset, centerY - yOffset, diagonalUp, length),
+            cardinal('lower-left', centerX - xOffset, centerY + yOffset, diagonalUp, length),
+            cardinal('lower-right', centerX + xOffset, centerY + yOffset, diagonalDown, length)
+        ];
+        if (shell.roomNumber === 3) return { walls: diagonals, spawnExclusionRegions: [] };
+        return { walls: [
+            diagonals[0], cardinal('upper-center', centerX, centerY - yOffset, Math.PI / 2, length), diagonals[1],
+            cardinal('middle-left', centerX - xOffset, centerY, 0, length),
+            cardinal('middle-right', centerX + xOffset, centerY, 0, length),
+            diagonals[2], cardinal('lower-center', centerX, centerY + yOffset, Math.PI / 2, length), diagonals[3]
+        ], spawnExclusionRegions: [] };
+    }
+    if (shell.roomNumber === 5) {
+        const length = height * 0.1;
+        const xOffset = width * 0.2;
+        const yOffset = height * 0.22;
+        const squares = [
+            squareGeometry(`${prefix}-upper-left-square`, centerX - xOffset, centerY - yOffset, length),
+            squareGeometry(`${prefix}-upper-right-square`, centerX + xOffset, centerY - yOffset, length),
+            squareGeometry(`${prefix}-lower-left-square`, centerX - xOffset, centerY + yOffset, length),
+            squareGeometry(`${prefix}-lower-right-square`, centerX + xOffset, centerY + yOffset, length)
+        ];
+        return {
+            walls: [...squares.flatMap(square => square.walls),
+                cardinal('center-plus-horizontal', centerX, centerY, 0, length * 2),
+                cardinal('center-plus-vertical', centerX, centerY, Math.PI / 2, length * 2)],
+            spawnExclusionRegions: squares.map(square => square.enclosedRegion)
+        };
+    }
+    if (shell.roomNumber === 6 || shell.roomNumber === 7) {
+        const baseLength = height * 0.11;
+        const cornerLength = baseLength * 2;
+        const xOffset = width * 0.28;
+        const yOffset = height * 0.29;
+        const corners = [
+            ...inwardCornerWalls(`${prefix}-upper-left-l`, centerX - xOffset, centerY - yOffset, 1, 1, cornerLength),
+            ...inwardCornerWalls(`${prefix}-upper-right-l`, centerX + xOffset, centerY - yOffset, -1, 1, cornerLength),
+            ...inwardCornerWalls(`${prefix}-lower-left-l`, centerX - xOffset, centerY + yOffset, 1, -1, cornerLength),
+            ...inwardCornerWalls(`${prefix}-lower-right-l`, centerX + xOffset, centerY + yOffset, -1, -1, cornerLength)
+        ];
+        if (shell.roomNumber === 6) {
+            const centerSquare = squareGeometry(`${prefix}-center-square`, centerX, centerY, baseLength);
+            return { walls: [...corners, ...centerSquare.walls], spawnExclusionRegions: [centerSquare.enclosedRegion] };
+        }
+        return { walls: [...corners,
+            cardinal('center-x-down', centerX, centerY, diagonalDown, baseLength * 2),
+            cardinal('center-x-up', centerX, centerY, diagonalUp, baseLength * 2)], spawnExclusionRegions: [] };
+    }
+    if (shell.roomNumber === 8) {
+        const length = height * 0.075;
+        const squares = [];
+        for (let row = 0; row < 4; row++) for (let column = 0; column < 5; column++) {
+            const squareX = centerX + (column - 2) * width * 0.15;
+            const squareY = centerY + (row - 1.5) * height * 0.2;
+            squares.push(squareGeometry(`${prefix}-square-${row + 1}-${column + 1}`, squareX, squareY, length));
+        }
+        return { walls: squares.flatMap(square => square.walls), spawnExclusionRegions: squares.map(square => square.enclosedRegion) };
+    }
+    if (shell.roomNumber === 9) {
+        const length = height * 0.22;
+        const gap = EXPERIMENTAL_SECTOR_9_NOOK_DEPTH;
+        return { walls: [
+            cardinal('top', centerX, top + gap, 0, length),
+            cardinal('bottom', centerX, bottom - gap, 0, length),
+            cardinal('left', left + gap, centerY, Math.PI / 2, length),
+            cardinal('right', right - gap, centerY, Math.PI / 2, length)
+        ], spawnExclusionRegions: [] };
+    }
+    return emptyLayout();
+}
 
 function nextRoomOrigin(source, direction, roomWidth, roomHeight) {
     if (direction === 'DOWN') return { left: source.left, top: source.top + roomHeight + EXPERIMENTAL_HALLWAY_LENGTH };
@@ -178,7 +312,7 @@ function connectionGeometry(first, second) {
     throw new Error(`Experimental areas ${first.id} and ${second.id} are not physically adjacent.`);
 }
 
-function buildWalls(shell, entranceShells) {
+function buildWalls(shell, entranceShells, interiorWalls = []) {
     const b = shell.bounds;
     const sides = [
         ['top', b.left, b.top, b.right, b.top, 'HORIZONTAL', b.top],
@@ -203,6 +337,7 @@ function buildWalls(shell, entranceShells) {
             walls.push(wall(`${shell.id}-wall-${side}-top`, boundary, min, boundary, Math.min(y1, y2)));
         }
     }
+    walls.push(...interiorWalls);
     return walls;
 }
 
@@ -262,10 +397,11 @@ export function createExperimentalAreas(roomWidth, roomHeight) {
     return shells.map(shell => {
         const areaConnections = connections.filter(connection => connection.first.id === shell.id || connection.second.id === shell.id);
         const connectedAreaIds = areaConnections.map(connection => connection.first.id === shell.id ? connection.second.id : connection.first.id);
-        const walls = buildWalls(shell, areaConnections);
+        const interiorLayout = buildInteriorLayout(shell);
+        const walls = buildWalls(shell, areaConnections, interiorLayout.walls);
         const b = shell.bounds;
         return createExperimentalArea({
-            ...shell, walls, connectedAreaIds,
+            ...shell, walls, spawnExclusionRegions: interiorLayout.spawnExclusionRegions, connectedAreaIds,
             entrances: areaConnections.map(connection => `experimental-entrance-${connection.first.id}-${connection.second.id}`),
             wallCollisionThickness: EXPERIMENTAL_WALL_COLLISION_THICKNESS,
             wallVisualCoreThickness: EXPERIMENTAL_WALL_VISUAL_CORE_THICKNESS,

@@ -2103,14 +2103,30 @@ export class Game {
         const room = Game.prototype.getExperimentalRoom.call(this, roomId) || this.experimentalRooms[0];
         if (!room) return { x: DESIGN_WIDTH / 2, y: DESIGN_HEIGHT / 2 };
         const region = room.spawnRegion;
+        const isOutsideExclusions = point => (room.spawnExclusionRegions || []).every(exclusion =>
+            point.x + radius < exclusion.left || point.x - radius > exclusion.right
+            || point.y + radius < exclusion.top || point.y - radius > exclusion.bottom);
+        const isValid = point => isOutsideExclusions(point) && room.walls.every(wall => !circleThickSegmentContact(
+            { ...point, radius }, wall, room.wallCollisionThickness
+        )) && occupants.every(player => player.isDead
+            || Math.hypot(player.x - point.x, player.y - point.y) > player.radius + radius + 120);
         for (let attempt = 0; attempt < 40; attempt++) {
             const point = {
                 x: region.left + radius + Math.random() * Math.max(0, region.right - region.left - radius * 2),
                 y: region.top + radius + Math.random() * Math.max(0, region.bottom - region.top - radius * 2)
             };
-            if (occupants.every(player => player.isDead || Math.hypot(player.x - point.x, player.y - point.y) > player.radius + radius + 120)) return point;
+            if (isValid(point)) return point;
         }
-        return { x: (room.bounds.left + room.bounds.right) / 2, y: (room.bounds.top + room.bounds.bottom) / 2 };
+        // A deterministic fallback avoids returning a wall intersection when a
+        // crowded room exhausts its random attempts.
+        for (let row = 1; row <= 7; row++) for (let column = 1; column <= 7; column++) {
+            const point = {
+                x: region.left + (region.right - region.left) * column / 8,
+                y: region.top + (region.bottom - region.top) * row / 8
+            };
+            if (isValid(point)) return point;
+        }
+        return { x: region.left + radius, y: region.top + radius };
     }
 
     setupExperimentalPopulations() {
