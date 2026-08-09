@@ -738,3 +738,18 @@ test('Experimental spawn queries stay inside the room-safe region and away from 
     assert.ok(spawn.y >= room.spawnRegion.top + 80 && spawn.y <= room.spawnRegion.bottom - 80);
     assert.ok(Math.hypot(spawn.x - 960, spawn.y - 540) > 230);
 });
+
+test('Experimental spawn queries reject authoritative interior wall geometry', () => {
+    const room = createExperimentalRooms(WORLD_WIDTH, WORLD_HEIGHT)[4];
+    const game = { experimentalRooms: [room], players: [] };
+    const originalRandom = Math.random;
+    Math.random = () => 0.5;
+    try {
+        const spawn = Game.prototype.findExperimentalSpawn.call(game, 80, [], room.id);
+        assert.equal(room.walls.some(wall => circleThickSegmentContact(
+            { ...spawn, radius: 80 }, wall, room.wallCollisionThickness
+        )), false);
+    } finally {
+        Math.random = originalRandom;
+    }
+});

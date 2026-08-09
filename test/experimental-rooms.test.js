@@ -14,7 +14,7 @@ import {
 } from '../game.js';
 import { Asteroid } from '../entities/asteroid.js';
 import { SpaceDebris, Satellite } from '../entities/hazards.js';
-import { isPointInRoom } from '../physics.js';
+import { isLineBlockedByWalls, isPointInRoom } from '../physics.js';
 import {
     createExperimentalArea,
     createExperimentalAreas,
@@ -27,11 +27,16 @@ import {
     EXPERIMENTAL_ENTRANCE_WIDTH,
     EXPERIMENTAL_HALLWAY_LENGTH,
     EXPERIMENTAL_HALLWAY_WIDTH,
+    EXPERIMENTAL_NORMAL_SHIP_LENGTH,
+    EXPERIMENTAL_SECTOR_9_NOOK_DEPTH,
     EXPERIMENTAL_WALL_COLLISION_THICKNESS,
     EXPERIMENTAL_WALL_MAX_CORRECTION_PASSES,
     EXPERIMENTAL_WALL_SEPARATION_EPSILON,
     EXPERIMENTAL_WALL_VISUAL_CORE_THICKNESS
 } from '../world/experimental_rooms.js';
+
+const interiorWalls = area => area.walls.filter(wall => wall.id.includes('-interior-'));
+const wallLength = wall => Math.hypot(wall.end.x - wall.start.x, wall.end.y - wall.start.y);
 
 test('Experimental area metadata separates unique identity from progression classification', () => {
     const rooms = createExperimentalRooms(WORLD_WIDTH, WORLD_HEIGHT);
@@ -97,6 +102,90 @@ test('Experimental room 1 preserves wall dimensions and a 120-unit safe-spawn in
     assert.equal(room.spawnRegion.left - room.bounds.left, 120);
     assert.equal(room.bounds.right - room.spawnRegion.right, 120);
     assert.equal(room.npcCount, 1);
+});
+
+test('Sectors 2-9 own immutable room-local interior layouts with equal primitive lengths', () => {
+    const areas = createExperimentalAreas(WORLD_WIDTH, WORLD_HEIGHT);
+    const rooms = areas.filter(area => area.areaType === EXPERIMENTAL_AREA_TYPE.ROOM);
+    const expectedCounts = [0, 4, 4, 8, 18, 12, 10, 64, 4];
+
+    rooms.forEach((room, index) => {
+        const interiors = interiorWalls(room);
+        assert.equal(interiors.length, expectedCounts[index], `Sector ${index + 1}`);
+        assert.ok(interiors.every(Object.isFrozen));
+        assert.ok(interiors.every(candidate => candidate.isTwoSided === true));
+        if (interiors.length) {
+            const length = wallLength(interiors[0]);
+            assert.ok(interiors.every(candidate => Math.abs(wallLength(candidate) - length) < 1e-8));
+        }
+    });
+    assert.ok(areas.filter(area => area.areaType === EXPERIMENTAL_AREA_TYPE.HALLWAY)
+        .every(area => interiorWalls(area).length === 0));
+
+    const diagonal = interiorWalls(rooms[2])[0];
+    const midpoint = {
+        x: (diagonal.start.x + diagonal.end.x) / 2,
+        y: (diagonal.start.y + diagonal.end.y) / 2
+    };
+    const normal = {
+        x: -(diagonal.end.y - diagonal.start.y) / wallLength(diagonal),
+        y: (diagonal.end.x - diagonal.start.x) / wallLength(diagonal)
+    };
+    const firstSide = { x: midpoint.x + normal.x * 200, y: midpoint.y + normal.y * 200 };
+    const secondSide = { x: midpoint.x - normal.x * 200, y: midpoint.y - normal.y * 200 };
+    assert.equal(isLineBlockedByWalls(firstSide, secondSide, [diagonal], rooms[2].wallCollisionThickness), true);
+    assert.equal(isLineBlockedByWalls(secondSide, firstSide, [diagonal], rooms[2].wallCollisionThickness), true);
+});
+
+test('interior compound shapes remain true squares and centered crosses in rectangular rooms', () => {
+    const rooms = createExperimentalRooms(WORLD_WIDTH, WORLD_HEIGHT);
+    for (const roomNumber of [5, 6, 8]) {
+        const squareGroups = Map.groupBy(
+            interiorWalls(rooms[roomNumber - 1]).filter(candidate => candidate.id.includes('square')),
+            candidate => candidate.id.replace(/-(top|right|bottom|left)$/, '')
+        );
+        const expectedSquares = roomNumber === 5 ? 4 : roomNumber === 6 ? 1 : 16;
+        assert.equal(squareGroups.size, expectedSquares);
+        for (const square of squareGroups.values()) {
+            assert.equal(square.length, 4);
+            const xs = square.flatMap(candidate => [candidate.start.x, candidate.end.x]);
+            const ys = square.flatMap(candidate => [candidate.start.y, candidate.end.y]);
+            assert.ok(Math.abs(Math.max(...xs) - Math.min(...xs) - (Math.max(...ys) - Math.min(...ys))) < 1e-8);
+        }
+    }
+
+    const sector7 = rooms[6];
+    const center = { x: (sector7.bounds.left + sector7.bounds.right) / 2, y: (sector7.bounds.top + sector7.bounds.bottom) / 2 };
+    const xWalls = interiorWalls(sector7).filter(candidate => candidate.id.includes('center-x'));
+    assert.equal(xWalls.length, 2);
+    xWalls.forEach(candidate => assert.deepEqual({
+        x: (candidate.start.x + candidate.end.x) / 2,
+        y: (candidate.start.y + candidate.end.y) / 2
+    }, center));
+});
+
+test('interior layouts mirror around room centers and Sector 9 nooks use five ship lengths', () => {
+    const rooms = createExperimentalRooms(WORLD_WIDTH, WORLD_HEIGHT);
+    for (const room of rooms.slice(1)) {
+        const centerX = (room.bounds.left + room.bounds.right) / 2;
+        const centerY = (room.bounds.top + room.bounds.bottom) / 2;
+        const midpointKeys = new Set(interiorWalls(room).map(candidate => {
+            const x = (candidate.start.x + candidate.end.x) / 2;
+            const y = (candidate.start.y + candidate.end.y) / 2;
+            return `${(x - centerX).toFixed(6)},${(y - centerY).toFixed(6)}`;
+        }));
+        for (const key of midpointKeys) {
+            const [x, y] = key.split(',').map(Number);
+            assert.ok(midpointKeys.has(`${(-x).toFixed(6)},${(-y).toFixed(6)}`), `${room.id} midpoint ${key}`);
+        }
+    }
+    const sector9 = rooms[8];
+    const bySide = Object.fromEntries(interiorWalls(sector9).map(candidate => [candidate.id.split('-').at(-1), candidate]));
+    assert.equal(EXPERIMENTAL_SECTOR_9_NOOK_DEPTH, EXPERIMENTAL_NORMAL_SHIP_LENGTH * 5);
+    assert.equal(bySide.top.start.y - sector9.bounds.top, EXPERIMENTAL_SECTOR_9_NOOK_DEPTH);
+    assert.equal(sector9.bounds.bottom - bySide.bottom.start.y, EXPERIMENTAL_SECTOR_9_NOOK_DEPTH);
+    assert.equal(bySide.left.start.x - sector9.bounds.left, EXPERIMENTAL_SECTOR_9_NOOK_DEPTH);
+    assert.equal(sector9.bounds.right - bySide.right.start.x, EXPERIMENTAL_SECTOR_9_NOOK_DEPTH);
 });
 
 test('Experimental room 2 is equal-sized and physically separated from room 1 by hallway 1-2', () => {
