@@ -46,6 +46,7 @@ export const PLAYER_COLORS = Object.freeze([
     '#00ff00', '#0000ff', '#ff8800', '#8800ff'
 ]);
 export const DEFAULT_P1_CONTROL_MODE = 'KEYBOARD';
+export const MISSILE_DAMAGE = 3;
 
 export function getExperimentalNPCCapsuleBudget(npcLevel, roomNumber) {
     return Math.max(1, Math.floor(Number(npcLevel) || 1))
@@ -4155,6 +4156,13 @@ export class Game {
         }
     }
 
+    applyStandardTargetDamage(target, amount, killer) {
+        const damage = Math.max(0, Math.floor(Number(amount) || 0));
+        for (let point = 0; point < damage && target && !target.isDestroyed; point++) {
+            this.hitTarget(target, killer);
+        }
+    }
+
     removeProjectile(projectile) {
         if (!projectile || projectile.isRemoved) return false;
         const index = this.projectiles.indexOf(projectile);
@@ -4708,9 +4716,8 @@ export class Game {
         }
     }
 
-    // Missiles detonate with a large area-of-effect blast: asteroids are destroyed instantly,
-    // debris and satellites take damage through their existing hit system, and any other
-    // player caught in the radius is killed by the explosion.
+    // Missiles apply a fixed three-point blast through each damageable target's authoritative
+    // damage path; eligible weapon projectiles are destroyed and missiles retain chain reactions.
     detonateMissile(missile) {
         if (!missile || missile.hasDetonated) return;
         missile.hasDetonated = true;
@@ -4765,7 +4772,7 @@ export class Game {
             if (!projectile.isRemoved && !projectile.hasDetonated) this.removeProjectile(projectile);
         }
 
-        // Instantly destroy every asteroid caught in the blast radius
+        // Damage every asteroid caught in the blast radius.
         const impactedAsteroids = [];
         const localAsteroids = Game.prototype.getExperimentalCandidates.call(this, missile, 'asteroids', this.asteroids);
         for (let j = localAsteroids.length - 1; j >= 0; j--) {
@@ -4780,8 +4787,7 @@ export class Game {
 
         for (const a of impactedAsteroids) {
             if (!a || a.isDestroyed) continue;
-            a.hits = a.maxHits - 1; // Force destruction in one shot regardless of size
-            this.hitTarget(a, missile.owner);
+            this.applyStandardTargetDamage(a, MISSILE_DAMAGE, missile.owner);
         }
 
         // Damage every debris or satellite caught in the blast radius.
@@ -4800,7 +4806,7 @@ export class Game {
 
         for (const h of impactedHazards) {
             if (!h || h.isDestroyed) continue;
-            this.hitTarget(h, missile.owner);
+            this.applyStandardTargetDamage(h, MISSILE_DAMAGE, missile.owner);
         }
 
         // Catch any nearby players in the blast too
@@ -4810,7 +4816,7 @@ export class Game {
             if (!Game.prototype.areExperimentalEntitiesCoLocated.call(this, missile, player)) continue;
             const dist = Math.hypot(player.x - missile.x, player.y - missile.y);
             if (dist < radius + player.radius && !this.isExperimentalBlastBlocked(missile, player)) {
-                this.playerDeath(player, missile.owner);
+                this.resolvePlayerDamage(player, MISSILE_DAMAGE, missile.owner);
             }
         }
     }
