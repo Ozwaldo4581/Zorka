@@ -43,6 +43,9 @@ export class Player {
         this.fireCooldown = 0;
         this.isNPC = false;
         this.isExperimentalFleeingNPC = false;
+        this.isExperimentalSpawnSpecter = false;
+        this.experimentalSpecterRecovering = false;
+        this.experimentalSpecterRecoveryTarget = null;
         this.lockedAimTarget = null;
         this.controllerAimLockLatched = false;
         this.controllerAimLockArmed = true;
@@ -297,6 +300,8 @@ export class Player {
         this.experimentalRespawnAnchorX = null;
         this.experimentalRespawnAnchorY = null;
         this.experimentalSpawnProtectionPending = false;
+        this.experimentalSpecterRecovering = false;
+        this.experimentalSpecterRecoveryTarget = null;
         this.restoreHP();
         this.powerUpCapsules = 0;
         this.activeGun = 'Normal';
@@ -1000,6 +1005,29 @@ export class Player {
             this.shouldTriggerBurstFire = false;
             this.npcBehaviorState = 'FLEE';
         }
+        if (this.isExperimentalFleeingNPC && this.experimentalSpecterRecovering) {
+            const target = this.experimentalSpecterRecoveryTarget;
+            const dx = target?.x - this.x;
+            const dy = target?.y - this.y;
+            const distance = Math.hypot(dx, dy);
+            if (!target || !Number.isFinite(distance) || distance <= 100) {
+                this.experimentalSpecterRecovering = false;
+                this.experimentalSpecterRecoveryTarget = null;
+            } else {
+                const targetRotation = Math.atan2(dy, dx) + Math.PI / 2;
+                const difference = Math.atan2(
+                    Math.sin(targetRotation - this.rotation),
+                    Math.cos(targetRotation - this.rotation)
+                );
+                this.rotation += Math.max(-4 * dt, Math.min(4 * dt, difference));
+                this.isThrusting = true;
+                setForce({
+                    x: Math.sin(this.rotation) * effectiveThrust,
+                    y: -Math.cos(this.rotation) * effectiveThrust
+                });
+                return;
+            }
+        }
         if (worldRules?.usesRooms && this.npcTarget?.roomId !== this.roomId) this.npcTarget = null;
         if (this.isFixedPositionNPC) {
             this.vx = 0;
@@ -1242,6 +1270,14 @@ export class Player {
         }
 
         setForce({ x: fx, y: fy });
+    }
+
+    beginExperimentalSpecterWallRecovery(x, y) {
+        if (!this.isExperimentalFleeingNPC || this.experimentalSpecterRecovering
+            || !Number.isFinite(x) || !Number.isFinite(y)) return false;
+        this.experimentalSpecterRecovering = true;
+        this.experimentalSpecterRecoveryTarget = { x, y };
+        return true;
     }
 
     addCapsule() {

@@ -135,6 +135,7 @@ export const CONTROLLER_AIM_LOCK_PADDING = 24;
 // Covers one high-speed projectile frame plus common sprite glow/shield overflow.
 export const EXPERIMENTAL_RENDER_CULL_MARGIN = 120;
 export const EXPERIMENTAL_HALLWAY_ACTIVITY_DEPTH = 1200;
+const EXPERIMENTAL_SPECTER_SPAWN_RADIUS = 70;
 const EXPERIMENTAL_SECTOR_MESSAGE_DURATION = 2.25;
 const EXPERIMENTAL_OBJECTIVE_MESSAGE_DURATION = 4.5;
 const CONTROLLER_AIM_DEADZONE = 0.15;
@@ -1911,11 +1912,10 @@ export class Game {
                 && area.connectedAreaIds?.includes(`experimental-room-${room.roomNumber + 1}`));
             const progressionDoor = hallway && this.experimentalDoors.find(door =>
                 door.roomIds.includes(room.id) && door.roomIds.includes(hallway.id));
-            const specterCount = room.roomNumber === 1 && this.experimentalNewGamePlusCycle >= 1 ? 9 : 0;
             this.experimentalEncounterStates.set(room.id, {
                 roomId: room.id, encounterCleared: false, doorUnlocked: false, populationSpawned: false,
-                npcCount: room.npcCount, npcLevel: room.npcLevel, specterCount,
-                requiredPlayerKills: room.npcCount + specterCount, playerCreditedKills: 0,
+                npcCount: room.npcCount, npcLevel: room.npcLevel, specterCount: 0,
+                requiredPlayerKills: room.npcCount, playerCreditedKills: 0,
                 progressionDoorId: progressionDoor?.id || null,
                 progressionHallwayId: hallway?.id || null
             });
@@ -2188,6 +2188,47 @@ export class Game {
         return spawned;
     }
 
+    spawnExperimentalPlayerSpecterRing(human) {
+        if (this.gameState !== GAME_MODE.EXPERIMENTAL || !human || human.isNPC || human.isDead) return [];
+        const room = Game.prototype.getExperimentalRoom.call(this, human.roomId);
+        if (!room || room.roomNumber <= 0) return [];
+
+        for (const specter of [...this.players]) {
+            if (!specter?.isExperimentalSpawnSpecter) continue;
+            Game.prototype.unindexExperimentalEntity.call(this, 'players', specter);
+            this.players.splice(this.players.indexOf(specter), 1);
+        }
+
+        const count = Math.max(0, Math.floor(Number(human.level) || 0));
+        const spawned = [];
+        let nextNpcId = Math.max(1, ...this.players.map(player => player.id || 0)) + 1;
+        for (let index = 0; index < count; index++) {
+            const angle = index * Math.PI * 2 / count;
+            const npc = new Player(
+                human.x + Math.cos(angle) * EXPERIMENTAL_SPECTER_SPAWN_RADIUS,
+                human.y + Math.sin(angle) * EXPERIMENTAL_SPECTER_SPAWN_RADIUS,
+                nextNpcId++, chooseOrdinaryNPCColor(human.color)
+            );
+            if (typeof this.configurePlayerShields === 'function') this.configurePlayerShields(npc);
+            npc.isNPC = true;
+            npc.name = `SPECTER ${index + 1}`;
+            npc.roomId = human.roomId;
+            npc.isOrdinaryExperimentalNPC = true;
+            npc.isExperimentalFleeingNPC = true;
+            npc.isExperimentalSpawnSpecter = true;
+            npc.noRespawn = true;
+            if (this.botAggressionLevel > 0) {
+                npc.aggressionLevel = this.botAggressionLevel;
+                npc.rollAccuracy();
+            } else npc.rollAggression();
+            npc.initializeNPCLevel(1);
+            this.players.push(npc);
+            Game.prototype.indexExperimentalEntity.call(this, 'players', npc);
+            spawned.push(npc);
+        }
+        return spawned;
+    }
+
     reconcileExperimentalNPCColorConflicts(human) {
         if (this.gameState !== GAME_MODE.EXPERIMENTAL || !human || human.isNPC) return 0;
         let reassigned = 0;
@@ -2221,6 +2262,8 @@ export class Game {
         Game.prototype.unindexExperimentalEntity.call(this, 'players', deadNPC);
         const deadIndex = this.players.indexOf(deadNPC);
         if (deadIndex !== -1) this.players.splice(deadIndex, 1);
+
+        if (deadNPC.isExperimentalFleeingNPC) return false;
 
         if (!credited) {
             if (!encounter.doorUnlocked) {
@@ -2637,6 +2680,7 @@ export class Game {
         human.previousX = human.x;
         human.previousY = human.y;
         human.startExperimentalRespawnPhase(human.x, human.y);
+        Game.prototype.spawnExperimentalPlayerSpecterRing.call(this, human);
 
         human.onPersistentProgressionChanged = player => Game.prototype.saveExperimentalProfile.call(this, player);
         document.getElementById('menu-overlay').classList.add('hidden');
@@ -3602,7 +3646,16 @@ export class Game {
         if (worldRules.usesRooms) {
             this.players
                 .filter(player => !player.isDead && !player.isFixedPositionNPC && !player.isTranslationLocked())
-                .forEach(player => this.resolveExperimentalSlide(player));
+                .forEach(player => {
+                    const collided = this.resolveExperimentalSlide(player);
+                    if (!collided || !player.isExperimentalFleeingNPC) return;
+                    const room = Game.prototype.getExperimentalRoom.call(this, player.roomId);
+                    if (!room) return;
+                    player.beginExperimentalSpecterWallRecovery(
+                        (room.bounds.left + room.bounds.right) / 2,
+                        (room.bounds.top + room.bounds.bottom) / 2
+                    );
+                });
         }
 
         simulationAsteroids.forEach(a => {
@@ -3973,6 +4026,7 @@ export class Game {
                 player.color = chooseDifferentPlayerColor(player.color);
                 Game.prototype.reconcileExperimentalNPCColorConflicts.call(this, player);
                 player.startExperimentalRespawnPhase(spawn.x, spawn.y);
+                Game.prototype.spawnExperimentalPlayerSpecterRing.call(this, player);
                 Game.prototype.showExperimentalSectorMessage.call(this, 1);
             }
             return;
