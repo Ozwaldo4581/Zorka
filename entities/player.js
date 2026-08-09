@@ -7,6 +7,14 @@ const BURST_INTERVAL = 0.05;
 const BASE_PROJECTILE_SPEED = 1200;
 const NORMAL_SHIP_SPEED_CAP = 800;
 const MARTIAN_PARALLEL_OFFSET = 30;
+export const SPECTER_FLEE_RANGE = 2700;
+export const SPECTER_WALL_AWARENESS_DISTANCE = 600;
+export const SPECTER_WALL_REPULSION_STRENGTH = 2;
+export const SPECTER_CORNER_ESCAPE_MINIMUM_STRENGTH = 1.75;
+export const SPECTER_WANDER_RETARGET_MIN_TIME = 0.25;
+export const SPECTER_WANDER_RETARGET_MAX_TIME = 0.85;
+export const SPECTER_WANDER_TURN_MIN_ANGLE = Math.PI / 6;
+export const SPECTER_WANDER_TURN_MAX_ANGLE = Math.PI / 2;
 export const SPAWN_IMMUNITY_DURATION = 1;
 export const EXPERIMENTAL_RESPAWN_PHASE_DURATION = 3;
 export const MAX_STACKABLE_WEAPON_STREAMS = 3;
@@ -46,6 +54,7 @@ export class Player {
         this.isExperimentalSpawnSpecter = false;
         this.experimentalSpecterRecovering = false;
         this.experimentalSpecterRecoveryTarget = null;
+        this.experimentalSpecterWanderTimer = 0;
         this.lockedAimTarget = null;
         this.controllerAimLockLatched = false;
         this.controllerAimLockArmed = true;
@@ -1026,7 +1035,6 @@ export class Player {
         if (this.isExperimentalFleeingNPC) {
             this.shouldFire = false;
             this.shouldTriggerBurstFire = false;
-            this.npcBehaviorState = 'FLEE';
         }
         if (this.isExperimentalFleeingNPC && this.experimentalSpecterRecovering) {
             const target = this.experimentalSpecterRecoveryTarget;
@@ -1104,7 +1112,8 @@ export class Player {
                 if (!this.isSector9BBGEncounterNPC && other.isSector9BBGEncounterNPC) return;
                 if (worldRules?.usesRooms && other.roomId !== this.roomId) return;
                 const d = Math.hypot(other.x - this.x, other.y - this.y);
-                if (d < minDist && (this.isExperimentalFleeingNPC || d <= aggressionRange)) {
+                const isInRange = this.isExperimentalFleeingNPC ? d <= SPECTER_FLEE_RANGE : d <= aggressionRange;
+                if (d < minDist && isInRange) {
                     minDist = d;
                     this.npcTarget = other;
                 }
@@ -1124,7 +1133,7 @@ export class Player {
             }
 
             // Update wander angle occasionally if no target
-            if (!this.npcTarget) {
+            if (!this.npcTarget && !this.isExperimentalFleeingNPC) {
                 this.npcWanderAngle += (Math.random() - 0.5) * 2;
             }
         }
@@ -1206,12 +1215,23 @@ export class Player {
         let fx = 0, fy = 0;
         const specterAvoidance = this.isExperimentalFleeingNPC
             ? this.getSpecterShipAvoidance(others, worldRules) : null;
-        if (specterAvoidance?.magnitude > 0) {
-            const targetRot = Math.atan2(specterAvoidance.y, specterAvoidance.x) + Math.PI / 2;
+        if (this.isExperimentalFleeingNPC) {
+            const wallAvoidance = this.getSpecterWallAvoidance(worldRules);
+            const hasThreat = specterAvoidance.threatCount > 0;
+            this.npcBehaviorState = hasThreat ? 'FLEE' : 'WANDER';
+            this.npcTarget = hasThreat ? specterAvoidance.nearestTarget : null;
+            const steering = hasThreat && specterAvoidance.magnitude > Number.EPSILON
+                ? { x: specterAvoidance.x / specterAvoidance.magnitude, y: specterAvoidance.y / specterAvoidance.magnitude }
+                : this.getSpecterWanderDirection(dt);
+            const desiredX = steering.x + wallAvoidance.x;
+            const desiredY = steering.y + wallAvoidance.y;
+            const targetRot = Math.atan2(desiredY, desiredX) + Math.PI / 2;
             const diff = Math.atan2(Math.sin(targetRot - this.rotation), Math.cos(targetRot - this.rotation));
-            this.rotation += Math.max(-4 * dt, Math.min(4 * dt, diff));
-            fx = specterAvoidance.x / specterAvoidance.magnitude * effectiveThrust * chaseWeight;
-            fy = specterAvoidance.y / specterAvoidance.magnitude * effectiveThrust * chaseWeight;
+            this.rotation += Math.max(-3 * dt, Math.min(3 * dt, diff));
+            fx = Math.sin(this.rotation) * effectiveThrust * chaseWeight
+                + wallAvoidance.x * effectiveThrust;
+            fy = -Math.cos(this.rotation) * effectiveThrust * chaseWeight
+                + wallAvoidance.y * effectiveThrust;
             if (chaseWeight > 0) this.isThrusting = true;
         } else if (this.npcTarget) {
             const dx = this.npcTarget.x - this.x;
@@ -1303,9 +1323,12 @@ export class Player {
         setForce({ x: fx, y: fy });
     }
 
-    getSpecterShipAvoidance(others, worldRules = null) {
+    getSpecterShipAvoidance(others, worldRules = null, fleeRange = SPECTER_FLEE_RANGE) {
         let x = 0;
         let y = 0;
+        let threatCount = 0;
+        let nearestTarget = null;
+        let nearestDistance = Infinity;
         for (const other of others) {
             if (other === this || other.isDead || other.isEliminated) continue;
             if (worldRules?.usesRooms && other.roomId !== this.roomId) continue;
@@ -1313,12 +1336,70 @@ export class Player {
                 ? { x: other.x - this.x, y: other.y - this.y }
                 : nearestWrappedDisplacement(this.x, this.y, other.x, other.y);
             const distance = Math.hypot(delta.x, delta.y);
-            if (distance <= Number.EPSILON) continue;
+            if (distance <= Number.EPSILON || distance > fleeRange) continue;
             const weight = 1 / distance;
             x -= delta.x / distance * weight;
             y -= delta.y / distance * weight;
+            threatCount++;
+            if (distance < nearestDistance) {
+                nearestDistance = distance;
+                nearestTarget = other;
+            }
         }
-        return { x, y, magnitude: Math.hypot(x, y) };
+        return { x, y, magnitude: Math.hypot(x, y), threatCount, nearestTarget };
+    }
+
+    getSpecterWanderDirection(dt, random = Math.random) {
+        this.experimentalSpecterWanderTimer -= Math.max(0, dt);
+        if (this.experimentalSpecterWanderTimer <= 0) {
+            this.experimentalSpecterWanderTimer = SPECTER_WANDER_RETARGET_MIN_TIME
+                + random() * (SPECTER_WANDER_RETARGET_MAX_TIME - SPECTER_WANDER_RETARGET_MIN_TIME);
+            const direction = random() < 0.5 ? -1 : 1;
+            const turn = SPECTER_WANDER_TURN_MIN_ANGLE
+                + random() * (SPECTER_WANDER_TURN_MAX_ANGLE - SPECTER_WANDER_TURN_MIN_ANGLE);
+            this.npcWanderAngle += direction * turn;
+        }
+        return { x: Math.sin(this.npcWanderAngle), y: -Math.cos(this.npcWanderAngle) };
+    }
+
+    getSpecterWallAvoidance(worldRules = null) {
+        if (!worldRules?.room) return { x: 0, y: 0, cornered: false };
+        const walls = worldRules.getWallsFor?.(this) || worldRules.room.walls || [];
+        let x = 0;
+        let y = 0;
+        const strongNormals = [];
+        for (const wall of walls) {
+            const closest = closestPointOnSegment(this, wall.start, wall.end);
+            const dx = this.x - closest.x;
+            const dy = this.y - closest.y;
+            const distance = Math.hypot(dx, dy);
+            if (distance <= Number.EPSILON || distance >= SPECTER_WALL_AWARENESS_DISTANCE) continue;
+            const normal = { x: dx / distance, y: dy / distance };
+            const falloff = 1 - distance / SPECTER_WALL_AWARENESS_DISTANCE;
+            const strength = falloff * falloff * SPECTER_WALL_REPULSION_STRENGTH;
+            x += normal.x * strength;
+            y += normal.y * strength;
+            if (falloff >= 0.45) strongNormals.push(normal);
+        }
+        let cornered = false;
+        for (let first = 0; first < strongNormals.length && !cornered; first++) {
+            for (let second = first + 1; second < strongNormals.length; second++) {
+                const dot = strongNormals[first].x * strongNormals[second].x
+                    + strongNormals[first].y * strongNormals[second].y;
+                if (Math.abs(dot) < 0.75) {
+                    cornered = true;
+                    break;
+                }
+            }
+        }
+        if (cornered) {
+            const magnitude = Math.hypot(x, y);
+            if (magnitude > Number.EPSILON && magnitude < SPECTER_CORNER_ESCAPE_MINIMUM_STRENGTH) {
+                x = x / magnitude * SPECTER_CORNER_ESCAPE_MINIMUM_STRENGTH;
+                y = y / magnitude * SPECTER_CORNER_ESCAPE_MINIMUM_STRENGTH;
+            }
+        }
+        return { x, y, cornered };
     }
 
     beginExperimentalSpecterWallRecovery(x, y) {

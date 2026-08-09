@@ -7,6 +7,10 @@ import {
 } from '../game.js';
 import { Player } from '../entities/player.js';
 import {
+    SPECTER_FLEE_RANGE, SPECTER_WALL_AWARENESS_DISTANCE,
+    SPECTER_WANDER_TURN_MAX_ANGLE
+} from '../entities/player.js';
+import {
     createExperimentalAreas, createExperimentalDoors,
     EXPERIMENTAL_HALLWAY_LENGTH, EXPERIMENTAL_HALLWAY_WIDTH
 } from '../world/experimental_rooms.js';
@@ -260,6 +264,73 @@ test('Specter social avoidance combines every live same-area ship without replac
     assert.ok(force.x < 0 && force.y < 0);
     assert.equal(specter.shouldFire, false);
     assert.equal(specter.shouldTriggerBurstFire, false);
+});
+
+test('Specter range transitions immediately between persistent wander and multi-ship flee', () => {
+    const roomId = 'experimental-room-3';
+    const specter = Object.assign(new Player(0, 0, 2), {
+        isNPC: true, isExperimentalFleeingNPC: true, roomId, npcWanderAngle: 0
+    });
+    const threat = Object.assign(new Player(SPECTER_FLEE_RANGE + 1, 0, 1), { roomId });
+    let force;
+    const rules = { usesRooms: true, hasHumanInArea: () => true };
+    specter.updateNPC(0.1, [threat], [], value => { force = value; }, [], rules);
+    assert.equal(specter.npcBehaviorState, 'WANDER');
+    assert.equal(specter.npcTarget, null);
+    assert.ok(Math.hypot(force.x, force.y) > 0);
+
+    threat.x = SPECTER_FLEE_RANGE - 1;
+    specter.updateNPC(0.1, [threat], [], value => { force = value; }, [], rules);
+    assert.equal(specter.npcBehaviorState, 'FLEE');
+    assert.equal(specter.npcTarget, threat);
+    assert.equal(specter.shouldFire, false);
+
+    threat.x = SPECTER_FLEE_RANGE + 1;
+    specter.updateNPC(0.1, [threat], [], value => { force = value; }, [], rules);
+    assert.equal(specter.npcBehaviorState, 'WANDER');
+    assert.equal(specter.npcTarget, null);
+});
+
+test('Specter whisp wander persists, retargets by smooth turn increments, and never fires', () => {
+    const specter = Object.assign(new Player(0, 0, 2), {
+        isNPC: true, isExperimentalFleeingNPC: true, npcWanderAngle: 1,
+        experimentalSpecterWanderTimer: 0.5, shouldFire: true
+    });
+    const first = specter.getSpecterWanderDirection(0.1, () => 0);
+    const unchangedAngle = specter.npcWanderAngle;
+    const second = specter.getSpecterWanderDirection(0.1, () => 1);
+    assert.deepEqual(second, first);
+    assert.equal(specter.npcWanderAngle, unchangedAngle);
+
+    const values = [0, 1, 1];
+    const beforeTurn = specter.npcWanderAngle;
+    specter.getSpecterWanderDirection(1, () => values.shift());
+    const turn = specter.npcWanderAngle - beforeTurn;
+    assert.ok(turn > 0 && turn <= SPECTER_WANDER_TURN_MAX_ANGLE);
+});
+
+test('Specter wall awareness repels exterior and interior walls and guarantees corner escape', () => {
+    const specter = Object.assign(new Player(100, 100, 2), {
+        isNPC: true, isExperimentalFleeingNPC: true, roomId: 'experimental-room-1'
+    });
+    const vertical = { id: 'interior-vertical', start: { x: 0, y: 0 }, end: { x: 0, y: 1000 } };
+    const horizontal = { id: 'interior-horizontal', start: { x: 0, y: 0 }, end: { x: 1000, y: 0 } };
+    const room = { walls: [vertical, horizontal], wallCollisionThickness: 32 };
+    const rules = { usesRooms: true, room, getWallsFor: () => room.walls, hasHumanInArea: () => true };
+    const corner = specter.getSpecterWallAvoidance(rules);
+    assert.equal(corner.cornered, true);
+    assert.ok(corner.x > 0 && corner.y > 0);
+
+    specter.x = SPECTER_WALL_AWARENESS_DISTANCE + 1;
+    specter.y = SPECTER_WALL_AWARENESS_DISTANCE + 1;
+    assert.deepEqual(specter.getSpecterWallAvoidance(rules), { x: 0, y: 0, cornered: false });
+
+    specter.x = 100;
+    specter.y = 100;
+    const threat = Object.assign(new Player(500, 500, 1), { roomId: specter.roomId });
+    let force;
+    specter.updateNPC(1, [threat], [], value => { force = value; }, [], rules);
+    assert.ok(force.x > 0 && force.y > 0, 'corner escape must overpower flee pressure into the corner');
 });
 
 test('Experimental NPC capsule budgets combine actual level and numbered room purchasing value', () => {
