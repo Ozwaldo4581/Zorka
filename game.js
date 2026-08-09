@@ -1712,7 +1712,6 @@ export class Game {
             npc.aggressionLevel = SECTOR_9_BBG_ENCOUNTER.npcAggressionLevel;
             npc.rollAccuracy();
             npc.initializeNPCLevel(Game.prototype.getExperimentalEnemyLevel.call(this, SECTOR_9_BBG_ENCOUNTER.baseNpcLevel));
-            npc.applyRandomCapsulePowerUps(Math.floor(npc.level * 0.75));
             this.players.push(npc);
             Game.prototype.indexExperimentalEntity.call(this, 'players', npc);
             state.memberIds.add(npc.id);
@@ -2180,7 +2179,6 @@ export class Game {
             npc.initializeNPCLevel(isSpecter
                 ? 1
                 : Game.prototype.getExperimentalEnemyLevel.call(this, encounter?.npcLevel ?? room.npcLevel));
-            npc.applyOrdinaryNPCCapsulePowerUps(Math.floor(npc.level * 0.75));
             this.players.push(npc);
             Game.prototype.indexExperimentalEntity.call(this, 'players', npc);
             if (placedPlayers !== this.players) placedPlayers.push(npc);
@@ -3968,7 +3966,6 @@ export class Game {
             if (player.isNPC) {
                 player.resetLevelProgress();
                 player.initializeNPCLevel(Game.prototype.getExperimentalEnemyLevel.call(this, room.npcLevel));
-                player.applyRandomCapsulePowerUps(Math.floor(player.level * 0.75));
                 const humanColor = this.players.find(candidate => !candidate.isNPC)?.color;
                 player.color = chooseOrdinaryNPCColor(humanColor);
                 player.rollAggression();

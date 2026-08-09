@@ -36,7 +36,7 @@ export class Player {
         this.vy = 0;
         this.rotation = 0;
         this.radius = 25;
-        this.thrust = 800;
+        this.thrust = 800*2;
         this.brakeForce = 400;
         this.isDead = false;
         this.respawnTimer = 0;
@@ -221,7 +221,9 @@ export class Player {
         this.restoreHP();
         this.addXP(this.getLevelThreshold(normalizedLevel));
         this.resolveNPCLevelUps(random);
-        return this.level === normalizedLevel && this.pendingLevelUps === 0;
+        if (this.level !== normalizedLevel || this.pendingLevelUps !== 0) return false;
+        this.applyNPCCapsuleBudget(this.level, random);
+        return true;
     }
 
     getSpeedMultiplier() {
@@ -1338,6 +1340,35 @@ export class Player {
             this.powerUpError = null;
         }
         return success;
+    }
+
+    applyNPCCapsuleBudget(budget, random = Math.random) {
+        if (!this.isNPC) return 0;
+
+        let remainingBudget = Math.max(0, Math.floor(Number(budget) || 0));
+        let spent = 0;
+
+        while (remainingBudget > 0) {
+            const affordableSlots = [];
+            for (let slot = 1; slot <= this.maxPowerUpSlots; slot++) {
+                if (slot <= remainingBudget && this.canActivateCapsuleSlot(slot)) {
+                    affordableSlots.push(slot);
+                }
+            }
+            if (affordableSlots.length === 0) break;
+
+            const index = Math.min(affordableSlots.length - 1, Math.floor(random() * affordableSlots.length));
+            const slot = affordableSlots[index];
+            this.powerUpCapsules = slot;
+            if (!this.activatePowerUp()) break;
+
+            spent += slot;
+            remainingBudget -= slot;
+        }
+
+        this.powerUpCapsules = 0;
+        this.powerUpError = null;
+        return spent;
     }
 
     applyRandomCapsulePowerUps(count, random = Math.random) {
