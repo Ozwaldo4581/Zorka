@@ -138,6 +138,23 @@ const CONTROLLER_LOCK_RELEASE_THRESHOLD = 0.25;
 const CONTROLLER_LOCK_MAX_DISTANCE = DESIGN_WIDTH;
 export const MOUSE_AIM_LOCK_PADDING = 18;
 export const CONTROLLER_AIM_LOCK_PADDING = 24;
+export const TOUCH_AIM_LOCK_PADDING = 42;
+export const TOUCH_JOYSTICK_RADIUS = 120;
+export const TOUCH_JOYSTICK_DEADZONE = 0.12;
+export const TOUCH_AIM_DRAG_THRESHOLD = 18;
+export const TOUCH_LOCK_HOLD_MS = 300;
+
+export function normalizeTouchJoystick(deltaX, deltaY, radius = TOUCH_JOYSTICK_RADIUS, deadzone = TOUCH_JOYSTICK_DEADZONE) {
+    const magnitude = Math.hypot(deltaX, deltaY);
+    const normalizedMagnitude = Math.min(1, magnitude / Math.max(1, radius));
+    if (normalizedMagnitude <= deadzone || magnitude === 0) return { x: 0, y: 0 };
+    const scaledMagnitude = (normalizedMagnitude - deadzone) / (1 - deadzone);
+    return { x: deltaX / magnitude * scaledMagnitude, y: deltaY / magnitude * scaledMagnitude };
+}
+
+export function isTouchMovementHalf(x) {
+    return x < DESIGN_WIDTH / 2;
+}
 // Covers one high-speed projectile frame plus common sprite glow/shield overflow.
 export const EXPERIMENTAL_RENDER_CULL_MARGIN = 120;
 export const EXPERIMENTAL_HALLWAY_ACTIVITY_DEPTH = 1200;
@@ -224,6 +241,7 @@ export class Game {
         this.lastTime = 0;
         this.keys = {};
         this.mouse = { x: 0, y: 0, clicked: false, m2Held: false, m2Pressed: false, m2Released: false };
+        this.touch = this.createTouchInputState();
         this.domCursor = document.getElementById('custom-cursor');
 
         // Controller Menu Navigation
@@ -816,9 +834,9 @@ export class Game {
         window.addEventListener('keyup', (e) => this.keys[e.code] = false);
         window.addEventListener('mousemove', (e) => {
             this.cursorVisible = true;
-            const rect = this.canvas.getBoundingClientRect();
-            this.mouse.x = (e.clientX - rect.left) / this.scale;
-            this.mouse.y = (e.clientY - rect.top) / this.scale;
+            const point = this.getDesignPoint(e);
+            this.mouse.x = point.x;
+            this.mouse.y = point.y;
 
             if (this.domCursor) {
                 this.domCursor.style.left = `${e.clientX}px`;
@@ -832,9 +850,9 @@ export class Game {
                 return;
             }
             if (e.button === 0) {
-                const rect = this.canvas.getBoundingClientRect();
-                this.mouse.x = (e.clientX - rect.left) / this.scale;
-                this.mouse.y = (e.clientY - rect.top) / this.scale;
+                const point = this.getDesignPoint(e);
+                this.mouse.x = point.x;
+                this.mouse.y = point.y;
                 const selection = this.isInGameplayState() && !this.isPauseMenuOpen
                     ? this.hud.getLevelUpgradeAt(this.mouse.x, this.mouse.y, this.players, this.gameState === 'PVP')
                     : null;
@@ -857,6 +875,10 @@ export class Game {
             }
         });
         this.canvas.addEventListener('contextmenu', (e) => e.preventDefault());
+        this.canvas.addEventListener('pointerdown', (e) => this.handleTouchPointerDown(e));
+        this.canvas.addEventListener('pointermove', (e) => this.handleTouchPointerMove(e));
+        this.canvas.addEventListener('pointerup', (e) => this.handleTouchPointerEnd(e));
+        this.canvas.addEventListener('pointercancel', (e) => this.handleTouchPointerEnd(e));
         window.addEventListener('blur', () => this.resetLockInputs());
         document.addEventListener('visibilitychange', () => {
             if (document.hidden) this.resetLockInputs();
@@ -1409,11 +1431,117 @@ export class Game {
         this.mouse.m2Pressed = false;
         this.mouse.m2Released = false;
         this.players[0]?.clearAimLock();
+        this.resetTouchInput();
     }
 
     resetLockInputs() {
         this.resetMouseLockInput();
         this.players.forEach(player => player.resetControllerAimLock(true));
+    }
+
+    createTouchInputState() {
+        const channel = () => ({ active: false, pointerId: null, startX: 0, startY: 0, x: 0, y: 0, normalizedX: 0, normalizedY: 0 });
+        return {
+            movement: channel(),
+            aim: { ...channel(), mode: 'IDLE', startedAt: 0, holdResolved: false },
+            lock: { pointerId: null, startedAt: 0, startX: 0, startY: 0, x: 0, y: 0, acquired: false },
+            persistentLock: false
+        };
+    }
+
+    getDesignPoint(event) {
+        const rect = this.canvas.getBoundingClientRect();
+        return { x: (event.clientX - rect.left) / this.scale, y: (event.clientY - rect.top) / this.scale };
+    }
+
+    canAcceptGameplayTouch() {
+        return this.isInGameplayState() && !this.isPauseMenuOpen && !this.activeModal
+            && !this.optionsOpenedFromPause && !this.victoryFadeActive && !this.victoryScreenActive;
+    }
+
+    handleTouchPointerDown(event) {
+        if (event.pointerType !== 'touch' || !this.canAcceptGameplayTouch()) return false;
+        this.audio?.unlock?.();
+        const point = this.getDesignPoint(event);
+        const levelUp = this.hud.getLevelUpgradeAt(point.x, point.y, this.players, this.gameState === 'PVP');
+        if (levelUp) {
+            levelUp.player.applyLevelUpgrade(levelUp.choice);
+            return true;
+        }
+        const capsule = this.hud.getPowerUpActionAt(point.x, point.y, this.players, this.gameState === 'PVP');
+        if (capsule) {
+            capsule.player.consumeCapsules();
+            return true;
+        }
+        const channel = isTouchMovementHalf(point.x) ? this.touch.movement : this.touch.aim;
+        if (channel.active) return false;
+        Object.assign(channel, { active: true, pointerId: event.pointerId, startX: point.x, startY: point.y, x: point.x, y: point.y, normalizedX: 0, normalizedY: 0 });
+        if (channel === this.touch.aim) {
+            Object.assign(channel, { mode: 'UNDECIDED', startedAt: event.timeStamp, holdResolved: false });
+            Object.assign(this.touch.lock, { pointerId: event.pointerId, startedAt: event.timeStamp, startX: point.x, startY: point.y, x: point.x, y: point.y, acquired: false });
+        }
+        this.canvas.setPointerCapture?.(event.pointerId);
+        return true;
+    }
+
+    handleTouchPointerMove(event) {
+        if (event.pointerType !== 'touch') return false;
+        const channel = event.pointerId === this.touch.movement.pointerId ? this.touch.movement
+            : event.pointerId === this.touch.aim.pointerId ? this.touch.aim : null;
+        if (!channel) return false;
+        const point = this.getDesignPoint(event);
+        channel.x = point.x;
+        channel.y = point.y;
+        const vector = normalizeTouchJoystick(point.x - channel.startX, point.y - channel.startY);
+        channel.normalizedX = vector.x;
+        channel.normalizedY = vector.y;
+        if (channel === this.touch.aim) {
+            this.touch.lock.x = point.x;
+            this.touch.lock.y = point.y;
+            if (channel.mode === 'UNDECIDED' && Math.hypot(point.x - channel.startX, point.y - channel.startY) > TOUCH_AIM_DRAG_THRESHOLD) {
+                channel.mode = 'AIM_FIRE';
+                channel.holdResolved = true;
+                this.touch.persistentLock = false;
+                this.players[0]?.clearAimLock();
+            }
+        }
+        return true;
+    }
+
+    handleTouchPointerEnd(event) {
+        if (event.pointerType !== 'touch') return false;
+        const channel = event.pointerId === this.touch.movement.pointerId ? this.touch.movement
+            : event.pointerId === this.touch.aim.pointerId ? this.touch.aim : null;
+        if (!channel) return false;
+        const wasAim = channel === this.touch.aim;
+        Object.assign(channel, { active: false, pointerId: null, normalizedX: 0, normalizedY: 0 });
+        if (wasAim) {
+            channel.mode = 'IDLE';
+            this.touch.lock.pointerId = null;
+        }
+        if (this.canvas.hasPointerCapture?.(event.pointerId)) this.canvas.releasePointerCapture(event.pointerId);
+        return true;
+    }
+
+    resetTouchInput() {
+        if (!this.touch) return;
+        [this.touch.movement, this.touch.aim].forEach(channel => {
+            if (channel.pointerId !== null && this.canvas.hasPointerCapture?.(channel.pointerId)) this.canvas.releasePointerCapture(channel.pointerId);
+        });
+        this.touch = this.createTouchInputState();
+    }
+
+    getTouchIntent() {
+        return {
+            movementActive: this.touch.movement.active,
+            moveX: this.touch.movement.normalizedX,
+            moveY: this.touch.movement.normalizedY,
+            aimActive: this.touch.aim.active && this.touch.aim.mode === 'AIM_FIRE',
+            aimX: this.touch.aim.normalizedX,
+            aimY: this.touch.aim.normalizedY,
+            fireHeld: this.touch.aim.active && this.touch.aim.mode === 'AIM_FIRE',
+            preserveAimLock: this.touch.persistentLock
+        };
     }
 
     togglePauseMenu() {
@@ -3025,7 +3153,7 @@ export class Game {
         return false;
     }
 
-    findAimLockTargetAt(lockingPlayer, worldX, worldY) {
+    findAimLockTargetAt(lockingPlayer, worldX, worldY, { padding = MOUSE_AIM_LOCK_PADDING, filter = null } = {}) {
         let bestTarget = null;
         let bestIsBufferedOnly = true;
         let bestEdgeDistance = Infinity;
@@ -3034,13 +3162,14 @@ export class Game {
         let bestIndex = Infinity;
 
         this.getAimLockCandidates(lockingPlayer).forEach(({ entity, tiePriority, stableIndex }) => {
+            if (filter && !filter(entity)) return;
             if (!Number.isFinite(entity.x) || !Number.isFinite(entity.y) || !Number.isFinite(entity.radius)) return;
 
             const delta = this.gameState === GAME_MODE.EXPERIMENTAL
                 ? { x: entity.x - worldX, y: entity.y - worldY }
                 : nearestWrappedDisplacement(worldX, worldY, entity.x, entity.y);
             const distanceSquared = delta.x * delta.x + delta.y * delta.y;
-            const acquisitionRadius = entity.radius + MOUSE_AIM_LOCK_PADDING;
+            const acquisitionRadius = entity.radius + padding;
             if (distanceSquared > acquisitionRadius * acquisitionRadius) return;
 
             const distance = Math.sqrt(distanceSquared);
@@ -3131,6 +3260,26 @@ export class Game {
         const target = this.findAimLockTargetAt(player, worldPoint.x, worldPoint.y);
         if (!target) return false;
         return player.beginAimLock(target);
+    }
+
+    updateTouchAimLock(now = performance.now()) {
+        const aim = this.touch.aim;
+        if (!aim.active || aim.mode !== 'UNDECIDED' || aim.holdResolved || now - aim.startedAt < TOUCH_LOCK_HOLD_MS) return false;
+        aim.holdResolved = true;
+        aim.mode = 'LOCK_HOLD';
+        const player = this.players[0];
+        if (!player || player.isDead) return false;
+        const camera = this.getPlayerOneCamera();
+        const viewport = { x: 0, y: 0, width: this.gameState === 'PVP' ? DESIGN_WIDTH / 2 : DESIGN_WIDTH, height: DESIGN_HEIGHT };
+        const worldPoint = camera.screenToWorld(aim.startX, aim.startY, viewport);
+        const target = this.findAimLockTargetAt(player, worldPoint.x, worldPoint.y, {
+            padding: TOUCH_AIM_LOCK_PADDING,
+            filter: entity => entity instanceof Player || entity instanceof Asteroid
+        });
+        if (!target) return false;
+        this.touch.lock.acquired = player.beginAimLock(target);
+        this.touch.persistentLock = this.touch.lock.acquired;
+        return this.touch.lock.acquired;
     }
 
     resize() {
@@ -3533,6 +3682,7 @@ export class Game {
                 if (player.id <= 2 && !player.isNPC) {
                     const oldPrestigeLevel = player.prestigeLevel;
                     const inputCamera = player.id === 1 ? this.getPlayerOneCamera() : this.camera;
+                    if (player.id === 1) this.updateTouchAimLock();
                     if (!this.victoryFadeActive && !this.victoryScreenActive && player.id === 1 && this.mouse.m2Pressed && this.mouse.m2Held) {
                         this.beginPlayerOneAimLock(player, inputCamera);
                     }
@@ -3540,7 +3690,9 @@ export class Game {
                     if (player.controlMode === 'GAMEPAD') this.updateControllerAimLock(player, assignedGamepad);
                     else if (player.controllerAimLockLatched || !player.controllerAimLockArmed) player.resetControllerAimLock();
                     const isAimTargetValid = target => this.isValidAimLockTarget(player, target);
-                    player.update(dt, this.keys, this.mouse, inputCamera, this.players, this.asteroids, gamepads, this.gameState === 'PVP', this.transformationKills, this.hazards, isAimTargetValid, this.areTransformationsEnabled(), worldRules);
+                    const touchIntent = player.id === 1 ? this.getTouchIntent() : null;
+                    player.update(dt, this.keys, this.mouse, inputCamera, this.players, this.asteroids, gamepads, this.gameState === 'PVP', this.transformationKills, this.hazards, isAimTargetValid, this.areTransformationsEnabled(), worldRules, touchIntent);
+                    if (player.id === 1 && this.touch.persistentLock && !player.aimLockActive) this.touch.persistentLock = false;
                     if (player.id === 1) {
                         this.mouse.m2Pressed = false;
                         this.mouse.m2Released = false;
@@ -3600,6 +3752,8 @@ export class Game {
                             this.handleFire(player.id);
                         }
                     }
+                    if (player.id === 1 && player.shouldFire && player.fireCooldown <= 0
+                        && !this.victoryFadeActive && !this.victoryScreenActive) this.handleFire(player.id);
 
                     // Gamepad Firing logic
                     if (assignedGamepad) {
@@ -4294,6 +4448,7 @@ export class Game {
         player.deaths++;
         player.cancelBurstFire();
         player.resetControllerAimLock(true);
+        if (!player.isNPC && player.id === 1) Game.prototype.resetTouchInput.call(this);
         this.clearAimLocksForTarget(player);
         player.respawnTimer = player.noRespawn ? 0 : 2;
 

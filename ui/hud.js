@@ -128,6 +128,21 @@ export class HUD {
         return box ? { player, choice: box.choice } : null;
     }
 
+    getPowerUpActionAt(x, y, players, isSplitScreen = false) {
+        const player = players?.find(candidate => candidate.id === 1 && !candidate.isNPC);
+        if (!player || player.isDead || player.isEventHorizon || player.powerUpCapsules <= 0) return null;
+        const centerX = isSplitScreen ? 650 : 1920 / 2;
+        const slotWidth = 90;
+        const slotHeight = 35;
+        const gap = 8;
+        const slotIndex = Math.min(4, player.powerUpCapsules - 1);
+        const startX = centerX - (5 * slotWidth + 4 * gap) / 2;
+        const boxX = startX + slotIndex * (slotWidth + gap);
+        return x >= boxX && x <= boxX + slotWidth && y >= 980 && y <= 980 + slotHeight
+            ? { player, action: 'consumeCapsules' }
+            : null;
+    }
+
     drawScoreboard(ctx, players, swapUI = false, gameMode = '') {
         const DESIGN_WIDTH = 1920;
         const DESIGN_HEIGHT = 1080;

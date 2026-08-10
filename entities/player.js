@@ -555,7 +555,7 @@ export class Player {
         }
     }
 
-    update(dt, keys, mouse, camera, others = [], asteroids = [], gamepads = [], isSplitScreen = false, transformationKills = 20, hazards = [], isAimTargetValid = null, allowTransformations = true, worldRules = null) {
+    update(dt, keys, mouse, camera, others = [], asteroids = [], gamepads = [], isSplitScreen = false, transformationKills = 20, hazards = [], isAimTargetValid = null, allowTransformations = true, worldRules = null, touchIntent = null) {
         this.updateDamagePulses(dt);
         if (this.isDead) {
             this.resetControllerAimLock(true);
@@ -661,7 +661,7 @@ export class Player {
                 // If split screen, anchor is at 1/4 width (center of left half)
                 const anchorX = isSplitScreen ? (DESIGN_WIDTH / 4) : (DESIGN_WIDTH / 2);
 
-                if (mouse.m2Released || !mouse.m2Held) this.clearAimLock();
+                if (!touchIntent?.preserveAimLock && (mouse.m2Released || !mouse.m2Held)) this.clearAimLock();
 
                 const aimTarget = this.resolveAimLock(isAimTargetValid);
                 if (aimTarget) {
@@ -692,6 +692,17 @@ export class Player {
                 }
 
             }
+            if (touchIntent?.movementActive) {
+                const force = this.getDirectionalThrust(touchIntent.moveX, touchIntent.moveY);
+                fx = force.x;
+                fy = force.y;
+                this.isThrusting = touchIntent.moveX !== 0 || touchIntent.moveY !== 0;
+            }
+            if (touchIntent?.aimActive && (touchIntent.aimX !== 0 || touchIntent.aimY !== 0)) {
+                this.clearAimLock();
+                this.rotation = Math.atan2(touchIntent.aimY, touchIntent.aimX) + Math.PI / 2;
+            }
+            this.shouldFire = Boolean(touchIntent?.fireHeld);
         } else if (this.id === 2) {
             // Player 2: Controller ONLY
             if (gp) {
