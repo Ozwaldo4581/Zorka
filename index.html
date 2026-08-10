@@ -23,7 +23,7 @@
     </script>
     <style>
       html, body, #game-container { width: 100%; height: 100%; margin: 0; padding: 0; background: #050505; overflow: hidden; }
-      body { touch-action: none; font-family: 'Orbitron', sans-serif; color: white; cursor: none !important; }
+      body { font-family: 'Orbitron', sans-serif; color: white; cursor: none !important; }
       * { cursor: none !important; } /* Force custom cursor everywhere */
       #custom-cursor {
         position: fixed;
@@ -100,7 +100,7 @@
         justify-content: center;
       }
       
-      canvas { display: block; }
+      #game-container canvas { display: block; touch-action: none; -webkit-user-select: none; user-select: none; }
       #menu-overlay {
         position: absolute;
         top: 0;
