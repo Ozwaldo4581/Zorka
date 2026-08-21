@@ -4,17 +4,23 @@ import { readFile } from 'node:fs/promises';
 
 import { GAME_MODE, Game, WORLD_HEIGHT, WORLD_WIDTH } from '../game.js';
 import { Player } from '../entities/player.js';
-import { createExperimentalRooms } from '../world/experimental_rooms.js';
+import {
+    createExperimentalRooms,
+    SECTOR_9_BBG_ENCOUNTER
+} from '../world/experimental_rooms.js';
 import { wrap } from '../physics.js';
 
-test('Experimental has an explicit mode identifier and separate screen controls', async () => {
+test('Experimental has an explicit mode identifier and profile-backed Adventure controls', async () => {
     assert.equal(GAME_MODE.EXPERIMENTAL, 'EXPERIMENTAL');
 
     const html = await readFile(new URL('../index.html', import.meta.url), 'utf8');
-    for (const id of ['btn-experimental-open', 'experimental-menu', 'btn-experimental-start', 'btn-experimental-back']) {
+    for (const id of [
+        'btn-experimental-start', 'experimental-profile-menu',
+        'btn-experimental-profile-play', 'btn-experimental-profile-back'
+    ]) {
         assert.match(html, new RegExp(`id=["']${id}["']`));
     }
-    assert.match(html, /Solo Arena, Local PvP Arena, or Arcade Mode/);
+    assert.match(html, /id="btn-experimental-start" aria-label="Adventure"/);
 });
 
 test('Experimental temporary state is cleared without assigning rooms to base entities', () => {
@@ -177,7 +183,9 @@ test('Experimental setup creates BBG-only Sector 9 NPC population', () => {
     const sector9Npcs = game.players.filter(player => player.isNPC && player.roomId === sector9.id);
     assert.equal(sector9Npcs.length, 7);
     assert.equal(sector9Npcs.every(player => Game.prototype.isSector9BBGDefender.call(game, player)), true);
-    assert.equal(sector9Npcs.every(player => player.aggressionLevel === 2), true);
+    assert.equal(sector9Npcs.every(
+        player => player.aggressionLevel === SECTOR_9_BBG_ENCOUNTER.npcAggressionLevel
+    ), true);
     for (const roomNumber of [1, 2, 8]) {
         const room = rooms.find(candidate => candidate.roomNumber === roomNumber);
         const ordinaryNpcs = game.players.filter(player => player.isNPC && !Game.prototype.isSector9BBGDefender.call(game, player) && player.roomId === room.id);
@@ -189,13 +197,17 @@ test('Experimental setup creates BBG-only Sector 9 NPC population', () => {
     assert.equal(Game.prototype.resetSector9BBGEncounterForCurrentWorld.call(game), true);
     const resetSector9Npcs = game.players.filter(player => player.isNPC && player.roomId === sector9.id);
     assert.equal(resetSector9Npcs.length, 7);
-    assert.equal(resetSector9Npcs.every(player => player.aggressionLevel === 2), true);
+    assert.equal(resetSector9Npcs.every(
+        player => player.aggressionLevel === SECTOR_9_BBG_ENCOUNTER.npcAggressionLevel
+    ), true);
 
     game.experimentalNewGamePlusCycle = 1;
     assert.equal(Game.prototype.resetSector9BBGEncounterForCurrentWorld.call(game), true);
     const newGamePlusSector9Npcs = game.players.filter(player => player.isNPC && player.roomId === sector9.id);
     assert.equal(newGamePlusSector9Npcs.length, 7);
-    assert.equal(newGamePlusSector9Npcs.every(player => player.aggressionLevel === 2), true);
+    assert.equal(newGamePlusSector9Npcs.every(
+        player => player.aggressionLevel === SECTOR_9_BBG_ENCOUNTER.npcAggressionLevel
+    ), true);
     assert.equal(newGamePlusSector9Npcs.every(player => player.level > sector9Npcs[0].level), true);
 });
 

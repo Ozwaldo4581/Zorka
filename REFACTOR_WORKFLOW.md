@@ -25,26 +25,37 @@ the ownership and gameplay rules in `AGENTS.md`; it does not replace them.
   `Game.network` is intentionally `null`, and `network_manager.js` is retained
   legacy code. Network-facing methods in `game.js` are dormant unless a future
   product decision restores that subsystem.
-- **Material unresolved questions:** the existing suite has 15 failures that
-  disagree with current implementation in leveling/speed constants,
-  Experimental copy and lifecycle behavior, shortcut-aware wall/render
-  expectations, and missile speed. These disagreements must be reconciled as
-  implementation bugs, stale tests, or product decisions before refactoring
-  those seams. The build script also names Vite without declaring it in the
-  package lock, so a clean checkout cannot currently build until the intended
-  toolchain dependency policy is resolved.
+- **Material unresolved questions:** the existing suite has 9 failures that
+  disagree with current implementation in Experimental messaging and lifecycle
+  behavior, shortcut-aware wall/render expectations, and missile speed. These
+  disagreements must be reconciled as implementation bugs, stale tests, or
+  product decisions before refactoring those seams. Vite is now
+  explicitly declared as a development dependency in both package manifests,
+  resolving the previously ambiguous build-tool ownership; installing it still
+  requires registry access or a populated npm cache.
 
 ### Baseline evidence
 
-- `node --test` discovers 257 tests: 242 pass and 15 fail.
-- The failure groups are two leveling/speed assertions, four Experimental
-  UI/adventure assertions, one Sector 9 population assertion, one profile-menu
-  assertion, five Experimental lifecycle/wall/render assertions, and one
-  missile-speed assertion. These are **unresolved contract drift**, not an
-  invitation to change gameplay merely to make tests green.
-- `npm ci` succeeds but installs no Vite binary. Consequently `npm run build`
-  fails with `vite: not found`. Installing Vite was not possible in the audit
-  environment because the configured registry returned HTTP 403.
+- `node --test` discovers 257 tests: 248 pass and 9 fail.
+- The remaining failure groups are eight Experimental lifecycle/message/wall/render
+  assertions and one missile-speed assertion. These are **unresolved contract
+  drift**, not an invitation to change gameplay merely to make tests green.
+- The two former leveling/speed failures were stale tests. Repository history
+  shows deliberate changes that doubled base thrust and capped NPC Projectile
+  upgrades at five; the focused leveling suite now represents both current
+  contracts and passes all 20 tests.
+- Three former Experimental UI/profile failures were stale tests left behind by
+  the deliberate notebook-art menu and persistent-profile flow. Their assertions
+  now follow the accessible Adventure control, profile actions, and current HUD
+  helper copy without changing presentation or gameplay behavior.
+- The former Sector 9 population failure was a stale hard-coded aggression
+  value. Its test now reads the immutable BBG encounter configuration and still
+  verifies that Arena Options cannot redirect the seven fixed defenders.
+- The build configuration now declares Vite 8.1.5 in `package.json` and locks
+  it in `package-lock.json`. In the current audit environment, `npm ci
+  --offline` cannot install it because the package tarball is not cached, so a
+  clean build remains an environment-limited verification item rather than a
+  manifest disagreement.
 - No performance optimization is approved from this audit. Performance work
   remains blocked on a reproducible browser baseline after correctness and
   build configuration are trustworthy.
