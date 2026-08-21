@@ -190,6 +190,11 @@ The disposable collision spatial hash keeps source arrays authoritative. Its
 allocation-light nearby iterator reuses query scratch storage, deduplicates
 wrapped buckets with visit stamps, and emits candidates in stable source order.
 
+Experimental update and render passes create transient activity contexts that
+cache active-area IDs and lazily materialized room-local entity arrays for that
+pass only. Canonical `Game` collections and per-area indexes remain the owners
+and derived lookup sources; activity contexts are discarded after consumption.
+
 Experimental projectile behavior is room-aware. Shots cannot target or collide across unrelated areas, and wall/door blockers terminate projectile representations; missiles detonate once at the first wall impact.
 
 ### Arena Objects

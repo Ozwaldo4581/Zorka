@@ -2745,6 +2745,39 @@ export class Game {
         return entities;
     }
 
+    createExperimentalActivityContext() {
+        return {
+            areaIds: Game.prototype.getExperimentalActiveAreaIds.call(this),
+            entitiesByArea: new Map(),
+            entitiesByKind: new Map()
+        };
+    }
+
+    getExperimentalActivityAreaEntities(context, areaId, kind) {
+        let area = context.entitiesByArea.get(areaId);
+        if (!area) {
+            area = new Map();
+            context.entitiesByArea.set(areaId, area);
+        }
+        if (!area.has(kind)) {
+            area.set(kind, Game.prototype.getExperimentalAreaEntities.call(this, areaId, kind));
+        }
+        return area.get(kind);
+    }
+
+    getExperimentalActivityEntities(context, kind) {
+        if (!context.entitiesByKind.has(kind)) {
+            const entities = [];
+            for (const areaId of context.areaIds) {
+                entities.push(...Game.prototype.getExperimentalActivityAreaEntities.call(
+                    this, context, areaId, kind
+                ));
+            }
+            context.entitiesByKind.set(kind, entities);
+        }
+        return context.entitiesByKind.get(kind);
+    }
+
     startExperimentalMode(profile = null, options = {}) {
         const selectedProfile = profile || (Number.isInteger(this.selectedExperimentalProfileSlot)
             ? this.experimentalProfiles.getProfile(this.selectedExperimentalProfileSlot)
@@ -3476,13 +3509,14 @@ export class Game {
         const gamepads = this.getGamepads();
         const prestigeTriggers = [];
         const worldRules = this.getWorldRules();
-        const activeExperimentalAreaIds = worldRules.usesRooms
-            ? Game.prototype.getExperimentalActiveAreaIds.call(this) : null;
+        const experimentalActivity = worldRules.usesRooms
+            ? Game.prototype.createExperimentalActivityContext.call(this) : null;
+        const activeExperimentalAreaIds = experimentalActivity?.areaIds || null;
         const simulationAsteroids = worldRules.usesRooms
-            ? Game.prototype.getExperimentalEntitiesInAreas.call(this, 'asteroids', activeExperimentalAreaIds)
+            ? Game.prototype.getExperimentalActivityEntities.call(this, experimentalActivity, 'asteroids')
             : this.asteroids;
         const simulationHazards = worldRules.usesRooms
-            ? Game.prototype.getExperimentalEntitiesInAreas.call(this, 'hazards', activeExperimentalAreaIds)
+            ? Game.prototype.getExperimentalActivityEntities.call(this, experimentalActivity, 'hazards')
             : this.hazards;
 
         for (let player of this.players) {
@@ -3597,14 +3631,20 @@ export class Game {
                     }
                 } else if (player.isNPC) {
                     const localPlayers = worldRules.usesRooms
-                        ? Game.prototype.getExperimentalAreaEntities.call(this, player.roomId, 'players') : this.players;
+                        ? Game.prototype.getExperimentalActivityAreaEntities.call(
+                            this, experimentalActivity, player.roomId, 'players'
+                        ) : this.players;
                     const localTargets = worldRules.usesRooms
                         ? localPlayers.filter(candidate => Game.prototype.isHostileTarget.call(this, player, candidate))
                         : localPlayers;
                     const localAsteroids = worldRules.usesRooms
-                        ? Game.prototype.getExperimentalAreaEntities.call(this, player.roomId, 'asteroids') : this.asteroids;
+                        ? Game.prototype.getExperimentalActivityAreaEntities.call(
+                            this, experimentalActivity, player.roomId, 'asteroids'
+                        ) : this.asteroids;
                     const localHazards = worldRules.usesRooms
-                        ? Game.prototype.getExperimentalAreaEntities.call(this, player.roomId, 'hazards') : this.hazards;
+                        ? Game.prototype.getExperimentalActivityAreaEntities.call(
+                            this, experimentalActivity, player.roomId, 'hazards'
+                        ) : this.hazards;
                     player.update(dt, {
                         camera: this.camera,
                         others: localTargets,
@@ -3691,7 +3731,7 @@ export class Game {
         // Materialize after firing and Satellite updates so newly inserted shots
         // retain the existing same-frame update and collision behavior.
         const simulationProjectiles = worldRules.usesRooms
-            ? Game.prototype.getExperimentalEntitiesInAreas.call(this, 'projectiles', activeExperimentalAreaIds)
+            ? Game.prototype.getExperimentalActivityEntities.call(this, experimentalActivity, 'projectiles')
             : this.projectiles;
         const activeCameras = this.getActiveCameras();
         
@@ -3729,7 +3769,7 @@ export class Game {
         }
 
         const simulationVfx = worldRules.usesRooms
-            ? Game.prototype.getExperimentalEntitiesInAreas.call(this, 'vfx', activeExperimentalAreaIds)
+            ? Game.prototype.getExperimentalActivityEntities.call(this, experimentalActivity, 'vfx')
             : this.vfx;
         for (let i = simulationVfx.length - 1; i >= 0; i--) {
             const v = simulationVfx[i];
@@ -5108,11 +5148,14 @@ export class Game {
         }
 
         const currentArea = Game.prototype.getExperimentalRenderArea.call(this);
-        const activeAreaIds = Game.prototype.getExperimentalActiveAreaIds.call(this);
+        const activity = currentArea
+            ? Game.prototype.createExperimentalActivityContext.call(this) : null;
         const source = (kind, canonical) => currentArea
-            ? [...activeAreaIds].flatMap(areaId => Game.prototype.getExperimentalAreaEntities.call(this, areaId, kind))
+            ? Game.prototype.getExperimentalActivityEntities.call(this, activity, kind)
             : canonical;
-        const visible = entities => Game.prototype.getRenderableEntities.call(this, entities, camera);
+        const visible = entities => Game.prototype.getRenderableEntities.call(
+            this, entities, camera, activity?.areaIds
+        );
         visible(source('asteroids', this.asteroids)).forEach(a => a.draw(ctx, this.assets, camera));
         visible(source('hazards', this.hazards)).forEach(h => h.draw(ctx, this.assets, camera));
         visible(source('projectiles', this.projectiles)).forEach(p => p.draw(ctx, this.assets, camera));
@@ -5129,10 +5172,11 @@ export class Game {
         return Game.prototype.getExperimentalRoom.call(this, localPlayer?.roomId);
     }
 
-    getRenderableEntities(entities, camera) {
+    getRenderableEntities(entities, camera, activeAreaIds = null) {
         if (this.gameState !== GAME_MODE.EXPERIMENTAL) return entities;
         const currentArea = Game.prototype.getExperimentalRenderArea.call(this);
         if (!currentArea) return [];
+        const renderAreaIds = activeAreaIds || Game.prototype.getExperimentalActiveAreaIds.call(this);
         const halfWidth = DESIGN_WIDTH / (2 * camera.zoom) + EXPERIMENTAL_RENDER_CULL_MARGIN;
         const halfHeight = DESIGN_HEIGHT / (2 * camera.zoom) + EXPERIMENTAL_RENDER_CULL_MARGIN;
         const viewport = {
@@ -5142,7 +5186,7 @@ export class Game {
             bottom: camera.y + halfHeight
         };
         return entities.filter(entity => {
-            if (!Game.prototype.getExperimentalActiveAreaIds.call(this).has(entity.roomId)) return false;
+            if (!renderAreaIds.has(entity.roomId)) return false;
             if (!Number.isFinite(entity.x) || !Number.isFinite(entity.y)) return true;
             const bounds = Game.prototype.getExperimentalRenderBounds.call(this, entity);
             return bounds.right >= viewport.left && bounds.left <= viewport.right

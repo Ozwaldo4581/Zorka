@@ -123,23 +123,42 @@ test('active Experimental areas retain NPC, Satellite, VFX, and audio behavior',
 
 test('Experimental simulation collections materialize active areas only', () => {
     const game = createGame();
+    const human = Object.assign(new Player(100, 100, 1), {
+        roomId: 'experimental-room-1'
+    });
     const activeAsteroid = Object.assign(new Asteroid(100, 100, 'small'), {
         roomId: 'experimental-room-1'
     });
     const dormantAsteroid = Object.assign(new Asteroid(100, 100, 'small'), {
         roomId: 'experimental-room-2'
     });
+    game.players.push(human);
     game.asteroids.push(activeAsteroid, dormantAsteroid);
+    Game.prototype.indexExperimentalEntity.call(game, 'players', human);
     Game.prototype.indexExperimentalEntity.call(game, 'asteroids', activeAsteroid);
     Game.prototype.indexExperimentalEntity.call(game, 'asteroids', dormantAsteroid);
 
-    const simulationAsteroids = Game.prototype.getExperimentalEntitiesInAreas.call(
-        game,
-        'asteroids',
-        new Set(['experimental-room-1'])
+    const activity = Game.prototype.createExperimentalActivityContext.call(game);
+    const simulationAsteroids = Game.prototype.getExperimentalActivityEntities.call(
+        game, activity, 'asteroids'
     );
     assert.deepEqual(simulationAsteroids, [activeAsteroid]);
+    assert.equal(
+        Game.prototype.getExperimentalActivityEntities.call(game, activity, 'asteroids'),
+        simulationAsteroids,
+        'a kind is materialized once per activity context'
+    );
     assert.deepEqual(game.asteroids, [activeAsteroid, dormantAsteroid]);
+
+    const lateProjectile = Object.assign(new Projectile(120, 100, 0, 0), {
+        roomId: human.roomId
+    });
+    Game.prototype.addProjectile.call(game, lateProjectile);
+    assert.deepEqual(
+        Game.prototype.getExperimentalActivityEntities.call(game, activity, 'projectiles'),
+        [lateProjectile],
+        'a kind first requested after insertion includes the same-frame entity'
+    );
 });
 
 test('Experimental collision pass ignores dormant-area projectiles and targets', () => {
