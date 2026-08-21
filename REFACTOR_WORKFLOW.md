@@ -32,7 +32,7 @@ the ownership and gameplay rules in `AGENTS.md`; it does not replace them.
 
 ### Baseline evidence
 
-- `node --test` discovers 257 tests: all 257 pass.
+- `node --test` discovers 258 tests: all 258 pass.
 - The two former leveling/speed failures were stale tests. Repository history
   shows deliberate changes that doubled base thrust and capped NPC Projectile
   upgrades at five; the focused leveling suite now represents both current
@@ -53,13 +53,54 @@ the ownership and gameplay rules in `AGENTS.md`; it does not replace them.
   materialization tint during its final second, and launches missiles at the
   named 1.8 speed multiplier.
 - The build configuration now declares Vite 8.1.5 in `package.json` and locks
-  it in `package-lock.json`. In the current audit environment, `npm ci
-  --offline` cannot install it because the package tarball is not cached, so a
-  clean build remains an environment-limited verification item rather than a
-  manifest disagreement.
+  it in `package-lock.json`. The current audit proxy returns HTTP 403 for the
+  locked Vite tarball, and the package is not available in the local npm cache,
+  so a clean build remains an environment-limited verification item rather
+  than a manifest disagreement. A dependency-free static server successfully
+  serves `index.html` and `game.js`.
+- A dependency-free startup smoke test recursively validates the browser entry
+  module graph, local shell resources, and stable core asset paths. This catches
+  missing local imports/assets without claiming to replace a Vite build or an
+  interactive browser launch.
 - No performance optimization is approved from this audit. Performance work
   remains blocked on a reproducible browser baseline after correctness and
   build configuration are trustworthy.
+
+### Current cycle progress
+
+1. **Reconcile the contract — complete.** Implementation, tests, mode UI,
+   architecture guidance, and package manifests now describe the same supported
+   behavior.
+2. **Establish correctness — automated suite complete; browser gate pending.**
+   All 258 Node tests pass. Package metadata is consistent, the source is
+   statically servable, and the entry/resource smoke test passes, but clean Vite
+   installation/build and an interactive browser launch remain blocked by the
+   audit environment's registry proxy.
+3. **Establish performance evidence — not started.** This remains gated on the
+   reproducible browser launch required by Section 3.
+4. **Maintain and re-rank a candidate backlog — initialized below.** No
+   structural or performance implementation is approved yet.
+5. **Plan the next slices — constrained to environment verification.** The next
+   slice is to run the locked install, production build, and smallest browser
+   smoke check when registry/browser access is available.
+6. **Implement and verify one slice — not started.** No refactor candidate has
+   passed the evidence gates.
+7. **Evaluate performance changes — not started.** There is no accepted
+   performance change to compare.
+8. **Reassess and document — active.** This status and backlog are the current
+   reassessment record.
+
+### Candidate backlog (2026-08-21 re-rank)
+
+| Rank | Problem and evidence | Category | Benefit (P/R/M) | Risk | Effort | Confidence | Dependencies | Stop condition |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| 1 | Clean build/browser verification is incomplete: the proxy returns HTTP 403 for the locked Vite tarball, while static serving and the dependency-free entry/resource smoke test succeed. | correctness | 0/1/1 | 0 | XS | strongly evidenced | Registry access or a populated npm cache; browser runtime | `npm ci`, `npm run build`, and an interactive startup smoke check all pass, making further build work unnecessary. |
+| 2 | No reproducible browser profile exists for the required Solo, projectile/missile-heavy, dense-hazard, Experimental, and Local PvP scenarios. | performance | 5/1/1 | 0 | M | plausible | Candidate 1 and browser profiling access | All required scenarios meet an agreed frame-time target without a repeatable hotspot, so no optimization is justified. |
+
+Correctness and evidence acquisition outrank speculative cleanup. Candidate 2
+does not authorize an optimization; it authorizes measurement only. Dormant
+network cleanup and structural extractions remain unranked because current
+evidence does not show that they block correctness, profiling, or maintenance.
 
 ## 1. Reconcile the contract
 
