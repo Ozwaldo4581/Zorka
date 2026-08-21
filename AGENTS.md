@@ -70,6 +70,12 @@ Keep these familiar asset locations stable unless asset migration is explicitly 
 
 ## 1) Workflow Expectations
 
+For refactor work, follow the evidence-gated process in
+[`REFACTOR_WORKFLOW.md`](REFACTOR_WORKFLOW.md). In particular, reconcile the
+current contract and establish a correctness baseline before selecting a
+structural or performance change. Treat its candidate list as a re-rankable
+backlog, not an approved roadmap.
+
 ### Default Approach
 
 1. Inspect the smallest relevant code/test bundle.
