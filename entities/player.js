@@ -6,6 +6,7 @@ const BASE_GUN_COOLDOWN = 0.75;
 const BURST_INTERVAL = 0.05;
 const BASE_PROJECTILE_SPEED = 1200;
 const NORMAL_SHIP_SPEED_CAP = 800;
+export const MISSILE_SPEED_MULTIPLIER = 1.8;
 const MARTIAN_PARALLEL_OFFSET = 30;
 export const SPECTER_FLEE_RANGE = 2700;
 export const SPECTER_WALL_AWARENESS_DISTANCE = 600;
@@ -1655,7 +1656,7 @@ export class Player {
     }
 
     createMissile(x, y, rotation) {
-        const speed = this.getNormalShipSpeedCap() * 1.8;
+        const speed = this.getNormalShipSpeedCap() * MISSILE_SPEED_MULTIPLIER;
         const vx = Math.sin(rotation) * speed;
         const vy = -Math.cos(rotation) * speed;
         const p = new Projectile(x, y, vx, vy, this.color);

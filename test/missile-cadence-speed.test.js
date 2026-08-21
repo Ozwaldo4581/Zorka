@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { Player } from '../entities/player.js';
+import { MISSILE_SPEED_MULTIPLIER, Player } from '../entities/player.js';
 
 function selectMissile(player) {
     player.powerUpCapsules = 2;
@@ -50,12 +50,12 @@ test('Missile levels use primary-shot cadence and ignore burst follow-up shots',
     }
 });
 
-test('Missile launch and homing retain 80 percent of the normal ship speed cap', () => {
+test('Missile launch and homing retain the tuned normal ship speed-cap multiplier', () => {
     for (const speedUpgradeCount of [0, 10]) {
         const player = new Player(0, 0);
         player.speedUpgradeCount = speedUpgradeCount;
         const missile = player.createMissile(0, 0, 0);
-        const expectedSpeed = player.getNormalShipSpeedCap() * 0.8;
+        const expectedSpeed = player.getNormalShipSpeedCap() * MISSILE_SPEED_MULTIPLIER;
         assert.equal(Math.hypot(missile.vx, missile.vy), expectedSpeed);
 
         const target = { x: 100, y: 100, isDead: false, isEliminated: false };
