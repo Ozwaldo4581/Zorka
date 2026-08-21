@@ -7,14 +7,17 @@ import { Player } from '../entities/player.js';
 import { createExperimentalRooms } from '../world/experimental_rooms.js';
 import { wrap } from '../physics.js';
 
-test('Experimental has an explicit mode identifier and separate screen controls', async () => {
+test('Experimental has an explicit mode identifier and profile-backed Adventure controls', async () => {
     assert.equal(GAME_MODE.EXPERIMENTAL, 'EXPERIMENTAL');
 
     const html = await readFile(new URL('../index.html', import.meta.url), 'utf8');
-    for (const id of ['btn-experimental-open', 'experimental-menu', 'btn-experimental-start', 'btn-experimental-back']) {
+    for (const id of [
+        'btn-experimental-start', 'experimental-profile-menu',
+        'btn-experimental-profile-play', 'btn-experimental-profile-back'
+    ]) {
         assert.match(html, new RegExp(`id=["']${id}["']`));
     }
-    assert.match(html, /Solo Arena, Local PvP Arena, or Arcade Mode/);
+    assert.match(html, /id="btn-experimental-start" aria-label="Adventure"/);
 });
 
 test('Experimental temporary state is cleared without assigning rooms to base entities', () => {

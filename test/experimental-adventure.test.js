@@ -10,10 +10,10 @@ globalThis.window ??= {};
 
 test('Experimental adventure label and shared controller helper text match gameplay', async () => {
     const html = await readFile(new URL('../index.html', import.meta.url), 'utf8');
-    assert.match(html, /id="btn-experimental-start">Start A New Adventure<\/button>/);
+    assert.match(html, /id="btn-experimental-start" aria-label="Adventure">[\s\S]*?SharpieAdventure\.png[\s\S]*?<\/button>/);
     const hud = await readFile(new URL('../ui/hud.js', import.meta.url), 'utf8');
     assert.match(hud, /\['1 \/ X', '2 \/ Y', '3 \/ B'\]/);
-    assert.match(hud, /A Consume Capsules\s+\|\s+X Projectile\s+\|\s+Y Speed\s+\|\s+B Shield/);
+    assert.match(hud, /Press Spacebar \/ A to select a Capsule Bonus/);
 });
 
 test('Experimental is forced Hardcore and confirmed human death ends once without respawn', () => {
