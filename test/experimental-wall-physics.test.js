@@ -222,7 +222,7 @@ test('membership traverses every connected doorway in both directions without no
     assert.equal(Game.prototype.resolveExperimentalPlayerRoomMembership.call(game, player), 'experimental-room-1');
 });
 
-test('confirmed human room changes clear tier 1-4 bonuses once while preserving shields and state', () => {
+test('confirmed human room changes preserve temporary bonuses and persistent state', () => {
     const game = createExperimentalContext();
     const player = new Player(8640, WORLD_HEIGHT, 1);
     Object.assign(player, {
@@ -240,14 +240,15 @@ test('confirmed human room changes clear tier 1-4 bonuses once while preserving 
     Game.prototype.resolveExperimentalPlayerRoomMembership.call(game, player);
     Game.prototype.resolveExperimentalPlayerRoomMembership.call(game, player);
 
-    assert.equal(cleanupCalls, 1);
+    assert.equal(cleanupCalls, 0);
     assert.deepEqual({
         roomId: player.roomId, activeGun: player.activeGun, hasMissile: player.hasMissile,
         missileLevel: player.missileLevel, missileShotCounter: player.missileShotCounter,
         martianParallelGuns: player.martianParallelGuns, ghosts: player.ghosts, history: player.history
     }, {
-        roomId: 'experimental-hallway-1-2', activeGun: 'Normal', hasMissile: false,
-        missileLevel: 0, missileShotCounter: 0, martianParallelGuns: 1, ghosts: [], history: []
+        roomId: 'experimental-hallway-1-2', activeGun: 'Laser', hasMissile: true,
+        missileLevel: 3, missileShotCounter: 2, martianParallelGuns: 2,
+        ghosts: [{ x: 1, y: 2 }], history: [{ x: 1, y: 2 }]
     });
     assert.deepEqual({
         capsules: player.powerUpCapsules, maxShields: player.maxShieldCharges, shields: player.shieldCharges,
@@ -259,7 +260,7 @@ test('confirmed human room changes clear tier 1-4 bonuses once while preserving 
     });
 });
 
-test('all eight hallways purge once on Room 0 entry and never on numbered-room exit in either direction', () => {
+test('all hallways preserve temporary bonuses in both directions', () => {
     const game = createExperimentalContext();
     const hallways = game.experimentalRooms.filter(area => area.roomNumber === 0);
     const crossInto = (player, destinationId) => {
@@ -297,12 +298,12 @@ test('all eight hallways purge once on Room 0 entry and never on numbered-room e
         player.clearExperimentalRoomCapsuleBonuses = () => { cleanupCalls++; clearBonuses(); };
 
         crossInto(player, hallway.id);
-        assert.equal(cleanupCalls, 1, `${sourceId} entering ${hallway.id}`);
+        assert.equal(cleanupCalls, 0, `${sourceId} entering ${hallway.id}`);
         assert.equal(game.experimentalRooms.find(area => area.id === player.roomId).roomNumber, 0);
         Game.prototype.resolveExperimentalPlayerRoomMembership.call(game, player);
-        assert.equal(cleanupCalls, 1, `${hallway.id} standing still`);
+        assert.equal(cleanupCalls, 0, `${hallway.id} standing still`);
         crossInto(player, destinationId);
-        assert.equal(cleanupCalls, 1, `${hallway.id} exiting to ${destinationId}`);
+        assert.equal(cleanupCalls, 0, `${hallway.id} exiting to ${destinationId}`);
         assert.deepEqual({
             shields: player.shieldCharges, maxShields: player.maxShieldCharges,
             forcefield: player.hasForcefield, level: player.level, xp: player.totalXP,
@@ -315,7 +316,7 @@ test('all eight hallways purge once on Room 0 entry and never on numbered-room e
     }
 });
 
-test('Room 0 purge ignores initial assignment, same-area resolution, null membership, and NPCs', () => {
+test('Room 0 transition preservation ignores initial assignment, same-area resolution, null membership, and NPCs', () => {
     const game = createExperimentalContext();
     for (const player of [new Player(8640, 10000, 1), Object.assign(new Player(8640, 10000, 3), { isNPC: true })]) {
         let cleanupCalls = 0;
@@ -474,19 +475,23 @@ test('every hallway entrance reflects large bodies and destroys small asteroids 
     }
 });
 
-test('Experimental respawn stays in the human current room', () => {
+test('Experimental human respawn returns to the Sector 1 world-loop start', () => {
     const player = new Player(8640, 12000, 1);
     player.roomId = 'experimental-room-2';
     player.isDead = true;
     const game = createExperimentalContext({
         players: [player],
         startingShieldCharges: 3,
-        findExperimentalSpawn: Game.prototype.findExperimentalSpawn
+        findExperimentalSpawn: Game.prototype.findExperimentalSpawn,
+        audio: { playSpatialUnwrapped() {}, playSpatial() {}, startGameplayMusic() {} }
     });
     Game.prototype.respawnPlayer.call(game, player);
-    const room2 = game.experimentalRooms[1];
-    assert.equal(player.roomId, room2.id);
-    assert.ok(player.y >= room2.spawnRegion.top + player.radius && player.y <= room2.spawnRegion.bottom - player.radius);
+    const room1 = game.experimentalRooms.find(area => area.roomNumber === 1);
+    assert.equal(player.roomId, room1.id);
+    assert.deepEqual([player.x, player.y], [
+        (room1.bounds.left + room1.bounds.right) / 2,
+        (room1.bounds.top + room1.bounds.bottom) / 2
+    ]);
 });
 
 test('NPC targeting drops players across the doorway and cross-room collisions are rejected', () => {
@@ -527,7 +532,12 @@ test('room-local wall queries include only owned geometry plus necessary doorway
     );
     assert.deepEqual(
         Game.prototype.getExperimentalCollisionWalls.call(game, npc).map(wall => wall.id),
-        [...game.experimentalRooms[0].walls.map(wall => wall.id), 'experimental-entrance-experimental-room-1-experimental-hallway-1-2-blocker']
+        [
+            ...game.experimentalRooms[0].walls.map(wall => wall.id),
+            ...game.experimentalDoors
+                .filter(door => door.roomIds.includes('experimental-room-1'))
+                .map(door => door.blocker.id)
+        ]
     );
     const room2Walls = Game.prototype.getExperimentalCollisionWalls.call(game, room2Asteroid).map(wall => wall.id);
     assert.ok(room2Walls.includes('experimental-room-2-wall-bottom'));
@@ -536,7 +546,8 @@ test('room-local wall queries include only owned geometry plus necessary doorway
     assert.equal(room2Walls.includes('experimental-room-1-wall-top'), false);
     const crossingWalls = Game.prototype.getExperimentalCollisionWalls.call(game, crossingHuman).map(wall => wall.id);
     assert.equal(new Set(crossingWalls).size, crossingWalls.length);
-    assert.ok(crossingWalls.includes('experimental-room-1-wall-top') && crossingWalls.includes('experimental-hallway-1-2-wall-top-right'));
+    assert.ok(crossingWalls.includes('experimental-room-1-wall-top-right')
+        && crossingWalls.includes('experimental-hallway-1-2-wall-top-right'));
     assert.equal(crossingWalls.some(id => id.endsWith('-blocker')), false);
 });
 
@@ -582,7 +593,10 @@ test('Experimental rendering includes only current-area entities and viewport-in
     localPlayer.roomId = 'experimental-hallway-1-2';
     localPlayer.y = WORLD_HEIGHT + 500;
     camera.follow(localPlayer);
-    assert.deepEqual(Game.prototype.getRenderableEntities.call(game, [room1Visible, hallwayVisible, room2Distant], camera), [hallwayVisible]);
+    assert.deepEqual(
+        Game.prototype.getRenderableEntities.call(game, [room1Visible, hallwayVisible, room2Distant], camera),
+        [room1Visible, hallwayVisible]
+    );
 
     game.gameState = GAME_MODE.SOLO;
     assert.deepEqual(Game.prototype.getRenderableEntities.call(game, [room1Visible, room2Distant], camera), [room1Visible, room2Distant]);

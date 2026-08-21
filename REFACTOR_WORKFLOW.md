@@ -25,22 +25,14 @@ the ownership and gameplay rules in `AGENTS.md`; it does not replace them.
   `Game.network` is intentionally `null`, and `network_manager.js` is retained
   legacy code. Network-facing methods in `game.js` are dormant unless a future
   product decision restores that subsystem.
-- **Material unresolved questions:** the existing suite has 10 failures that
-  disagree with current implementation in Experimental messaging, population, and
-  lifecycle behavior, shortcut-aware wall/render expectations, and missile
-  speed. These disagreements must be reconciled as implementation bugs, stale
-  tests, or product decisions before refactoring those seams. Vite is now
-  explicitly declared as a development dependency in both package manifests,
-  resolving the previously ambiguous build-tool ownership; installing it still
-  requires registry access or a populated npm cache.
+- **Material unresolved questions:** none remain in the automated correctness
+  suite. Vite is explicitly declared as a development dependency in both
+  package manifests, but installing it still requires registry access or a
+  populated npm cache before the build can be verified in a clean environment.
 
 ### Baseline evidence
 
-- `node --test` discovers 257 tests: 247 pass and 10 fail.
-- The remaining failure groups are one Sector 9 population assertion, eight
-  Experimental lifecycle/message/wall/render assertions, and one missile-speed
-  assertion. These are **unresolved contract drift**, not an invitation to
-  change gameplay merely to make tests green.
+- `node --test` discovers 257 tests: all 257 pass.
 - The two former leveling/speed failures were stale tests. Repository history
   shows deliberate changes that doubled base thrust and capped NPC Projectile
   upgrades at five; the focused leveling suite now represents both current
@@ -49,6 +41,17 @@ the ownership and gameplay rules in `AGENTS.md`; it does not replace them.
   the deliberate notebook-art menu and persistent-profile flow. Their assertions
   now follow the accessible Adventure control, profile actions, and current HUD
   helper copy without changing presentation or gameplay behavior.
+- The former Sector 9 population failure was a stale hard-coded aggression
+  value. Its test now reads the immutable BBG encounter configuration and still
+  verifies that Arena Options cannot redirect the seven fixed defenders.
+- The final nine failures were stale expectations superseded by intentional
+  balancing, shortcut, active-area, materialization, and world-loop changes.
+  Tests and architecture guidance now agree that Experimental preserves
+  temporary bonuses across area transitions, rebuilds the world and returns the
+  human to Sector 1 after death, renders nearby combat rooms within hallway
+  activity depth, includes shortcut blockers in room-local wall queries, fades
+  materialization tint during its final second, and launches missiles at the
+  named 1.8 speed multiplier.
 - The build configuration now declares Vite 8.1.5 in `package.json` and locks
   it in `package-lock.json`. In the current audit environment, `npm ci
   --offline` cannot install it because the package tarball is not cached, so a

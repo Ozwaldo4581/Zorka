@@ -241,9 +241,9 @@ Experimental adds the following systems without replacing standard modes:
 - **Door collision policy** — humans pass; NPCs are confined; projectiles terminate; large bodies reflect; small asteroids are destroyed environmentally without reward/children.
 - **Cross-area isolation** — targeting, collisions, blasts, audio, and rendering reject unrelated areas, with tightly scoped doorway adjacency for human/environment contact.
 - **Camera/minimap** — direct coordinates and current-area minimap mapping replace wrapped presentation only while Experimental is active.
-- **Render culling** — current-area entities and viewport-intersecting entrance walls only, with a fixed high-speed margin.
-- **Transition rules** — confirmed area changes clear tier 1–4 temporary bonuses while preserving shields and persistent progression.
-- **Respawn** — players respawn inside their current area.
+- **Render culling** — active-area entities and viewport-intersecting current/connected-area walls only, with a fixed high-speed margin.
+- **Transition rules** — confirmed area changes preserve temporary bonuses, shields, and persistent progression.
+- **Respawn** — Experimental human death rebuilds run-scoped world state and respawns the retained profile at the center of Sector 1; NPC respawns remain room-aware.
 
 ## Arena Options
 

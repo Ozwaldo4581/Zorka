@@ -15,7 +15,7 @@ Current game modes are:
 - **Solo Arena** — one local player plus NPC ships.
 - **Local PvP Arena** — local/split-screen play with up to eight ships.
 - **Arcade Mode** — a one-life progression challenge with escalating NPC waves.
-- **Experimental Mode** — a separate nine-room campaign shell connected by eight long hallways, with bounded movement, room-local populations, room-aware collision/rendering, and selective simulation.
+- **Experimental Mode** — a separate nine-room campaign shell connected by eleven long hallways, including three persistent shortcuts, with bounded movement, room-local populations, room-aware collision/rendering, and selective simulation.
 
 Baseline desktop controls:
 
@@ -183,18 +183,18 @@ Use the standard wrapped world, shared arena populations, shared damage/progress
 #### Experimental Mode
 
 - Separate `EXPERIMENTAL` game state and cleanup/session lifecycle.
-- Nine full-size combat rooms connected in a fixed chain by eight long Room 0 hallways.
+- Nine full-size combat rooms connected by eight progression hallways and three persistent shortcut hallways.
 - Combat room `n` owns `n` NPCs at level `n` and independently resolves the same Arena Options population targets.
 - Hallways have no persistent population and purge transient environment/projectile state on human entry.
 - Movement is bounded by thick wall segments rather than wrapped.
 - Human ships may pass entrances and commit area membership after doorway clearance; NPCs and large bodies are confined/deflected; projectile representations terminate at blockers; small asteroids can be environmentally destroyed and replaced.
-- Cross-room targeting, collision, blast, spatial audio, simulation, and rendering are filtered by current area, with narrow doorway adjacency exceptions for genuine human/environment contact.
+- Cross-room targeting, collision, blast, and spatial audio are filtered by current area, with narrow doorway adjacency exceptions for genuine human/environment contact. Selective simulation and rendering also include nearby combat rooms while a human is within the configured hallway activity depth.
 - Canonical arrays remain authoritative; per-area indexes accelerate room-local queries.
 - Rooms without a human skip expensive NPC targeting/firing, satellite shots, VFX updates, and spatial audio.
-- Rendering includes current-area entities plus only the entrance-continuity walls intersecting the viewport, using a documented cull margin.
+- Rendering includes active-area entities plus only current/connected-area walls intersecting the viewport, using a documented cull margin.
 - Camera and minimap use direct room/area coordinates. Cleanup restores wrapped camera behavior for standard modes.
-- Confirmed numbered-area transitions clear tier 1–4 temporary bonuses while preserving shield state and general progression.
-- Experimental respawns stay in the player’s current area.
+- Confirmed area transitions preserve temporary bonuses, shield state, and general progression.
+- Experimental human death preserves profile progression, rebuilds run-scoped world state, and respawns the player at the center of Sector 1.
 
 ### 2.6 Arena Options
 

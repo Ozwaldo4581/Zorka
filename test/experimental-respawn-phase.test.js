@@ -34,7 +34,7 @@ test('Experimental materialization anchors movement, preserves aim, and sequence
     player.update(1, { KeyW: true }, idleMouse, null, [], [], [], false, 20, [], null, false, directWorld);
     assert.deepEqual([player.x, player.y, player.vx, player.vy], [400, 500, 0, 0]);
     assert.notEqual(player.rotation, initialRotation);
-    assert.ok(Math.abs(player.getExperimentalRespawnTintProgress() - 1 / 3) < Number.EPSILON);
+    assert.equal(player.getExperimentalRespawnTintProgress(), 0);
     assert.equal(player.spawnImmunityTimer, 0);
     assert.equal(player.fire(), null);
 

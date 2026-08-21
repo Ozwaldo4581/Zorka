@@ -16,14 +16,13 @@ test('Experimental adventure label and shared controller helper text match gamep
     assert.match(hud, /Press Spacebar \/ A to select a Capsule Bonus/);
 });
 
-test('Experimental is forced Hardcore and confirmed human death ends once without respawn', () => {
+test('Experimental preserves profile progression and schedules one world-reset respawn', () => {
     const human = new Player(100, 100, 1, '#f00');
     human.currentHP = 1;
     human.spawnImmunityTimer = 0;
     human.totalXP = 321;
     human.level = 4;
     human.totalCapsulesGained = 7;
-    let result = null;
     let gameOvers = 0;
     const game = {
         gameState: GAME_MODE.EXPERIMENTAL,
@@ -36,15 +35,17 @@ test('Experimental is forced Hardcore and confirmed human death ends once withou
         awardXP() {},
         playSpatialEvent() {},
         createExplosion() {},
-        showArcadeGameOver(value) { gameOvers++; result = value; }
+        saveExperimentalProfile() {},
+        showArcadeGameOver() { gameOvers++; }
     };
-    assert.equal(Game.prototype.isHardcoreActive.call(game), true);
+    assert.equal(Game.prototype.isHardcoreActive.call(game), false);
     Game.prototype.resolvePlayerDamage.call(game, human, 1);
     assert.equal(human.isDead, true);
-    assert.equal(human.respawnTimer, 0);
-    assert.deepEqual(result, { finalLevel: 4, totalXP: 321, totalCapsulesGained: 7 });
+    assert.equal(human.respawnTimer, 2);
+    assert.equal(human.experimentalWorldResetPending, true);
+    assert.deepEqual([human.level, human.totalXP], [4, 321]);
     Game.prototype.resolvePlayerDamage.call(game, human, 1);
-    assert.equal(gameOvers, 1);
+    assert.equal(gameOvers, 0);
 });
 
 test('Experimental shields prevent Game Over and NPC death remains a respawn outcome', () => {
@@ -105,7 +106,7 @@ test('Experimental projectile collision applies the same color hostility rule', 
     assert.deepEqual(damaged, [enemy]);
 });
 
-test('Experimental hallway and objective messages share sector styling with subordinate purge detail', () => {
+test('Experimental hallway and objective messages share sector styling', () => {
     const calls = [];
     const ctx = { save() {}, restore() {}, fillText(text) { calls.push([text, this.font, this.fillStyle]); } };
     const game = {
@@ -117,5 +118,5 @@ test('Experimental hallway and objective messages share sector styling with subo
     Game.prototype.drawExperimentalMessages.call(game, ctx);
     assert.deepEqual(calls[0].slice(1), ['bold 42px "Courier New", monospace', '#ffffff']);
     assert.deepEqual(calls[1].slice(0, 2), ['Sector 0', 'bold 42px "Courier New", monospace']);
-    assert.deepEqual(calls[2].slice(0, 2), ['Capsule Bonuses Purged', 'bold 26px "Courier New", monospace']);
+    assert.equal(calls.length, 2);
 });
