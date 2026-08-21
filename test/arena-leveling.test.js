@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 
 import { Asteroid } from '../entities/asteroid.js';
 import { SpaceDebris, Satellite } from '../entities/hazards.js';
-import { Player } from '../entities/player.js';
+import { NPC_MAX_PROJECTILE_UPGRADES, Player } from '../entities/player.js';
 import { Game } from '../game.js';
 
 test('XP uses cumulative quadratic per-level requirements and queues every crossed level', () => {
@@ -38,7 +38,7 @@ test('level choices validate ten-level caps and Shield Recharge leaves capacity 
     assert.equal(player.pendingLevelUps, 1);
 });
 
-test('Projectile state clamps legacy values and Speed scales thrust without changing the speed cap', () => {
+test('Projectile state clamps legacy values and Speed scales tuned thrust without changing the speed cap', () => {
     const legacyPlayer = new Player(0, 0);
     legacyPlayer.projectileUpgradeCount = 10;
     legacyPlayer.pendingLevelUps = 1;
@@ -53,7 +53,7 @@ test('Projectile state clamps legacy values and Speed scales thrust without chan
         player.update(0.1, { KeyW: true }, {}, null);
         return Math.hypot(player.vx, player.vy);
     });
-    assert.deepEqual(speeds, [80, 120, 160]);
+    assert.deepEqual(speeds, [160, 240, 320]);
 
     const capped = new Player(0, 0);
     capped.speedUpgradeCount = 10;
@@ -81,9 +81,12 @@ test('new NPCs initialize at a target level with consistent XP and resolved upgr
         assert.equal(npc.level, targetLevel);
         assert.equal(npc.totalXP, npc.getLevelThreshold(targetLevel));
         assert.equal(npc.pendingLevelUps, 0);
-        assert.equal(npc.projectileUpgradeCount, Math.min(10, targetLevel));
-        assert.equal(npc.speedUpgradeCount, Math.min(10, Math.max(0, targetLevel - 10)));
-        assert.equal(npc.shieldRechargeUpgradeCount, Math.min(10, Math.max(0, targetLevel - 20)));
+        assert.equal(npc.projectileUpgradeCount, Math.min(NPC_MAX_PROJECTILE_UPGRADES, targetLevel));
+        assert.equal(npc.speedUpgradeCount,
+            Math.min(npc.maxSpeedUpgrades, Math.max(0, targetLevel - NPC_MAX_PROJECTILE_UPGRADES)));
+        assert.equal(npc.shieldRechargeUpgradeCount,
+            Math.min(npc.maxShieldRechargeUpgrades,
+                Math.max(0, targetLevel - NPC_MAX_PROJECTILE_UPGRADES - npc.maxSpeedUpgrades)));
         assert.equal(npc.score, 0);
         assert.equal(npc.prestigeLevel, 0);
     }
