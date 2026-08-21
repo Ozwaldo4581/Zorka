@@ -1,6 +1,6 @@
 import { updateNewtonian, checkCollision, nearestWrappedDisplacement, closestPointOnSegment } from '../physics.js';
 import { Projectile } from './projectile.js';
-import { DESIGN_WIDTH, DESIGN_HEIGHT, WORLD_WIDTH, WORLD_HEIGHT } from '../game.js';
+import { DESIGN_WIDTH, DESIGN_HEIGHT, WORLD_WIDTH, WORLD_HEIGHT } from '../world_config.js';
 
 const BASE_GUN_COOLDOWN = 0.75;
 const BURST_INTERVAL = 0.05;
@@ -556,7 +556,21 @@ export class Player {
         }
     }
 
-    update(dt, keys, mouse, camera, others = [], asteroids = [], gamepads = [], isSplitScreen = false, transformationKills = 20, hazards = [], isAimTargetValid = null, allowTransformations = true, worldRules = null, touchIntent = null) {
+    update(dt, {
+        keys = {},
+        mouse = {},
+        camera = null,
+        others = [],
+        asteroids = [],
+        gamepads = [],
+        isSplitScreen = false,
+        transformationKills = 20,
+        hazards = [],
+        isAimTargetValid = null,
+        allowTransformations = true,
+        worldRules = null,
+        touchIntent = null
+    } = {}) {
         this.updateDamagePulses(dt);
         if (this.isDead) {
             this.resetControllerAimLock(true);
@@ -607,7 +621,7 @@ export class Player {
             const gamepadsList = Array.from(gamepads).filter(g => g !== null);
             if (this.controlMode === 'GAMEPAD' && gamepadsList.length > 0) {
                 // P1 always takes Pad 0 whenever GAMEPAD mode is selected/forced,
-                // in Solo, PVP (split-screen), and Online - even with only 1 pad connected.
+                // in Solo and PVP (split-screen), even with only 1 pad connected.
                 gp = gamepadsList[0];
             }
         } else if (this.id === 2) {

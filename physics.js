@@ -1,4 +1,4 @@
-import { WORLD_WIDTH, WORLD_HEIGHT } from './game.js';
+import { WORLD_WIDTH, WORLD_HEIGHT } from './world_config.js';
 
 export function wrap(entity) {
     // Standard Newtonian wrapping: teleport to opposite side

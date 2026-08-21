@@ -144,9 +144,13 @@ test('HUD touch priority consumes upgrades and capsules before assigning control
 test('Player consumes normalized touch movement, aim, and held-fire intent', () => {
     const player = new Player(100, 100, 1);
     player.beginAimLock({ x: 200, y: 100, radius: 10 });
-    player.update(0.1, { KeyW: true }, {}, null, [], [], [], false, 20, [], () => true, true, null, {
-        movementActive: true, moveX: 1, moveY: 0,
-        aimActive: true, aimX: 0, aimY: 1, fireHeld: true, preserveAimLock: false
+    player.update(0.1, {
+        keys: { KeyW: true },
+        isAimTargetValid: () => true,
+        touchIntent: {
+            movementActive: true, moveX: 1, moveY: 0,
+            aimActive: true, aimX: 0, aimY: 1, fireHeld: true, preserveAimLock: false
+        }
     });
     assert.ok(player.vx > 0);
     assert.ok(Math.abs(player.vy) < 1e-10, 'touch movement replaces rather than sums with keyboard thrust');

@@ -28,7 +28,7 @@ export class HUD {
             this.drawSpeedMeter(ctx, players[0], 650, 980, 3);
             this.drawSpeedMeter(ctx, players[1], 1270, 980, 3);
         } else {
-            // Solo/Online: One meter, centered, laid out in a single row of 5
+            // Solo: One meter, centered, laid out in a single row of 5
             this.drawPowerUpMeter(ctx, players[0], 1920 / 2, 980, 5);
             this.drawXPBar(ctx, players[0], 1920 / 2, 980, 5);
             this.drawLevelUpChoices(ctx, players[0], 1920 / 2, 74);
