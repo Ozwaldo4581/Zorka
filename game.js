@@ -26,11 +26,9 @@ import {
     getSector9BBGAnchorWorldPosition
 } from './world/experimental_rooms.js';
 import { CircleSpatialHash, forEachNearbyCirclePair } from './world/spatial_hash.js';
+import { DESIGN_WIDTH, DESIGN_HEIGHT, WORLD_WIDTH, WORLD_HEIGHT } from './world_config.js';
 
-export const DESIGN_WIDTH = 1920;
-export const DESIGN_HEIGHT = 1080;
-export const WORLD_WIDTH = DESIGN_WIDTH * 9;
-export const WORLD_HEIGHT = DESIGN_HEIGHT * 9;
+export { DESIGN_WIDTH, DESIGN_HEIGHT, WORLD_WIDTH, WORLD_HEIGHT } from './world_config.js';
 export const EXPERIMENTAL_ROOM_GRID_WIDTH = 5;
 export const EXPERIMENTAL_ROOM_GRID_HEIGHT = 5;
 export const EXPERIMENTAL_ROOM_WIDTH = DESIGN_WIDTH * EXPERIMENTAL_ROOM_GRID_WIDTH;
@@ -224,6 +222,7 @@ export class Game {
         this.asteroids = [];
         this.hazards = [];
         this.projectiles = [];
+        this.projectileCompactionPending = false;
         this.vfx = [];
         this.clearExperimentalState();
 
@@ -360,7 +359,7 @@ export class Game {
         });
     }
 
-    spawnPlayers(mode, customShipCount, onlineRoomConfig) {
+    spawnPlayers(mode, customShipCount) {
         this.gameState = mode;
         this.arcadeWaveSize = 0;
         this.arcadeSustainEight = false;
@@ -371,13 +370,7 @@ export class Game {
 
         const isSolo = mode === 'SOLO';
         const isPvP = mode === 'PVP';
-        const isOnline = mode === 'ONLINE';
-
-        if (isOnline && onlineRoomConfig) {
-            this.transformationKills = onlineRoomConfig.transKills || 20;
-        } else {
-            this.transformationKills = 20;
-        }
+        this.transformationKills = 20;
 
         const colors = [...PLAYER_COLORS];
         
@@ -483,14 +476,8 @@ export class Game {
                 }
                 this.players.push(p);
             }
-        } else if (isOnline) {
-            const spawn = sectors[0]; // Just use one for online, others will be remote
-            const p1 = new Player(spawn.x, spawn.y, 1, colors[0]);
-            this.configurePlayerShields(p1);
-            p1.name = "PILOT";
-            p1.controlMode = this.p1ControlMode;
-            this.players = [p1];
         }
+
     }
 
     isHardcoreActive() {
@@ -594,6 +581,7 @@ export class Game {
         this.nextArcadeNpcId = 2;
         this.players = [];
         this.projectiles = [];
+        this.projectileCompactionPending = false;
         this.vfx = [];
         const spawn = { x: WORLD_WIDTH / 2, y: WORLD_HEIGHT / 2 };
         const player = new Player(spawn.x, spawn.y, 1, chooseRandomPlayerColor());
@@ -1288,43 +1276,6 @@ export class Game {
             gpBtn.classList.add('selected');
             kbBtn.classList.remove('selected');
             this.refreshControlOptionButtons();
-            e.stopPropagation();
-        });
-
-        document.getElementById('btn-online-back').addEventListener('click', () => {
-            document.getElementById('online-menu').classList.add('hidden');
-            document.getElementById('controls-selection').classList.add('hidden');
-            document.getElementById('main-menu').classList.remove('hidden');
-        });
-
-        document.getElementById('btn-online-quick-join').addEventListener('click', () => {
-            this.quickJoinOnlineGame();
-        });
-
-        document.getElementById('btn-online-join').addEventListener('click', () => {
-            if (this.selectedLobbyId && this.network.activeLobbies[this.selectedLobbyId]) {
-                const lobby = this.network.activeLobbies[this.selectedLobbyId];
-                this.startOnlineGame('JOIN', lobby.roomId, lobby);
-            }
-        });
-
-        // Online Control Toggle
-        const onlineKbBtn = document.getElementById('online-keyboard-btn');
-        const onlineGpBtn = document.getElementById('online-gamepad-btn');
-
-        onlineKbBtn.addEventListener('click', (e) => {
-            if (onlineKbBtn.disabled) return;
-            this.p1ControlMode = 'KEYBOARD';
-            onlineKbBtn.classList.add('selected');
-            onlineGpBtn.classList.remove('selected');
-            e.stopPropagation();
-        });
-
-        onlineGpBtn.addEventListener('click', (e) => {
-            if (onlineGpBtn.disabled) return;
-            this.p1ControlMode = 'GAMEPAD';
-            onlineGpBtn.classList.add('selected');
-            onlineKbBtn.classList.remove('selected');
             e.stopPropagation();
         });
 
@@ -2662,6 +2613,7 @@ export class Game {
         this.asteroids = [];
         this.hazards = [];
         this.projectiles = [];
+        this.projectileCompactionPending = false;
         this.vfx = [];
         Game.prototype.initializeExperimentalRooms.call(this);
         Game.prototype.setupExperimentalPopulations.call(this);
@@ -2813,6 +2765,7 @@ export class Game {
         this.asteroids = [];
         this.hazards = [];
         this.projectiles = [];
+        this.projectileCompactionPending = false;
         this.vfx = [];
         this.setupExperimentalMatch();
         const human = this.players.find(player => !player.isNPC);
@@ -2843,91 +2796,6 @@ export class Game {
         Game.prototype.beginGameplayMusic.call(this);
         this.resetMouseLockInput();
         return true;
-    }
-
-    async quickJoinOnlineGame() {
-        // Look for an available lobby in this.network.activeLobbies
-        const lobbies = Object.values(this.network.activeLobbies || {});
-        // Find lobbies with < 8 players that have been seen recently
-        const now = Date.now();
-        const availableLobby = lobbies.find(l => (l.playerCount || 0) < 8 && (now - (l.lastSeen || 0)) < 15000);
-
-        if (availableLobby) {
-            console.log('Joining existing lobby:', availableLobby.roomId);
-            await this.startOnlineGame('JOIN', availableLobby.roomId, availableLobby);
-        } else {
-            // Create a new lobby with a unique name
-            const newRoomName = `ARENA-${Math.floor(1000 + Math.random() * 9000)}`;
-            console.log('Creating new lobby:', newRoomName);
-            await this.startOnlineGame('HOST', newRoomName);
-        }
-    }
-
-    async startOnlineGame(type, roomName, config) {
-        const p1 = new Player(WORLD_WIDTH / 2, WORLD_HEIGHT / 2, 1, '#00ffff');
-        p1.name = document.getElementById('p1-name-input').value.toUpperCase() || 'PILOT';
-        p1.controlMode = this.p1ControlMode;
-        this.players = [p1];
-
-        try {
-            if (type === 'HOST') {
-                await this.network.host(roomName, this.transformationKills);
-            } else {
-                this.transformationKills = config?.transKills || 12;
-                await this.network.joinRoom(roomName);
-            }
-        } catch (error) {
-            console.error('Could not join online room:', error);
-            return; // Keep the menu open when Realtime fails.
-        }
-
-        this.gameState = 'ONLINE';
-        document.getElementById('menu-overlay').classList.add('hidden');
-        this.closePauseMenu();
-        this.spawnInitialAsteroids();
-        
-        // Stop BGM when entering online gameplay
-        this.audio.stopBGM?.();
-    }
-
-    updateLobbyListUI(lobbies) {
-        const listEl = document.getElementById('lobby-list');
-        if (!listEl) return;
-        
-        listEl.innerHTML = '';
-        const lobbyIds = Object.keys(lobbies);
-        
-        if (lobbyIds.length === 0) {
-            listEl.innerHTML = '<div style="color: #666; text-align: center; margin-top: 80px;">NO LOBBIES FOUND</div>';
-            document.getElementById('btn-online-join').disabled = true;
-            return;
-        }
-        
-        lobbyIds.forEach(id => {
-            const lobby = lobbies[id];
-            // Only show lobbies that were seen in the last 15 seconds
-            if (Date.now() - lobby.lastSeen > 15000) return;
-
-            const div = document.createElement('div');
-            div.className = 'lobby-item';
-            if (this.selectedLobbyId === id) div.classList.add('selected');
-            
-            div.innerHTML = `
-                <div>
-                    <div style="font-weight: bold; color: #00ffff;">${lobby.roomId}</div>
-                    <div style="font-size: 0.7rem; color: #888;">HOST: ${lobby.hostName} | TRANS: ${lobby.transKills}</div>
-                </div>
-                <div style="color: #00ffff;">${lobby.playerCount}/8</div>
-            `;
-            
-            div.onclick = () => {
-                this.selectedLobbyId = id;
-                this.updateLobbyListUI(lobbies);
-                document.getElementById('btn-online-join').disabled = false;
-            };
-            
-            listEl.appendChild(div);
-        });
     }
 
     updateSoloMockLobby(botCount) {
@@ -2993,9 +2861,6 @@ export class Game {
         this.activeModal = null;
         this.focusBeforeModal = null;
         document.getElementById('quit-confirmation').classList.add('hidden');
-        if (this.network) {
-            this.network.leave();
-        }
         this.experimentalNewGamePlusCycle = 0;
         this.closePauseMenu();
         this.hideArcadeGameOver();
@@ -3011,7 +2876,6 @@ export class Game {
         document.getElementById('main-menu').classList.remove('hidden');
         document.getElementById('arcade-menu').classList.add('hidden');
         document.getElementById('solo-menu').classList.add('hidden');
-        document.getElementById('online-menu').classList.add('hidden');
         document.getElementById('experimental-menu')?.classList.add('hidden');
         document.getElementById('experimental-profile-menu').classList.add('hidden');
         document.getElementById('main-options-popup').classList.add('hidden');
@@ -3038,6 +2902,7 @@ export class Game {
         this.asteroids = [];
         this.hazards = [];
         this.projectiles = [];
+        this.projectileCompactionPending = false;
         this.vfx = [];
         this.clearExperimentalState();
     }
@@ -3062,9 +2927,6 @@ export class Game {
                 Game.prototype.playSpatialEvent.call(this, 'laser_fire', player.x, player.y, player.roomId, cameras);
             }
             
-            if (this.gameState === 'ONLINE' && player.id === 1) {
-                this.network.broadcastFire(projs);
-            }
         }
     }
 
@@ -3434,9 +3296,6 @@ export class Game {
         if (!document.getElementById('solo-menu').classList.contains('hidden')) {
             this.updateGamepadStatus();
         }
-        if (!document.getElementById('online-menu').classList.contains('hidden')) {
-            this.updateOnlineGamepadStatus();
-        }
         
         const gamepads = this.getGamepads();
         const gp = Array.from(gamepads).find(gamepad => gamepad !== null) || null;
@@ -3458,13 +3317,13 @@ export class Game {
             ? ['quit-confirmation']
             : this.arcadeGameOver
                 ? ['arcade-game-over']
-                : ['profile-delete-confirmation', 'experimental-profile-actions', 'help-popup', 'main-options-popup', 'botless-popup', 'options-popup', 'solo-menu', 'online-menu', 'experimental-profile-menu', 'experimental-menu', 'arcade-menu', 'main-menu'];
+                : ['profile-delete-confirmation', 'experimental-profile-actions', 'help-popup', 'main-options-popup', 'botless-popup', 'options-popup', 'solo-menu', 'experimental-profile-menu', 'experimental-menu', 'arcade-menu', 'main-menu'];
         for (const id of potentialContainers) {
             const el = document.getElementById(id);
             if (el && !el.classList.contains('hidden')) {
                 activeMenu = el;
                 // If it's a menu-level container, only count it if it's the specific active one
-                if (id === 'solo-menu' || id === 'online-menu' || id === 'experimental-profile-menu' || id === 'experimental-menu' || id === 'arcade-menu' || id === 'main-menu') {
+                if (id === 'solo-menu' || id === 'experimental-profile-menu' || id === 'experimental-menu' || id === 'arcade-menu' || id === 'main-menu') {
                     // These are siblings in menu-overlay
                 }
                 break;
@@ -3485,7 +3344,6 @@ export class Game {
         }
 
         // Find all interactive elements in the visible menu
-        // We include .lobby-item for the online lobby list
         const buttons = this.getInteractiveElements(activeMenu);
 
         if (buttons.length === 0) return;
@@ -3602,45 +3460,6 @@ export class Game {
         this.refreshControlOptionButtons();
     }
 
-    updateOnlineGamepadStatus() {
-        const gamepads = Array.from(this.getGamepads()).filter(g => g !== null);
-        const count = gamepads.length;
-        const statusEl = document.getElementById('online-gamepad-status');
-        const kbBtn = document.getElementById('online-keyboard-btn');
-        const gpBtn = document.getElementById('online-gamepad-btn');
-        const p1NameInput = document.getElementById('p1-name-input');
-        
-        // Ensure name input is visible in Online menu too
-        const controlsSelection = document.getElementById('controls-selection');
-        if (controlsSelection) {
-            controlsSelection.classList.remove('hidden');
-        }
-
-        if (statusEl) statusEl.innerText = `${count} GAMEPAD(S) DETECTED`;
-
-        if (count === 0) {
-            kbBtn.disabled = false;
-            gpBtn.disabled = true;
-            if (this.p1ControlMode === 'GAMEPAD') {
-                gpBtn.classList.add('selected');
-                kbBtn.classList.remove('selected');
-            } else {
-                kbBtn.classList.add('selected');
-                gpBtn.classList.remove('selected');
-            }
-        } else {
-            kbBtn.disabled = false;
-            gpBtn.disabled = false;
-            if (this.p1ControlMode === 'GAMEPAD') {
-                gpBtn.classList.add('selected');
-                kbBtn.classList.remove('selected');
-            } else {
-                kbBtn.classList.add('selected');
-                gpBtn.classList.remove('selected');
-            }
-        }
-    }
-
     update(dt) {
         if (this.victoryFadeActive) {
             this.victoryFadeTimer += dt;
@@ -3691,7 +3510,21 @@ export class Game {
                     else if (player.controllerAimLockLatched || !player.controllerAimLockArmed) player.resetControllerAimLock();
                     const isAimTargetValid = target => this.isValidAimLockTarget(player, target);
                     const touchIntent = player.id === 1 ? this.getTouchIntent() : null;
-                    player.update(dt, this.keys, this.mouse, inputCamera, this.players, this.asteroids, gamepads, this.gameState === 'PVP', this.transformationKills, this.hazards, isAimTargetValid, this.areTransformationsEnabled(), worldRules, touchIntent);
+                    player.update(dt, {
+                        keys: this.keys,
+                        mouse: this.mouse,
+                        camera: inputCamera,
+                        others: this.players,
+                        asteroids: this.asteroids,
+                        gamepads,
+                        isSplitScreen: this.gameState === GAME_MODE.PVP,
+                        transformationKills: this.transformationKills,
+                        hazards: this.hazards,
+                        isAimTargetValid,
+                        allowTransformations: this.areTransformationsEnabled(),
+                        worldRules,
+                        touchIntent
+                    });
                     if (player.id === 1 && this.touch.persistentLock && !player.aimLockActive) this.touch.persistentLock = false;
                     if (player.id === 1) {
                         this.mouse.m2Pressed = false;
@@ -3772,7 +3605,15 @@ export class Game {
                         ? Game.prototype.getExperimentalAreaEntities.call(this, player.roomId, 'asteroids') : this.asteroids;
                     const localHazards = worldRules.usesRooms
                         ? Game.prototype.getExperimentalAreaEntities.call(this, player.roomId, 'hazards') : this.hazards;
-                    player.update(dt, {}, {}, this.camera, localTargets, localAsteroids, [], false, this.transformationKills, localHazards, null, this.areTransformationsEnabled(), worldRules);
+                    player.update(dt, {
+                        camera: this.camera,
+                        others: localTargets,
+                        asteroids: localAsteroids,
+                        transformationKills: this.transformationKills,
+                        hazards: localHazards,
+                        allowTransformations: this.areTransformationsEnabled(),
+                        worldRules
+                    });
                     if (player.isFixedPositionNPC) {
                         player.x = player.fixedAnchorX;
                         player.y = player.fixedAnchorY;
@@ -3815,10 +3656,6 @@ export class Game {
         for (const prestigePlayer of prestigeTriggers) {
             this.applyPrestigeShieldPulse(prestigePlayer);
             prestigePlayer.justPrestiged = false;
-        }
-
-        if (this.gameState === 'ONLINE') {
-            this.network.sendState();
         }
 
         if (worldRules.usesRooms) {
@@ -4319,13 +4156,23 @@ export class Game {
 
     removeProjectile(projectile) {
         if (!projectile || projectile.isRemoved) return false;
-        const index = this.projectiles.indexOf(projectile);
-        if (index === -1) return false;
-        Game.prototype.unindexExperimentalEntity.call(this, 'projectiles', projectile);
-        this.projectiles.splice(index, 1);
         projectile.isRemoved = true;
+        this.projectileCompactionPending = true;
+        Game.prototype.unindexExperimentalEntity.call(this, 'projectiles', projectile);
         this.clearAimLocksForTarget(projectile);
         return true;
+    }
+
+    compactRemovedProjectiles() {
+        if (!this.projectileCompactionPending) return 0;
+        let writeIndex = 0;
+        for (const projectile of this.projectiles) {
+            if (!projectile?.isRemoved) this.projectiles[writeIndex++] = projectile;
+        }
+        const removedCount = this.projectiles.length - writeIndex;
+        this.projectiles.length = writeIndex;
+        this.projectileCompactionPending = false;
+        return removedCount;
     }
 
     clearAimLocksForTarget(target) {
@@ -4788,6 +4635,11 @@ export class Game {
                 }
             }
         }
+
+        // Removal flags and Experimental indexes take effect at the collision
+        // site; compact the canonical array once after every same-frame consumer
+        // has had a chance to observe those flags.
+        Game.prototype.compactRemovedProjectiles.call(this);
     }
 
     forEachProjectileCollisionCandidate(projectiles, callback) {

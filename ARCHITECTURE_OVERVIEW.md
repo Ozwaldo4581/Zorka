@@ -29,7 +29,7 @@ The standard arena remains the reusable gameplay foundation: shared `Player`, `P
 
 Experimental Mode deliberately overrides world topology, wrapping, spatial filtering, and population scope through explicit seams rather than forking shared entity classes. Arcade Mode deliberately overrides wave progression, transformation availability, and death/respawn outcome.
 
-Online multiplayer is not active. `Game.network` is `null`, and `network_manager.js` is legacy code rather than an active dependency.
+Online multiplayer is not active. The UI and `Game` runtime expose no online entry points, `Game.network` is `null`, and `network_manager.js` is isolated legacy source rather than an active dependency.
 
 ## Runtime Composition
 
@@ -40,6 +40,9 @@ Online multiplayer is not active. `Game.network` is `null`, and `network_manager
 ### Game
 
 File: `game.js`
+
+The dependency-free `world_config.js` module owns the immutable design and
+standard-world dimensions consumed by `Game`, entities, physics, and cameras.
 
 `Game` owns and coordinates:
 
@@ -177,6 +180,11 @@ Files: `entities/player.js`, `entities/projectile.js`, `game.js`
 `Player.fire()` defines weapon output; `Game.handleFire()` inserts projectiles and coordinates audio/network-independent match behavior.
 
 Projectile representations include ordinary shots, Laser, missiles, skinny/AoE missiles, orbitals, and tentacles. Ordinary Normal, Antigun, and Double shots receive independent world-width travel caps. Specialized projectiles remain governed by their own lifespan/behavior.
+
+Projectile removal becomes authoritative immediately through `isRemoved` and
+immediate Experimental-index removal. `Game` compacts the canonical projectile
+array once at the end of collision processing, preserving same-frame exclusion
+without repeated array searches and splices.
 
 Experimental projectile behavior is room-aware. Shots cannot target or collide across unrelated areas, and wall/door blockers terminate projectile representations; missiles detonate once at the first wall impact.
 

@@ -88,7 +88,7 @@ test('rooms without humans skip NPC targeting, firing, Satellite shots, VFX, and
     Game.prototype.indexExperimentalEntity.call(game, 'hazards', satellite);
     const worldRules = Game.prototype.getWorldRules.call(game);
 
-    npc.update(1, {}, {}, null, [], [], [], false, 20, [], null, true, worldRules);
+    npc.update(1, { worldRules });
     satellite.update(1, game, worldRules);
     Game.prototype.handleFire.call(game, npc.id);
     assert.equal(npc.x, 125);

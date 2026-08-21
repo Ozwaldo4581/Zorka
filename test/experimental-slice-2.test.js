@@ -96,7 +96,7 @@ test('Experimental transformation policy and NPC palette are mode isolated', () 
     const transformed = new Player(0, 0);
     transformed.score = 100;
     transformed.setEvolutionForm('DIMENSION X');
-    transformed.update(0, {}, {}, null, [], [], [], false, 20, [], null, false);
+    transformed.update(0, { allowTransformations: false });
     assert.equal(transformed.isDimensionX, false);
 });
 

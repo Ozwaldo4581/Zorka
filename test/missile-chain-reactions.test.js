@@ -112,6 +112,7 @@ test('standard missile blasts recursively detonate and remove nearby missiles on
     assert.equal(third.hasDetonated, true, 'the chain reaches missiles outside the first blast');
     assert.equal(ordinaryProjectile.hasDetonated, undefined, 'ordinary projectiles are removed without detonating');
     assert.equal(ordinaryProjectile.isRemoved, true);
+    Game.prototype.compactRemovedProjectiles.call(game);
     assert.deepEqual(game.projectiles, []);
 });
 
@@ -124,6 +125,7 @@ test('standard missile blasts dispatch skinny missiles through their existing Ao
 
     assert.equal(skinny.hasDetonated, true);
     assert.deepEqual(explosions.map(explosion => explosion.radius), [160, 80]);
+    Game.prototype.compactRemovedProjectiles.call(game);
     assert.deepEqual(game.projectiles, [first]);
 });
 
@@ -179,6 +181,7 @@ test('missile blasts remove hostile ordinary gun variants and Orbs but preserve 
     assert.equal(antigun.isRemoved, true);
     assert.equal(doubleGun.isRemoved, true);
     assert.equal(orb.isRemoved, true);
+    Game.prototype.compactRemovedProjectiles.call(game);
     assert.deepEqual(game.projectiles, [first, laser, friendly, outside]);
 });
 
