@@ -24,6 +24,9 @@ export class CircleSpatialHash {
         this.getPartition = getPartition;
         this.partitions = new Map();
         this.maximumRadius = 0;
+        this.nearbyIndexes = [];
+        this.visitStamps = new Uint32Array(this.entities.length);
+        this.visitGeneration = 0;
 
         for (let index = 0; index < this.entities.length; index++) {
             const entity = this.entities[index];
@@ -60,14 +63,20 @@ export class CircleSpatialHash {
         return this.partitions.get(partition)?.get(column)?.get(row);
     }
 
-    queryNearbyIndexes(entity, minimumIndex = 0) {
-        if (!entity || !Number.isFinite(entity.x) || !Number.isFinite(entity.y)) return [];
+    collectNearbyIndexes(entity, minimumIndex = 0) {
+        const nearbyIndexes = this.nearbyIndexes;
+        nearbyIndexes.length = 0;
+        if (!entity || !Number.isFinite(entity.x) || !Number.isFinite(entity.y)) return nearbyIndexes;
         const partition = this.getPartition(entity);
         const { column, row } = this.getCell(entity);
         const searchRadius = Math.ceil(
             (Math.max(0, entity.radius || 0) + this.maximumRadius) / this.cellSize
         );
-        const nearbyIndexes = new Set();
+        this.visitGeneration = (this.visitGeneration + 1) >>> 0;
+        if (this.visitGeneration === 0) {
+            this.visitStamps.fill(0);
+            this.visitGeneration = 1;
+        }
 
         for (let offsetX = -searchRadius; offsetX <= searchRadius; offsetX++) {
             const candidateColumn = this.wrap
@@ -78,15 +87,41 @@ export class CircleSpatialHash {
                 const bucket = this.getBucket(partition, candidateColumn, candidateRow);
                 if (!bucket) continue;
                 for (const index of bucket) {
-                    if (index >= minimumIndex) nearbyIndexes.add(index);
+                    if (index < minimumIndex || this.visitStamps[index] === this.visitGeneration) continue;
+                    this.visitStamps[index] = this.visitGeneration;
+                    nearbyIndexes.push(index);
                 }
             }
         }
-        return [...nearbyIndexes].sort((a, b) => a - b);
+        nearbyIndexes.sort((a, b) => a - b);
+        return nearbyIndexes;
+    }
+
+    queryNearbyIndexes(entity, minimumIndex = 0) {
+        return [...this.collectNearbyIndexes(entity, minimumIndex)];
+    }
+
+    forEachNearby(entity, callback, minimumIndex = 0, reverse = false) {
+        const nearbyIndexes = this.collectNearbyIndexes(entity, minimumIndex);
+        let visitedCount = 0;
+        if (reverse) {
+            for (let index = nearbyIndexes.length - 1; index >= 0; index--) {
+                visitedCount++;
+                if (callback(this.entities[nearbyIndexes[index]], nearbyIndexes[index]) === false) return visitedCount;
+            }
+        } else {
+            for (let index = 0; index < nearbyIndexes.length; index++) {
+                visitedCount++;
+                if (callback(this.entities[nearbyIndexes[index]], nearbyIndexes[index]) === false) return visitedCount;
+            }
+        }
+        return visitedCount;
     }
 
     queryNearby(entity) {
-        return this.queryNearbyIndexes(entity).map(index => this.entities[index]);
+        const nearby = [];
+        this.forEachNearby(entity, candidate => nearby.push(candidate));
+        return nearby;
     }
 }
 
@@ -97,10 +132,10 @@ export function forEachNearbyCirclePair(entities, callback, options = {}) {
     let candidateCount = 0;
     for (let firstIndex = 0; firstIndex < entities.length; firstIndex++) {
         const first = entities[firstIndex];
-        for (const secondIndex of index.queryNearbyIndexes(first, firstIndex + 1)) {
+        index.forEachNearby(first, (_second, secondIndex) => {
             candidateCount++;
-            if (callback(first, entities[secondIndex], firstIndex, secondIndex) === false) break;
-        }
+            return callback(first, entities[secondIndex], firstIndex, secondIndex);
+        }, firstIndex + 1);
     }
     return candidateCount;
 }

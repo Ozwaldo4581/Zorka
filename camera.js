@@ -1,4 +1,4 @@
-import { DESIGN_WIDTH, DESIGN_HEIGHT, WORLD_WIDTH, WORLD_HEIGHT } from './game.js';
+import { DESIGN_WIDTH, DESIGN_HEIGHT, WORLD_WIDTH, WORLD_HEIGHT } from './world_config.js';
 import { nearestWrappedDisplacement } from './physics.js';
 
 export const DEFAULT_GAMEPLAY_ZOOM = 0.6;
