@@ -94,3 +94,25 @@ test('reusable spatial hash returns nearby cross-collection candidates in source
     const projectile = { x: 10, y: 20, radius: 8, roomId: 'one' };
     assert.deepEqual(index.queryNearby(projectile), [targets[0], targets[3]]);
 });
+
+test('allocation-light nearby iteration preserves direction, early exit, and wrapped deduplication', () => {
+    const targets = [
+        { x: 3, y: 50, radius: 60 },
+        { x: 997, y: 50, radius: 60 },
+        { x: 20, y: 50, radius: 60 }
+    ];
+    const index = new CircleSpatialHash(targets, {
+        cellSize: 100, wrap: true, width: 1000, height: 1000
+    });
+    const query = { x: 5, y: 50, radius: 60 };
+    const forward = [];
+    assert.equal(index.forEachNearby(query, (_target, targetIndex) => forward.push(targetIndex)), 3);
+    assert.deepEqual(forward, [0, 1, 2]);
+
+    const reverse = [];
+    assert.equal(index.forEachNearby(query, (_target, targetIndex) => {
+        reverse.push(targetIndex);
+        return false;
+    }, 0, true), 1);
+    assert.deepEqual(reverse, [2]);
+});

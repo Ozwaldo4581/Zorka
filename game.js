@@ -4458,11 +4458,9 @@ export class Game {
             if (!p || p.isRemoved || p.hasDetonated) continue;
 
             // Check against Asteroids
-            const projectileAsteroids = asteroidCollisionIndex.queryNearby(p);
-            for (let j = projectileAsteroids.length - 1; j >= 0; j--) {
-                const a = projectileAsteroids[j];
-                if (!a || a.isDestroyed) continue;
-                if (!Game.prototype.areExperimentalEntitiesCoLocated.call(this, p, a)) continue;
+            asteroidCollisionIndex.forEachNearby(p, a => {
+                if (!a || a.isDestroyed) return;
+                if (!Game.prototype.areExperimentalEntitiesCoLocated.call(this, p, a)) return;
                 if (checkCollision(p, a)) {
                     if (p.isMissile || p.isSkinnyMissile) {
                         if (p.isSkinnyMissile) this.detonateAoEProjectile(p);
@@ -4478,18 +4476,16 @@ export class Game {
                         }
                         this.hitTarget(a, p.owner);
                     }
-                    if (!p.isTentacle) break;
+                    if (!p.isTentacle) return false;
                 }
-            }
+            }, 0, true);
 
             if (p.isRemoved || p.hasDetonated) continue;
 
             // Check against Hazards (Space Debris and Satellites)
-            const projectileHazards = hazardCollisionIndex.queryNearby(p);
-            for (let j = projectileHazards.length - 1; j >= 0; j--) {
-                const h = projectileHazards[j];
-                if (!h || h.isDestroyed) continue;
-                if (!Game.prototype.areExperimentalEntitiesCoLocated.call(this, p, h)) continue;
+            hazardCollisionIndex.forEachNearby(p, h => {
+                if (!h || h.isDestroyed) return;
+                if (!Game.prototype.areExperimentalEntitiesCoLocated.call(this, p, h)) return;
                 if (checkCollision(p, h)) {
                     if (p.isMissile || p.isSkinnyMissile) {
                         if (p.isSkinnyMissile) this.detonateAoEProjectile(p);
@@ -4505,9 +4501,9 @@ export class Game {
                         }
                         this.hitTarget(h, p.owner);
                     }
-                    if (!p.isTentacle) break;
+                    if (!p.isTentacle) return false;
                 }
-            }
+            }, 0, true);
         }
 
         // Projectiles vs Players (PvP)
@@ -4654,7 +4650,7 @@ export class Game {
 
     createCollisionSpatialHash(entities) {
         const isExperimental = this.gameState === GAME_MODE.EXPERIMENTAL;
-        return new CircleSpatialHash([...entities], {
+        return new CircleSpatialHash(entities, {
             getPartition: isExperimental ? entity => entity.roomId || '' : undefined
         });
     }
