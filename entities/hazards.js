@@ -1,6 +1,6 @@
 import { updateNewtonian } from '../physics.js';
 import { Projectile } from './projectile.js';
-import { WORLD_WIDTH, WORLD_HEIGHT } from '../game.js';
+import { WORLD_WIDTH, WORLD_HEIGHT } from '../world_config.js';
 
 export class SpaceDebris {
     constructor(x, y) {

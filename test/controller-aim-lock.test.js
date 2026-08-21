@@ -20,12 +20,12 @@ const gamepadInput = ({ leftX = 0, leftY = -1, rightX = 1, rightY = 0 } = {}) =>
 
 const updateKeyboard = (player, { targetIsValid = () => true, mouse = {}, keys = { KeyW: true } } = {}) => {
     player.controlMode = 'KEYBOARD';
-    player.update(0.1, keys, mouseInput(mouse), null, [], [], [], false, 20, [], targetIsValid);
+    player.update(0.1, { keys, mouse: mouseInput(mouse), isAimTargetValid: targetIsValid });
 };
 
 const updateController = (player, pad, targetIsValid = () => true) => {
     player.controlMode = 'GAMEPAD';
-    player.update(0.1, {}, mouseInput(), null, [], [], [pad], false, 20, [], targetIsValid);
+    player.update(0.1, { mouse: mouseInput(), gamepads: [pad], isAimTargetValid: targetIsValid });
 };
 
 test('keyboard movement remains absolute with a valid lock', () => {
@@ -110,7 +110,7 @@ test('target locking does not change movement axes or NPC steering', () => {
     npc.isNPC = true;
     npc.beginAimLock({ x: 200, y: 100, radius: 10 });
     npc.updateNPC = (_dt, _others, _asteroids, setForce) => setForce({ x: 123, y: 456 });
-    npc.update(0.1, { KeyW: true }, mouseInput({ m2Held: true }), null, [], [], [], false, 20, [], () => true);
+    npc.update(0.1, { keys: { KeyW: true }, mouse: mouseInput({ m2Held: true }), isAimTargetValid: () => true });
     assert.ok(npc.vx > 0);
     assert.ok(npc.vy > 0);
 });

@@ -31,7 +31,7 @@ test('Experimental materialization anchors movement, preserves aim, and sequence
     assert.equal(player.experimentalRespawnAnchorY, 500);
 
     const initialRotation = player.rotation;
-    player.update(1, { KeyW: true }, idleMouse, null, [], [], [], false, 20, [], null, false, directWorld);
+    player.update(1, { keys: { KeyW: true }, mouse: idleMouse, allowTransformations: false, worldRules: directWorld });
     assert.deepEqual([player.x, player.y, player.vx, player.vy], [400, 500, 0, 0]);
     assert.notEqual(player.rotation, initialRotation);
     assert.equal(player.getExperimentalRespawnTintProgress(), 0);
@@ -40,7 +40,7 @@ test('Experimental materialization anchors movement, preserves aim, and sequence
 
     player.burstCount = 2;
     player.shouldTriggerBurstFire = true;
-    player.update(2, { KeyW: true }, idleMouse, null, [], [], [], false, 20, [], null, false, directWorld);
+    player.update(2, { keys: { KeyW: true }, mouse: idleMouse, allowTransformations: false, worldRules: directWorld });
     assert.deepEqual([player.x, player.y, player.vx, player.vy], [400, 500, 0, 0]);
     assert.equal(player.isExperimentalRespawnPhaseActive(), false);
     assert.equal(player.spawnImmunityTimer, SPAWN_IMMUNITY_DURATION);
@@ -48,7 +48,7 @@ test('Experimental materialization anchors movement, preserves aim, and sequence
     assert.equal(player.burstCount, 0);
     assert.equal(player.shouldTriggerBurstFire, false);
 
-    player.update(0.25, {}, idleMouse, null, [], [], [], false, 20, [], null, false, directWorld);
+    player.update(0.25, { mouse: idleMouse, allowTransformations: false, worldRules: directWorld });
     assert.equal(player.spawnImmunityTimer, SPAWN_IMMUNITY_DURATION - 0.25);
 });
 

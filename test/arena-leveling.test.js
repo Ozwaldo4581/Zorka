@@ -50,7 +50,7 @@ test('Projectile state clamps legacy values and Speed scales tuned thrust withou
         const player = new Player(0, 0);
         player.controlMode = 'KEYBOARD';
         player.speedUpgradeCount = speedUpgradeCount;
-        player.update(0.1, { KeyW: true }, {}, null);
+        player.update(0.1, { keys: { KeyW: true } });
         return Math.hypot(player.vx, player.vy);
     });
     assert.deepEqual(speeds, [160, 240, 320]);
@@ -58,7 +58,7 @@ test('Projectile state clamps legacy values and Speed scales tuned thrust withou
     const capped = new Player(0, 0);
     capped.speedUpgradeCount = 10;
     capped.vx = 900;
-    capped.update(0, {}, {}, null);
+    capped.update(0);
     assert.equal(Math.hypot(capped.vx, capped.vy), 800);
 });
 
@@ -114,7 +114,7 @@ test('disabled transformations enforce Earthling without consuming score or gran
     player.score = 100;
     player.isEventHorizon = true;
     player.justPrestiged = true;
-    player.update(0, {}, {}, null, [], [], [], false, 20, [], null, false);
+    player.update(0, { allowTransformations: false });
     assert.equal(player.score, 100);
     assert.equal(player.prestigeLevel, 0);
     assert.equal(player.justPrestiged, false);

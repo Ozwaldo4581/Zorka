@@ -8,8 +8,8 @@ the ownership and gameplay rules in `AGENTS.md`; it does not replace them.
 - **Supported runtime modes:** Solo Arena, Local PvP Arena, Arcade Mode, and
   Experimental Mode are exposed by the UI and composed by `Game`. Experimental
   now includes persistent profiles, shortcuts, and New Game Plus behavior.
-- **World rules:** `game.js` is authoritative for the 1920 x 1080 design size
-  and the 17280 x 9720 standard world. Standard modes wrap. Experimental uses
+- **World rules:** dependency-free `world_config.js` owns the immutable 1920 x
+  1080 design size and 17280 x 9720 standard world dimensions. Standard modes wrap. Experimental uses
   `getWorldRules()` to select bounded, area-aware movement over immutable
   topology from `world/experimental_rooms.js`.
 - **Gameplay ownership:** `Game` owns canonical match collections and
@@ -21,10 +21,9 @@ the ownership and gameplay rules in `AGENTS.md`; it does not replace them.
   retains profile progression while rebuilding run-scoped world state after a
   human death, and its shortcuts add doorway geometry beyond the original
   linear route.
-- **Legacy/dormant behavior:** online multiplayer is not active,
-  `Game.network` is intentionally `null`, and `network_manager.js` is retained
-  legacy code. Network-facing methods in `game.js` are dormant unless a future
-  product decision restores that subsystem.
+- **Legacy/dormant behavior:** online multiplayer is not active, its UI and
+  `Game` runtime entry points have been removed, `Game.network` is intentionally
+  `null`, and `network_manager.js` is retained as isolated legacy source.
 - **Material unresolved questions:** none remain in the automated correctness
   suite. Vite is explicitly declared as a development dependency in both
   package manifests, but installing it still requires registry access or a

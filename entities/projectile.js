@@ -1,5 +1,5 @@
 import { nearestWrappedDisplacement, updateNewtonian } from '../physics.js';
-import { WORLD_WIDTH, WORLD_HEIGHT } from '../game.js';
+import { WORLD_WIDTH, WORLD_HEIGHT } from '../world_config.js';
 
 export class Projectile {
     constructor(x, y, vx, vy, color = '#00ffff') {
