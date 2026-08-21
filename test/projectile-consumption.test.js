@@ -63,6 +63,26 @@ function collisionGame(projectiles, gameState = GAME_MODE.SOLO) {
     return { game, explosions };
 }
 
+test('projectile removal is immediate while canonical compaction is deferred and stable', () => {
+    const first = projectile(CATEGORY.ORDINARY_GUN, { id: 1 });
+    const removed = projectile(CATEGORY.ORDINARY_GUN, { id: 2 });
+    const last = projectile(CATEGORY.LASER, { id: 3 });
+    const game = collisionGame([first, removed, last]).game;
+    const roomIndex = { projectiles: new Set([first, removed, last]) };
+    game.experimentalAreaIndexes = new Map([['room', roomIndex]]);
+    removed.roomId = 'room';
+
+    assert.equal(game.removeProjectile(removed), true);
+    assert.equal(removed.isRemoved, true, 'same-frame consumers see authoritative removal immediately');
+    assert.equal(roomIndex.projectiles.has(removed), false, 'derived indexes update at removal time');
+    assert.deepEqual(game.projectiles, [first, removed, last], 'physical compaction waits for the lifecycle boundary');
+    assert.equal(game.removeProjectile(removed), false, 'a projectile can only be removed once');
+
+    assert.equal(Game.prototype.compactRemovedProjectiles.call(game), 1);
+    assert.deepEqual(game.projectiles, [first, last], 'compaction preserves survivor order');
+    assert.equal(Game.prototype.compactRemovedProjectiles.call(game), 0, 'a clean collection is not rescanned');
+});
+
 test('authoritative pair pass enforces survivability and detonates missiles once', () => {
     const enemyA = { id: 1 };
     const enemyB = { id: 2 };

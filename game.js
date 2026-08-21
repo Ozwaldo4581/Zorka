@@ -222,6 +222,7 @@ export class Game {
         this.asteroids = [];
         this.hazards = [];
         this.projectiles = [];
+        this.projectileCompactionPending = false;
         this.vfx = [];
         this.clearExperimentalState();
 
@@ -580,6 +581,7 @@ export class Game {
         this.nextArcadeNpcId = 2;
         this.players = [];
         this.projectiles = [];
+        this.projectileCompactionPending = false;
         this.vfx = [];
         const spawn = { x: WORLD_WIDTH / 2, y: WORLD_HEIGHT / 2 };
         const player = new Player(spawn.x, spawn.y, 1, chooseRandomPlayerColor());
@@ -2611,6 +2613,7 @@ export class Game {
         this.asteroids = [];
         this.hazards = [];
         this.projectiles = [];
+        this.projectileCompactionPending = false;
         this.vfx = [];
         Game.prototype.initializeExperimentalRooms.call(this);
         Game.prototype.setupExperimentalPopulations.call(this);
@@ -2762,6 +2765,7 @@ export class Game {
         this.asteroids = [];
         this.hazards = [];
         this.projectiles = [];
+        this.projectileCompactionPending = false;
         this.vfx = [];
         this.setupExperimentalMatch();
         const human = this.players.find(player => !player.isNPC);
@@ -2898,6 +2902,7 @@ export class Game {
         this.asteroids = [];
         this.hazards = [];
         this.projectiles = [];
+        this.projectileCompactionPending = false;
         this.vfx = [];
         this.clearExperimentalState();
     }
@@ -4151,13 +4156,23 @@ export class Game {
 
     removeProjectile(projectile) {
         if (!projectile || projectile.isRemoved) return false;
-        const index = this.projectiles.indexOf(projectile);
-        if (index === -1) return false;
-        Game.prototype.unindexExperimentalEntity.call(this, 'projectiles', projectile);
-        this.projectiles.splice(index, 1);
         projectile.isRemoved = true;
+        this.projectileCompactionPending = true;
+        Game.prototype.unindexExperimentalEntity.call(this, 'projectiles', projectile);
         this.clearAimLocksForTarget(projectile);
         return true;
+    }
+
+    compactRemovedProjectiles() {
+        if (!this.projectileCompactionPending) return 0;
+        let writeIndex = 0;
+        for (const projectile of this.projectiles) {
+            if (!projectile?.isRemoved) this.projectiles[writeIndex++] = projectile;
+        }
+        const removedCount = this.projectiles.length - writeIndex;
+        this.projectiles.length = writeIndex;
+        this.projectileCompactionPending = false;
+        return removedCount;
     }
 
     clearAimLocksForTarget(target) {
@@ -4620,6 +4635,11 @@ export class Game {
                 }
             }
         }
+
+        // Removal flags and Experimental indexes take effect at the collision
+        // site; compact the canonical array once after every same-frame consumer
+        // has had a chance to observe those flags.
+        Game.prototype.compactRemovedProjectiles.call(this);
     }
 
     forEachProjectileCollisionCandidate(projectiles, callback) {

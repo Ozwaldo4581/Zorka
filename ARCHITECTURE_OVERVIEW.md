@@ -181,6 +181,11 @@ Files: `entities/player.js`, `entities/projectile.js`, `game.js`
 
 Projectile representations include ordinary shots, Laser, missiles, skinny/AoE missiles, orbitals, and tentacles. Ordinary Normal, Antigun, and Double shots receive independent world-width travel caps. Specialized projectiles remain governed by their own lifespan/behavior.
 
+Projectile removal becomes authoritative immediately through `isRemoved` and
+immediate Experimental-index removal. `Game` compacts the canonical projectile
+array once at the end of collision processing, preserving same-frame exclusion
+without repeated array searches and splices.
+
 Experimental projectile behavior is room-aware. Shots cannot target or collide across unrelated areas, and wall/door blockers terminate projectile representations; missiles detonate once at the first wall impact.
 
 ### Arena Objects
