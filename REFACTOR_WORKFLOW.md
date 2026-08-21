@@ -30,9 +30,10 @@ the ownership and gameplay rules in `AGENTS.md`; it does not replace them.
   Experimental copy and lifecycle behavior, shortcut-aware wall/render
   expectations, and missile speed. These disagreements must be reconciled as
   implementation bugs, stale tests, or product decisions before refactoring
-  those seams. The build script also names Vite without declaring it in the
-  package lock, so a clean checkout cannot currently build until the intended
-  toolchain dependency policy is resolved.
+  those seams. Vite is now explicitly declared as a development dependency in
+  both package manifests, resolving the previously ambiguous build-tool
+  ownership; installing it still requires registry access or a populated npm
+  cache.
 
 ### Baseline evidence
 
@@ -42,9 +43,11 @@ the ownership and gameplay rules in `AGENTS.md`; it does not replace them.
   assertion, five Experimental lifecycle/wall/render assertions, and one
   missile-speed assertion. These are **unresolved contract drift**, not an
   invitation to change gameplay merely to make tests green.
-- `npm ci` succeeds but installs no Vite binary. Consequently `npm run build`
-  fails with `vite: not found`. Installing Vite was not possible in the audit
-  environment because the configured registry returned HTTP 403.
+- The build configuration now declares Vite 8.1.5 in `package.json` and locks
+  it in `package-lock.json`. In the current audit environment, `npm ci
+  --offline` cannot install it because the package tarball is not cached, so a
+  clean build remains an environment-limited verification item rather than a
+  manifest disagreement.
 - No performance optimization is approved from this audit. Performance work
   remains blocked on a reproducible browser baseline after correctness and
   build configuration are trustworthy.
