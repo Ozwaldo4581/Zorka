@@ -24,6 +24,8 @@ import {
     SECTOR_9_BBG_ENCOUNTER,
     getSector9BBGImageRect,
     getSector9BBGAnchorWorldPosition
+    , createExperimentalWallIndex
+    , queryExperimentalWallIndex
 } from './world/experimental_rooms.js';
 import { CircleSpatialHash, forEachNearbyCirclePair } from './world/spatial_hash.js';
 import { DESIGN_WIDTH, DESIGN_HEIGHT, WORLD_WIDTH, WORLD_HEIGHT } from './world_config.js';
@@ -1949,6 +1951,7 @@ export class Game {
         this.experimentalSessionId = (this.experimentalSessionId || 0) + 1;
         this.experimentalRoomAssignments = new Map();
         this.experimentalAreaIndexes = new Map();
+        this.experimentalWallIndexes = new Map();
         this.experimentalCameraState = null;
         this.experimentalSectorMessage = null;
         this.experimentalObjectiveMessage = null;
@@ -1972,6 +1975,9 @@ export class Game {
     initializeExperimentalRooms() {
         this.experimentalRooms = createExperimentalAreas(EXPERIMENTAL_ROOM_WIDTH, EXPERIMENTAL_ROOM_HEIGHT);
         this.experimentalDoors = createExperimentalDoors(this.experimentalRooms);
+        this.experimentalWallIndexes = new Map(this.experimentalRooms.map(area => [
+            area.id, createExperimentalWallIndex(area)
+        ]));
         Game.prototype.initializeExperimentalAreaIndexes.call(this);
         Game.prototype.initializeExperimentalEncounterStates.call(this);
         this.experimentalRoomPopulations = new Map(this.experimentalRooms.filter(room => room.isPopulationEligible).map(room => [room.id, {
@@ -2749,7 +2755,8 @@ export class Game {
         return {
             areaIds: Game.prototype.getExperimentalActiveAreaIds.call(this),
             entitiesByArea: new Map(),
-            entitiesByKind: new Map()
+            entitiesByKind: new Map(),
+            npcCandidatesByArea: new Map()
         };
     }
 
@@ -2776,6 +2783,23 @@ export class Game {
             context.entitiesByKind.set(kind, entities);
         }
         return context.entitiesByKind.get(kind);
+    }
+
+    getExperimentalNPCCandidates(context, areaId) {
+        if (!context.npcCandidatesByArea.has(areaId)) {
+            context.npcCandidatesByArea.set(areaId, Object.freeze({
+                players: Game.prototype.getExperimentalActivityAreaEntities.call(
+                    this, context, areaId, 'players'
+                ).filter(player => !player.isDead && !player.isEliminated),
+                asteroids: Game.prototype.getExperimentalActivityAreaEntities.call(
+                    this, context, areaId, 'asteroids'
+                ).filter(asteroid => !asteroid.isDestroyed),
+                hazards: Game.prototype.getExperimentalActivityAreaEntities.call(
+                    this, context, areaId, 'hazards'
+                ).filter(hazard => !hazard.isDestroyed)
+            }));
+        }
+        return context.npcCandidatesByArea.get(areaId);
     }
 
     startExperimentalMode(profile = null, options = {}) {
@@ -3630,21 +3654,16 @@ export class Game {
                         }
                     }
                 } else if (player.isNPC) {
-                    const localPlayers = worldRules.usesRooms
-                        ? Game.prototype.getExperimentalActivityAreaEntities.call(
-                            this, experimentalActivity, player.roomId, 'players'
-                        ) : this.players;
+                    const npcCandidates = worldRules.usesRooms
+                        ? Game.prototype.getExperimentalNPCCandidates.call(
+                            this, experimentalActivity, player.roomId
+                        ) : null;
+                    const localPlayers = npcCandidates?.players || this.players;
                     const localTargets = worldRules.usesRooms
                         ? localPlayers.filter(candidate => Game.prototype.isHostileTarget.call(this, player, candidate))
                         : localPlayers;
-                    const localAsteroids = worldRules.usesRooms
-                        ? Game.prototype.getExperimentalActivityAreaEntities.call(
-                            this, experimentalActivity, player.roomId, 'asteroids'
-                        ) : this.asteroids;
-                    const localHazards = worldRules.usesRooms
-                        ? Game.prototype.getExperimentalActivityAreaEntities.call(
-                            this, experimentalActivity, player.roomId, 'hazards'
-                        ) : this.hazards;
+                    const localAsteroids = npcCandidates?.asteroids || this.asteroids;
+                    const localHazards = npcCandidates?.hazards || this.hazards;
                     player.update(dt, {
                         camera: this.camera,
                         others: localTargets,
@@ -3830,7 +3849,19 @@ export class Game {
         return null;
     }
 
-    getExperimentalCollisionWalls(entity) {
+    getExperimentalWallQueryBounds(entity, thickness = 0) {
+        const radius = Math.max(0, entity?.radius || 0) + Math.max(0, thickness) / 2 + 1;
+        const previousX = Number.isFinite(entity?.previousX) ? entity.previousX : entity?.x;
+        const previousY = Number.isFinite(entity?.previousY) ? entity.previousY : entity?.y;
+        return {
+            left: Math.min(previousX, entity.x) - radius,
+            right: Math.max(previousX, entity.x) + radius,
+            top: Math.min(previousY, entity.y) - radius,
+            bottom: Math.max(previousY, entity.y) + radius
+        };
+    }
+
+    getExperimentalCollisionWalls(entity, queryBounds = null) {
         const category = Game.prototype.getExperimentalCollisionCategory.call(this, entity);
         const room = Game.prototype.getExperimentalRoom.call(this, entity?.roomId) || this.experimentalRooms[0];
         const connectedDoors = (this.experimentalDoors || []).filter(door => door.roomIds.includes(room?.id));
@@ -3843,7 +3874,9 @@ export class Game {
         for (const roomId of roomIds) {
             const selectedRoom = Game.prototype.getExperimentalRoom.call(this, roomId);
             if (!selectedRoom) continue;
-            const selectedWalls = [...selectedRoom.walls];
+            const wallIndex = this.experimentalWallIndexes?.get(selectedRoom.id);
+            const selectedWalls = queryBounds && wallIndex
+                ? queryExperimentalWallIndex(wallIndex, queryBounds) : [...selectedRoom.walls];
             for (const door of connectedDoors) {
                 const owner = this.experimentalRooms.find(candidate => candidate.walls.some(wall => door.sharedWallIds.includes(wall.id)));
                 if (owner) selectedWalls.push(...owner.walls.filter(wall => door.sharedWallIds.includes(wall.id)));
@@ -3927,7 +3960,8 @@ export class Game {
     resolveExperimentalSlide(entity) {
         const room = Game.prototype.getExperimentalRoom.call(this, entity.roomId) || this.experimentalRooms[0];
         if (!room) return false;
-        const walls = Game.prototype.getExperimentalCollisionWalls.call(this, entity);
+        const queryBounds = Game.prototype.getExperimentalWallQueryBounds.call(this, entity, room.wallCollisionThickness);
+        const walls = Game.prototype.getExperimentalCollisionWalls.call(this, entity, queryBounds);
         let collided = false;
         const swept = Game.prototype.findExperimentalSweptWallHit.call(this, entity, walls, room.wallCollisionThickness);
         if (swept) {
@@ -3960,7 +3994,8 @@ export class Game {
         const hazards = simulationEntities?.hazards || this.hazards;
         for (const asteroid of asteroids) {
             const room = Game.prototype.getExperimentalRoom.call(this, asteroid.roomId) || fallbackRoom;
-            const walls = Game.prototype.getExperimentalCollisionWalls.call(this, asteroid);
+            const walls = Game.prototype.getExperimentalCollisionWalls.call(this, asteroid,
+                Game.prototype.getExperimentalWallQueryBounds.call(this, asteroid, room.wallCollisionThickness));
             const swept = Game.prototype.findExperimentalSweptWallHit.call(this, asteroid, walls, room.wallCollisionThickness);
             if (swept) {
                 if (asteroid.size === 'small') {
@@ -3991,7 +4026,8 @@ export class Game {
         }
         for (const hazard of hazards) {
             const room = Game.prototype.getExperimentalRoom.call(this, hazard.roomId) || fallbackRoom;
-            const walls = Game.prototype.getExperimentalCollisionWalls.call(this, hazard);
+            const walls = Game.prototype.getExperimentalCollisionWalls.call(this, hazard,
+                Game.prototype.getExperimentalWallQueryBounds.call(this, hazard, room.wallCollisionThickness));
             const swept = Game.prototype.findExperimentalSweptWallHit.call(this, hazard, walls, room.wallCollisionThickness);
             if (swept) {
                 hazard.x = swept.hit.x;
@@ -4014,7 +4050,8 @@ export class Game {
         const from = { x: projectile.previousX ?? projectile.x, y: projectile.previousY ?? projectile.y };
         const to = { x: projectile.x, y: projectile.y };
         let firstHit = null;
-        for (const wall of Game.prototype.getExperimentalCollisionWalls.call(this, projectile)) {
+        const queryBounds = Game.prototype.getExperimentalWallQueryBounds.call(this, projectile, room.wallCollisionThickness);
+        for (const wall of Game.prototype.getExperimentalCollisionWalls.call(this, projectile, queryBounds)) {
             const hit = sweptCircleSegmentIntersection(from, to, projectile.radius || 0, wall, room.wallCollisionThickness);
             if (hit && (!firstHit || hit.t < firstHit.t)) firstHit = hit;
         }
@@ -4486,11 +4523,10 @@ export class Game {
         const activeProjectiles = simulationEntities?.projectiles || this.projectiles;
         const activeAsteroids = simulationEntities?.asteroids || this.asteroids;
         const activeHazards = simulationEntities?.hazards || this.hazards;
-        const hasProjectiles = activeProjectiles.length > 0;
-        const asteroidCollisionIndex = hasProjectiles
-            ? Game.prototype.createCollisionSpatialHash.call(this, activeAsteroids) : null;
-        const hazardCollisionIndex = hasProjectiles
-            ? Game.prototype.createCollisionSpatialHash.call(this, activeHazards) : null;
+        const collisionContext = Game.prototype.createCollisionContext.call(
+            this, activeProjectiles, activeAsteroids, activeHazards
+        );
+        const { asteroidIndex: asteroidCollisionIndex, hazardIndex: hazardCollisionIndex } = collisionContext;
 
         // Projectiles vs Asteroids and Hazards
         for (let i = activeProjectiles.length - 1; i >= 0; i--) {
@@ -4582,7 +4618,7 @@ export class Game {
 
         // Projectile consumption hierarchy. A stable snapshot makes every unordered
         // pair eligible once even though authoritative removal mutates this.projectiles.
-        const projectilePairs = [...activeProjectiles];
+        const projectilePairs = collisionContext.projectiles;
         Game.prototype.forEachProjectileCollisionCandidate.call(this, projectilePairs, (p1, p2) => {
             if (!p1 || p1.isRemoved || p1.hasDetonated) return false;
             if (!p2 || p2.isRemoved || p2.hasDetonated) return;
@@ -4609,7 +4645,7 @@ export class Game {
             if (consumeFirst) Game.prototype.consumeCollidingProjectile.call(this, p1);
             if (consumeSecond && !p2.isRemoved) Game.prototype.consumeCollidingProjectile.call(this, p2);
             if (p1.isRemoved || p1.hasDetonated) return false;
-        });
+        }, collisionContext.projectileIndex);
 
         // Players vs Asteroids and Hazards
         this.asteroidPlayerContacts ??= new WeakMap();
@@ -4678,7 +4714,37 @@ export class Game {
         Game.prototype.compactRemovedProjectiles.call(this);
     }
 
-    forEachProjectileCollisionCandidate(projectiles, callback) {
+    createCollisionContext(projectiles, asteroids, hazards) {
+        const activeProjectiles = [...projectiles];
+        return {
+            projectiles: activeProjectiles,
+            asteroidIndex: activeProjectiles.length
+                ? Game.prototype.createCollisionSpatialHash.call(this, asteroids) : null,
+            hazardIndex: activeProjectiles.length
+                ? Game.prototype.createCollisionSpatialHash.call(this, hazards) : null,
+            projectileIndex: activeProjectiles.length > 1
+                ? new CircleSpatialHash(activeProjectiles, {
+                    wrap: this.gameState !== GAME_MODE.EXPERIMENTAL,
+                    width: WORLD_WIDTH,
+                    height: WORLD_HEIGHT,
+                    getPartition: this.gameState === GAME_MODE.EXPERIMENTAL
+                        ? projectile => projectile.roomId || '' : undefined
+                }) : null
+        };
+    }
+
+    forEachProjectileCollisionCandidate(projectiles, callback, collisionIndex = null) {
+        if (collisionIndex) {
+            let candidateCount = 0;
+            for (let firstIndex = 0; firstIndex < projectiles.length; firstIndex++) {
+                const first = projectiles[firstIndex];
+                collisionIndex.forEachNearby(first, (_second, secondIndex) => {
+                    candidateCount++;
+                    return callback(first, projectiles[secondIndex], firstIndex, secondIndex);
+                }, firstIndex + 1);
+            }
+            return candidateCount;
+        }
         const isExperimental = this.gameState === GAME_MODE.EXPERIMENTAL;
         return forEachNearbyCirclePair(projectiles, callback, {
             wrap: !isExperimental,
@@ -5141,20 +5207,18 @@ export class Game {
 
     drawWorld(ctx, camera) {
         this.drawBackground(ctx, camera);
+        const renderContext = Game.prototype.createRenderContext.call(this, camera);
         if (this.gameState === GAME_MODE.EXPERIMENTAL) {
             this.drawExperimentalSectorBackground(ctx, camera);
             this.drawExperimentalScenery(ctx, camera);
-            this.drawExperimentalWalls(ctx, camera);
+            this.drawExperimentalWalls(ctx, camera, renderContext);
         }
 
-        const currentArea = Game.prototype.getExperimentalRenderArea.call(this);
-        const activity = currentArea
-            ? Game.prototype.createExperimentalActivityContext.call(this) : null;
-        const source = (kind, canonical) => currentArea
-            ? Game.prototype.getExperimentalActivityEntities.call(this, activity, kind)
+        const source = (kind, canonical) => renderContext.currentArea
+            ? Game.prototype.getExperimentalActivityEntities.call(this, renderContext.activity, kind)
             : canonical;
         const visible = entities => Game.prototype.getRenderableEntities.call(
-            this, entities, camera, activity?.areaIds
+            this, entities, camera, renderContext
         );
         visible(source('asteroids', this.asteroids)).forEach(a => a.draw(ctx, this.assets, camera));
         visible(source('hazards', this.hazards)).forEach(h => h.draw(ctx, this.assets, camera));
@@ -5172,19 +5236,40 @@ export class Game {
         return Game.prototype.getExperimentalRoom.call(this, localPlayer?.roomId);
     }
 
-    getRenderableEntities(entities, camera, activeAreaIds = null) {
-        if (this.gameState !== GAME_MODE.EXPERIMENTAL) return entities;
+    createRenderContext(camera) {
         const currentArea = Game.prototype.getExperimentalRenderArea.call(this);
-        if (!currentArea) return [];
-        const renderAreaIds = activeAreaIds || Game.prototype.getExperimentalActiveAreaIds.call(this);
-        const halfWidth = DESIGN_WIDTH / (2 * camera.zoom) + EXPERIMENTAL_RENDER_CULL_MARGIN;
-        const halfHeight = DESIGN_HEIGHT / (2 * camera.zoom) + EXPERIMENTAL_RENDER_CULL_MARGIN;
-        const viewport = {
-            left: camera.x - halfWidth,
-            right: camera.x + halfWidth,
-            top: camera.y - halfHeight,
-            bottom: camera.y + halfHeight
+        const activity = currentArea
+            ? Game.prototype.createExperimentalActivityContext.call(this) : null;
+        const halfWidth = DESIGN_WIDTH / (2 * camera.zoom);
+        const halfHeight = DESIGN_HEIGHT / (2 * camera.zoom);
+        return {
+            camera,
+            currentArea,
+            activity,
+            areaIds: activity?.areaIds || null,
+            viewport: {
+                left: camera.x - halfWidth - EXPERIMENTAL_RENDER_CULL_MARGIN,
+                right: camera.x + halfWidth + EXPERIMENTAL_RENDER_CULL_MARGIN,
+                top: camera.y - halfHeight - EXPERIMENTAL_RENDER_CULL_MARGIN,
+                bottom: camera.y + halfHeight + EXPERIMENTAL_RENDER_CULL_MARGIN
+            },
+            wallViewport: {
+                left: camera.x - halfWidth,
+                right: camera.x + halfWidth,
+                top: camera.y - halfHeight,
+                bottom: camera.y + halfHeight
+            }
         };
+    }
+
+    getRenderableEntities(entities, camera, renderContext = null) {
+        if (this.gameState !== GAME_MODE.EXPERIMENTAL) return entities;
+        const context = renderContext?.viewport
+            ? renderContext : Game.prototype.createRenderContext.call(this, camera);
+        const currentArea = context.currentArea;
+        if (!currentArea) return [];
+        const renderAreaIds = renderContext instanceof Set ? renderContext : context.areaIds;
+        const viewport = context.viewport;
         return entities.filter(entity => {
             if (!renderAreaIds.has(entity.roomId)) return false;
             if (!Number.isFinite(entity.x) || !Number.isFinite(entity.y)) return true;
@@ -5610,8 +5695,8 @@ export class Game {
         if (line) ctx.fillText(line, 0, y);
     }
 
-    drawExperimentalWalls(ctx, camera) {
-        for (const { area: room, wall } of Game.prototype.getExperimentalRenderableWalls.call(this, camera)) {
+    drawExperimentalWalls(ctx, camera, renderContext = null) {
+        for (const { area: room, wall } of Game.prototype.getExperimentalRenderableWalls.call(this, camera, renderContext)) {
             const dx = wall.end.x - wall.start.x;
             const dy = wall.end.y - wall.start.y;
             ctx.save();
@@ -5651,18 +5736,13 @@ export class Game {
         }
     }
 
-    getExperimentalRenderableWalls(camera) {
-        const currentArea = Game.prototype.getExperimentalRenderArea.call(this);
+    getExperimentalRenderableWalls(camera, renderContext = null) {
+        const context = renderContext?.wallViewport
+            ? renderContext : Game.prototype.createRenderContext.call(this, camera);
+        const currentArea = context.currentArea;
         if (!currentArea) return [];
         const renderAreaIds = new Set([currentArea.id, ...(currentArea.connectedAreaIds || [])]);
-        const halfWidth = DESIGN_WIDTH / (2 * camera.zoom);
-        const halfHeight = DESIGN_HEIGHT / (2 * camera.zoom);
-        const viewport = {
-            left: camera.x - halfWidth,
-            right: camera.x + halfWidth,
-            top: camera.y - halfHeight,
-            bottom: camera.y + halfHeight
-        };
+        const viewport = context.wallViewport;
         const intersectsViewport = wall => Math.max(wall.start.x, wall.end.x) >= viewport.left
             && Math.min(wall.start.x, wall.end.x) <= viewport.right
             && Math.max(wall.start.y, wall.end.y) >= viewport.top

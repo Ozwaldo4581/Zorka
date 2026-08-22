@@ -1821,31 +1821,24 @@ export class Player {
         // source image's highlights, shadows, glow, and transparency.
         if (usesBaseShip) {
             const spriteSize = Math.max(1, Math.ceil(size));
-            const cacheKey = `${this.color}:${spriteSize}`;
-
-            if (!this._whiteTintCache) {
-                this._whiteTintCache = new Map();
-            }
-
-            let tintedCanvas = this._whiteTintCache.get(cacheKey);
-
-            if (!tintedCanvas) {
-                tintedCanvas = document.createElement('canvas');
-                tintedCanvas.width = spriteSize;
-                tintedCanvas.height = spriteSize;
-
-                const tintCtx = tintedCanvas.getContext('2d');
-
-                if (!tintCtx) {
-                    ctx.drawImage(
-                        img,
-                        -size / 2,
-                        -size / 2,
-                        size,
-                        size
-                    );
-                    return;
+            const getTintedCanvas = color => {
+                if (!this._whiteTintCache) this._whiteTintCache = new WeakMap();
+                let sourceCache = this._whiteTintCache.get(img);
+                if (!sourceCache) {
+                    sourceCache = new Map();
+                    this._whiteTintCache.set(img, sourceCache);
                 }
+                const cacheKey = `${color}:${spriteSize}`;
+                let canvas = sourceCache.get(cacheKey);
+                if (canvas) return canvas;
+
+                canvas = document.createElement('canvas');
+                canvas.width = spriteSize;
+                canvas.height = spriteSize;
+
+                const tintCtx = canvas.getContext('2d');
+
+                if (!tintCtx) return null;
 
                 // Draw the white/grayscale source.
                 tintCtx.drawImage(
@@ -1859,7 +1852,7 @@ export class Player {
                 // Color the visible pixels while retaining light and dark values.
                 tintCtx.globalCompositeOperation = 'multiply';
                 tintCtx.globalAlpha = 0.6;
-                tintCtx.fillStyle = this.color;
+                tintCtx.fillStyle = color;
                 tintCtx.fillRect(
                     0,
                     0,
@@ -1882,49 +1875,21 @@ export class Player {
 
                 tintCtx.globalCompositeOperation = 'source-over';
 
-                this._whiteTintCache.set(cacheKey, tintedCanvas);
+                sourceCache.set(cacheKey, canvas);
+                return canvas;
+            };
+
+            const tintedCanvas = getTintedCanvas(this.color);
+            if (!tintedCanvas) {
+                ctx.drawImage(img, -size / 2, -size / 2, size, size);
+                return;
             }
 
             const tintProgress = this.getExperimentalRespawnTintProgress();
 
             if (tintProgress < 1) {
-                const respawnTintCanvas = document.createElement('canvas');
-                respawnTintCanvas.width = spriteSize;
-                respawnTintCanvas.height = spriteSize;
-
-                const respawnTintCtx = respawnTintCanvas.getContext('2d');
-
-                if (respawnTintCtx) {
-                    respawnTintCtx.drawImage(
-                        img,
-                        0,
-                        0,
-                        spriteSize,
-                        spriteSize
-                    );
-
-                    respawnTintCtx.globalCompositeOperation = 'multiply';
-                    respawnTintCtx.globalAlpha = 0.6;
-                    respawnTintCtx.fillStyle = '#717171';
-                    respawnTintCtx.fillRect(
-                        0,
-                        0,
-                        spriteSize,
-                        spriteSize
-                    );
-
-                    respawnTintCtx.globalAlpha = 1;
-                    respawnTintCtx.globalCompositeOperation = 'destination-in';
-                    respawnTintCtx.drawImage(
-                        img,
-                        0,
-                        0,
-                        spriteSize,
-                        spriteSize
-                    );
-
-                    respawnTintCtx.globalCompositeOperation = 'source-over';
-
+                const respawnTintCanvas = getTintedCanvas('#717171');
+                if (respawnTintCanvas) {
                     ctx.save();
                     ctx.globalAlpha *= 1 - tintProgress;
                     ctx.drawImage(

@@ -2,6 +2,44 @@ export const EXPERIMENTAL_WALL_COLLISION_THICKNESS = 32;
 export const EXPERIMENTAL_WALL_VISUAL_CORE_THICKNESS = 4;
 export const EXPERIMENTAL_WALL_SEPARATION_EPSILON = 0.5;
 export const EXPERIMENTAL_WALL_MAX_CORRECTION_PASSES = 4;
+export const EXPERIMENTAL_WALL_INDEX_CELL_SIZE = 512;
+
+// Derived acceleration only: area.walls remains the authoritative geometry.
+export function createExperimentalWallIndex(area, cellSize = EXPERIMENTAL_WALL_INDEX_CELL_SIZE) {
+    const cells = new Map();
+    const walls = area?.walls || [];
+    const expansion = Math.max(0, area?.wallCollisionThickness || 0) / 2;
+    walls.forEach((wall, index) => {
+        const minColumn = Math.floor((Math.min(wall.x1, wall.x2) - expansion) / cellSize);
+        const maxColumn = Math.floor((Math.max(wall.x1, wall.x2) + expansion) / cellSize);
+        const minRow = Math.floor((Math.min(wall.y1, wall.y2) - expansion) / cellSize);
+        const maxRow = Math.floor((Math.max(wall.y1, wall.y2) + expansion) / cellSize);
+        for (let column = minColumn; column <= maxColumn; column++) {
+            for (let row = minRow; row <= maxRow; row++) {
+                const key = `${column}:${row}`;
+                const bucket = cells.get(key);
+                if (bucket) bucket.push(index);
+                else cells.set(key, [index]);
+            }
+        }
+    });
+    return Object.freeze({ areaId: area?.id, cellSize, cells, walls });
+}
+
+export function queryExperimentalWallIndex(index, bounds) {
+    if (!index || !bounds) return [];
+    const found = new Set();
+    const minColumn = Math.floor(bounds.left / index.cellSize);
+    const maxColumn = Math.floor(bounds.right / index.cellSize);
+    const minRow = Math.floor(bounds.top / index.cellSize);
+    const maxRow = Math.floor(bounds.bottom / index.cellSize);
+    for (let column = minColumn; column <= maxColumn; column++) {
+        for (let row = minRow; row <= maxRow; row++) {
+            for (const wallIndex of index.cells.get(`${column}:${row}`) || []) found.add(wallIndex);
+        }
+    }
+    return [...found].sort((a, b) => a - b).map(wallIndex => index.walls[wallIndex]);
+}
 
 const SPAWN_INSET = 120;
 // A normal ship renders at 3.5 times its 25-unit collision radius. Sector 9's
