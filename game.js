@@ -4537,10 +4537,21 @@ export class Game {
         const activeAsteroids = simulationEntities?.asteroids || this.asteroids;
         const activeHazards = simulationEntities?.hazards || this.hazards;
         const hasProjectiles = activeProjectiles.length > 0;
-        const asteroidCollisionIndex = hasProjectiles
-            ? Game.prototype.createCollisionSpatialHash.call(this, activeAsteroids) : null;
-        const hazardCollisionIndex = hasProjectiles
-            ? Game.prototype.createCollisionSpatialHash.call(this, activeHazards) : null;
+        // Transient broad-phase data belongs to this authoritative collision pass.
+        // Canonical arrays remain authoritative, and consumers still validate
+        // removal/destruction flags because the indexes intentionally stay stable.
+        const collisionContext = {
+            activeProjectiles,
+            activeAsteroids,
+            activeHazards,
+            projectilePairs: [...activeProjectiles],
+            asteroidIndex: hasProjectiles
+                ? Game.prototype.createCollisionSpatialHash.call(this, activeAsteroids) : null,
+            hazardIndex: hasProjectiles
+                ? Game.prototype.createCollisionSpatialHash.call(this, activeHazards) : null,
+            projectileIndex: activeProjectiles.length > 1
+                ? Game.prototype.createProjectileCollisionSpatialHash.call(this, activeProjectiles) : null
+        };
 
         // Projectiles vs Asteroids and Hazards
         for (let i = activeProjectiles.length - 1; i >= 0; i--) {
@@ -4548,7 +4559,7 @@ export class Game {
             if (!p || p.isRemoved || p.hasDetonated) continue;
 
             // Check against Asteroids
-            asteroidCollisionIndex.forEachNearby(p, a => {
+            collisionContext.asteroidIndex.forEachNearby(p, a => {
                 if (!a || a.isDestroyed) return;
                 if (!Game.prototype.areExperimentalEntitiesCoLocated.call(this, p, a)) return;
                 if (checkCollision(p, a)) {
@@ -4573,7 +4584,7 @@ export class Game {
             if (p.isRemoved || p.hasDetonated) continue;
 
             // Check against Hazards (Space Debris and Satellites)
-            hazardCollisionIndex.forEachNearby(p, h => {
+            collisionContext.hazardIndex.forEachNearby(p, h => {
                 if (!h || h.isDestroyed) return;
                 if (!Game.prototype.areExperimentalEntitiesCoLocated.call(this, p, h)) return;
                 if (checkCollision(p, h)) {
@@ -4632,8 +4643,7 @@ export class Game {
 
         // Projectile consumption hierarchy. A stable snapshot makes every unordered
         // pair eligible once even though authoritative removal mutates this.projectiles.
-        const projectilePairs = [...activeProjectiles];
-        Game.prototype.forEachProjectileCollisionCandidate.call(this, projectilePairs, (p1, p2) => {
+        Game.prototype.forEachProjectileCollisionCandidate.call(this, collisionContext.projectilePairs, (p1, p2) => {
             if (!p1 || p1.isRemoved || p1.hasDetonated) return false;
             if (!p2 || p2.isRemoved || p2.hasDetonated) return;
             if (!Game.prototype.areExperimentalEntitiesCoLocated.call(this, p1, p2)) return;
@@ -4659,7 +4669,7 @@ export class Game {
             if (consumeFirst) Game.prototype.consumeCollidingProjectile.call(this, p1);
             if (consumeSecond && !p2.isRemoved) Game.prototype.consumeCollidingProjectile.call(this, p2);
             if (p1.isRemoved || p1.hasDetonated) return false;
-        });
+        }, collisionContext.projectileIndex);
 
         // Players vs Asteroids and Hazards
         this.asteroidPlayerContacts ??= new WeakMap();
@@ -4728,9 +4738,30 @@ export class Game {
         Game.prototype.compactRemovedProjectiles.call(this);
     }
 
-    forEachProjectileCollisionCandidate(projectiles, callback) {
+    forEachProjectileCollisionCandidate(projectiles, callback, collisionIndex = null) {
+        if (collisionIndex) {
+            let candidateCount = 0;
+            for (let firstIndex = 0; firstIndex < projectiles.length; firstIndex++) {
+                const first = projectiles[firstIndex];
+                collisionIndex.forEachNearby(first, (_second, secondIndex) => {
+                    candidateCount++;
+                    return callback(first, projectiles[secondIndex], firstIndex, secondIndex);
+                }, firstIndex + 1);
+            }
+            return candidateCount;
+        }
         const isExperimental = this.gameState === GAME_MODE.EXPERIMENTAL;
         return forEachNearbyCirclePair(projectiles, callback, {
+            wrap: !isExperimental,
+            width: WORLD_WIDTH,
+            height: WORLD_HEIGHT,
+            getPartition: isExperimental ? projectile => projectile.roomId || '' : undefined
+        });
+    }
+
+    createProjectileCollisionSpatialHash(projectiles) {
+        const isExperimental = this.gameState === GAME_MODE.EXPERIMENTAL;
+        return new CircleSpatialHash(projectiles, {
             wrap: !isExperimental,
             width: WORLD_WIDTH,
             height: WORLD_HEIGHT,
