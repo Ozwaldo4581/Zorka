@@ -5235,20 +5235,18 @@ export class Game {
 
     drawWorld(ctx, camera) {
         this.drawBackground(ctx, camera);
+        const renderContext = Game.prototype.createExperimentalRenderContext.call(this, camera);
         if (this.gameState === GAME_MODE.EXPERIMENTAL) {
-            this.drawExperimentalSectorBackground(ctx, camera);
-            this.drawExperimentalScenery(ctx, camera);
-            this.drawExperimentalWalls(ctx, camera);
+            this.drawExperimentalSectorBackground(ctx, camera, renderContext);
+            this.drawExperimentalScenery(ctx, camera, renderContext);
+            this.drawExperimentalWalls(ctx, camera, renderContext);
         }
 
-        const currentArea = Game.prototype.getExperimentalRenderArea.call(this);
-        const activity = currentArea
-            ? Game.prototype.createExperimentalActivityContext.call(this) : null;
-        const source = (kind, canonical) => currentArea
-            ? Game.prototype.getExperimentalActivityEntities.call(this, activity, kind)
+        const source = (kind, canonical) => renderContext
+            ? Game.prototype.getExperimentalActivityEntities.call(this, renderContext.activity, kind)
             : canonical;
         const visible = entities => Game.prototype.getRenderableEntities.call(
-            this, entities, camera, activity?.areaIds
+            this, entities, camera, renderContext?.areaIds, renderContext
         );
         visible(source('asteroids', this.asteroids)).forEach(a => a.draw(ctx, this.assets, camera));
         visible(source('hazards', this.hazards)).forEach(h => h.draw(ctx, this.assets, camera));
@@ -5257,7 +5255,7 @@ export class Game {
             if (!p.isDead && !p.isEliminated) p.draw(ctx, this.assets, camera);
         });
         visible(source('vfx', this.vfx)).forEach(v => v.draw(ctx, this.assets, camera));
-        if (this.gameState === GAME_MODE.EXPERIMENTAL) this.drawExperimentalDialogue(ctx, camera);
+        if (this.gameState === GAME_MODE.EXPERIMENTAL) this.drawExperimentalDialogue(ctx, camera, renderContext);
     }
 
     getExperimentalRenderArea() {
@@ -5266,19 +5264,38 @@ export class Game {
         return Game.prototype.getExperimentalRoom.call(this, localPlayer?.roomId);
     }
 
-    getRenderableEntities(entities, camera, activeAreaIds = null) {
-        if (this.gameState !== GAME_MODE.EXPERIMENTAL) return entities;
+    createExperimentalRenderContext(camera) {
         const currentArea = Game.prototype.getExperimentalRenderArea.call(this);
-        if (!currentArea) return [];
-        const renderAreaIds = activeAreaIds || Game.prototype.getExperimentalActiveAreaIds.call(this);
-        const halfWidth = DESIGN_WIDTH / (2 * camera.zoom) + EXPERIMENTAL_RENDER_CULL_MARGIN;
-        const halfHeight = DESIGN_HEIGHT / (2 * camera.zoom) + EXPERIMENTAL_RENDER_CULL_MARGIN;
-        const viewport = {
-            left: camera.x - halfWidth,
-            right: camera.x + halfWidth,
-            top: camera.y - halfHeight,
-            bottom: camera.y + halfHeight
+        if (!currentArea) return null;
+        const activity = Game.prototype.createExperimentalActivityContext.call(this);
+        const halfWidth = DESIGN_WIDTH / (2 * camera.zoom);
+        const halfHeight = DESIGN_HEIGHT / (2 * camera.zoom);
+        return {
+            currentArea,
+            areaIds: activity.areaIds,
+            activity,
+            camera,
+            viewport: {
+                left: camera.x - halfWidth - EXPERIMENTAL_RENDER_CULL_MARGIN,
+                right: camera.x + halfWidth + EXPERIMENTAL_RENDER_CULL_MARGIN,
+                top: camera.y - halfHeight - EXPERIMENTAL_RENDER_CULL_MARGIN,
+                bottom: camera.y + halfHeight + EXPERIMENTAL_RENDER_CULL_MARGIN
+            },
+            wallViewport: {
+                left: camera.x - halfWidth,
+                right: camera.x + halfWidth,
+                top: camera.y - halfHeight,
+                bottom: camera.y + halfHeight
+            }
         };
+    }
+
+    getRenderableEntities(entities, camera, activeAreaIds = null, renderContext = null) {
+        if (this.gameState !== GAME_MODE.EXPERIMENTAL) return entities;
+        const context = renderContext || Game.prototype.createExperimentalRenderContext.call(this, camera);
+        if (!context?.currentArea) return [];
+        const renderAreaIds = activeAreaIds || context.areaIds;
+        const { viewport } = context;
         return entities.filter(entity => {
             if (!renderAreaIds.has(entity.roomId)) return false;
             if (!Number.isFinite(entity.x) || !Number.isFinite(entity.y)) return true;
@@ -5330,8 +5347,9 @@ export class Game {
         return bounds;
     }
 
-    getExperimentalSceneryLayout() {
-        const currentArea = Game.prototype.getExperimentalRenderArea.call(this);
+    getExperimentalSceneryLayout(renderContext = null) {
+        const currentArea = renderContext?.currentArea
+            || Game.prototype.getExperimentalRenderArea.call(this);
         if (!currentArea || currentArea.id !== 'experimental-hallway-1-2') return null;
 
         const bounds = currentArea.bounds;
@@ -5486,11 +5504,12 @@ export class Game {
         state.activeElapsed = 0;
     }
 
-    drawExperimentalSectorBackground(ctx, camera) {
+    drawExperimentalSectorBackground(ctx, camera, renderContext = null) {
         if (this.gameState !== GAME_MODE.EXPERIMENTAL) return;
         if (!this.assets.schoolDeskBackground) return;
 
-        const currentArea = Game.prototype.getExperimentalRenderArea.call(this);
+        const currentArea = renderContext?.currentArea
+            || Game.prototype.getExperimentalRenderArea.call(this);
         if (!currentArea || ![1, SECTOR_9_BBG_ENCOUNTER.roomNumber].includes(currentArea.roomNumber)) return;
 
         if (currentArea.roomNumber === SECTOR_9_BBG_ENCOUNTER.roomNumber) {
@@ -5611,9 +5630,9 @@ export class Game {
         ctx.restore();
     }
 
-    drawExperimentalScenery(ctx, camera) {
+    drawExperimentalScenery(ctx, camera, renderContext = null) {
         if (this.gameState !== GAME_MODE.EXPERIMENTAL) return;
-        const layout = Game.prototype.getExperimentalSceneryLayout.call(this);
+        const layout = Game.prototype.getExperimentalSceneryLayout.call(this, renderContext);
         if (!layout) return;
 
         for (const item of [layout.squid, layout.upperCranioid, layout.lowerCranioid]) {
@@ -5637,11 +5656,11 @@ export class Game {
         }
     }
 
-    drawExperimentalDialogue(ctx, camera) {
+    drawExperimentalDialogue(ctx, camera, renderContext = null) {
         const state = this.experimentalDialogueState;
         if (!state?.activeSequenceId) return;
 
-        const layout = Game.prototype.getExperimentalSceneryLayout.call(this);
+        const layout = Game.prototype.getExperimentalSceneryLayout.call(this, renderContext);
         if (!layout) return;
         const sequence = Game.prototype.getExperimentalDialogueSequences.call(this)
             .find(candidate => candidate.id === state.activeSequenceId);
@@ -5704,8 +5723,10 @@ export class Game {
         if (line) ctx.fillText(line, 0, y);
     }
 
-    drawExperimentalWalls(ctx, camera) {
-        for (const { area: room, wall } of Game.prototype.getExperimentalRenderableWalls.call(this, camera)) {
+    drawExperimentalWalls(ctx, camera, renderContext = null) {
+        for (const { area: room, wall } of Game.prototype.getExperimentalRenderableWalls.call(
+            this, camera, renderContext
+        )) {
             const dx = wall.end.x - wall.start.x;
             const dy = wall.end.y - wall.start.y;
             ctx.save();
@@ -5745,18 +5766,12 @@ export class Game {
         }
     }
 
-    getExperimentalRenderableWalls(camera) {
-        const currentArea = Game.prototype.getExperimentalRenderArea.call(this);
+    getExperimentalRenderableWalls(camera, renderContext = null) {
+        const context = renderContext || Game.prototype.createExperimentalRenderContext.call(this, camera);
+        const currentArea = context?.currentArea;
         if (!currentArea) return [];
         const renderAreaIds = new Set([currentArea.id, ...(currentArea.connectedAreaIds || [])]);
-        const halfWidth = DESIGN_WIDTH / (2 * camera.zoom);
-        const halfHeight = DESIGN_HEIGHT / (2 * camera.zoom);
-        const viewport = {
-            left: camera.x - halfWidth,
-            right: camera.x + halfWidth,
-            top: camera.y - halfHeight,
-            bottom: camera.y + halfHeight
-        };
+        const viewport = context.wallViewport;
         const intersectsViewport = wall => Math.max(wall.start.x, wall.end.x) >= viewport.left
             && Math.min(wall.start.x, wall.end.x) <= viewport.right
             && Math.max(wall.start.y, wall.end.y) >= viewport.top

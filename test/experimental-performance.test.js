@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import { GAME_MODE, Game, WORLD_HEIGHT, WORLD_WIDTH } from '../game.js';
+import { Camera } from '../camera.js';
 import { Player } from '../entities/player.js';
 import { Projectile } from '../entities/projectile.js';
 import { Asteroid } from '../entities/asteroid.js';
@@ -236,5 +237,34 @@ test('Experimental wall candidates spatially narrow immutable geometry and retai
         candidates.filter(wall => wall.isDoorBlocker).map(wall => wall.id),
         game.experimentalDoors.filter(door => door.roomIds.includes(room.id)).map(door => door.blocker.id),
         'conditional door blockers remain a separate eligible candidate set'
+    );
+});
+
+test('Experimental render contexts reuse camera-pass area, activity, and viewport state', () => {
+    const game = createGame();
+    const roomId = 'experimental-room-1';
+    const human = Object.assign(new Player(100, 100, 1), { roomId });
+    const asteroid = Object.assign(new Asteroid(120, 100, 'large'), { roomId });
+    game.players.push(human);
+    game.asteroids.push(asteroid);
+    Game.prototype.indexExperimentalEntity.call(game, 'players', human);
+    Game.prototype.indexExperimentalEntity.call(game, 'asteroids', asteroid);
+    const firstCamera = Object.assign(new Camera(), { x: 100, y: 100, zoom: 0.6 });
+    const secondCamera = Object.assign(new Camera(), { x: 1000, y: 800, zoom: 0.8 });
+
+    const first = Game.prototype.createExperimentalRenderContext.call(game, firstCamera);
+    const second = Game.prototype.createExperimentalRenderContext.call(game, secondCamera);
+
+    assert.notEqual(first, second, 'each camera pass owns a separate render context');
+    assert.equal(first.camera, firstCamera);
+    assert.equal(second.camera, secondCamera);
+    assert.notDeepEqual(first.viewport, second.viewport);
+    assert.equal(
+        Game.prototype.getExperimentalActivityEntities.call(game, first.activity, 'asteroids'),
+        Game.prototype.getExperimentalActivityEntities.call(game, first.activity, 'asteroids')
+    );
+    assert.deepEqual(
+        Game.prototype.getRenderableEntities.call(game, [asteroid], firstCamera, first.areaIds, first),
+        [asteroid]
     );
 });
