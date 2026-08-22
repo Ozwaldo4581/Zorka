@@ -16,6 +16,7 @@ export const EXPERIMENTAL_HALLWAY_LENGTH = 4000;
 // transformed human ships ample room to turn and slide without widening doors.
 export const EXPERIMENTAL_HALLWAY_WIDTH = 1440;
 const DOOR_TRANSITION_TOLERANCE = 16;
+export const EXPERIMENTAL_WALL_INDEX_CELL_SIZE = 512;
 const FULL_ARENA_POPULATION = Object.freeze({
     densitySource: 'ARENA_OPTIONS', scale: 'FULL_ARENA', independentlyResolved: true
 });
@@ -135,6 +136,48 @@ const wall = (id, x1, y1, x2, y2, isTwoSided = false) => Object.freeze({
 });
 
 const interiorWall = (id, x1, y1, x2, y2) => wall(id, x1, y1, x2, y2, true);
+
+export class ExperimentalWallSpatialIndex {
+    constructor(walls, {
+        cellSize = EXPERIMENTAL_WALL_INDEX_CELL_SIZE,
+        padding = 0
+    } = {}) {
+        this.walls = walls;
+        this.cellSize = Math.max(1, cellSize);
+        this.cells = new Map();
+        for (let index = 0; index < walls.length; index++) {
+            const wall = walls[index];
+            const left = Math.min(wall.start.x, wall.end.x) - padding;
+            const right = Math.max(wall.start.x, wall.end.x) + padding;
+            const top = Math.min(wall.start.y, wall.end.y) - padding;
+            const bottom = Math.max(wall.start.y, wall.end.y) + padding;
+            for (let column = Math.floor(left / this.cellSize); column <= Math.floor(right / this.cellSize); column++) {
+                for (let row = Math.floor(top / this.cellSize); row <= Math.floor(bottom / this.cellSize); row++) {
+                    const key = `${column}:${row}`;
+                    const bucket = this.cells.get(key);
+                    if (bucket) bucket.push(index);
+                    else this.cells.set(key, [index]);
+                }
+            }
+        }
+    }
+
+    queryBounds({ left, top, right, bottom }) {
+        const indexes = new Set();
+        for (let column = Math.floor(left / this.cellSize); column <= Math.floor(right / this.cellSize); column++) {
+            for (let row = Math.floor(top / this.cellSize); row <= Math.floor(bottom / this.cellSize); row++) {
+                for (const index of this.cells.get(`${column}:${row}`) || []) indexes.add(index);
+            }
+        }
+        return [...indexes].sort((a, b) => a - b).map(index => this.walls[index]);
+    }
+}
+
+export function createExperimentalWallSpatialIndexes(areas) {
+    return new Map((areas || []).map(area => [area.id, new ExperimentalWallSpatialIndex(area.walls, {
+        padding: (area.wallCollisionThickness || 0) / 2
+    })]));
+}
 
 function centeredWall(id, centerX, centerY, angle, length) {
     const halfX = Math.cos(angle) * length / 2;
