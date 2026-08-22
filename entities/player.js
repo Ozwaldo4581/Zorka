@@ -567,6 +567,7 @@ export class Player {
         transformationKills = 20,
         hazards = [],
         isAimTargetValid = null,
+        isNPCTargetCandidate = null,
         allowTransformations = true,
         worldRules = null,
         touchIntent = null
@@ -637,7 +638,10 @@ export class Player {
         }
 
         if (this.isNPC) {
-            this.updateNPC(dt, others, asteroids, (f) => { fx = f.x; fy = f.y; }, hazards, worldRules);
+            this.updateNPC(
+                dt, others, asteroids, (f) => { fx = f.x; fy = f.y; }, hazards,
+                worldRules, isNPCTargetCandidate
+            );
         } else if (this.id === 1) {
             // Player 1: Controller OR Keyboard
             if (gp) {
@@ -1043,7 +1047,7 @@ export class Player {
         });
     }
 
-    updateNPC(dt, others, asteroids, setForce, hazards = [], worldRules = null) {
+    updateNPC(dt, others, asteroids, setForce, hazards = [], worldRules = null, isTargetCandidate = null) {
         const effectiveThrust = this.getEffectiveThrust();
         if (this.isDummy) {
             setForce({ x: 0, y: 0 });
@@ -1134,6 +1138,7 @@ export class Player {
             // Priority 1: Players
             others.forEach(other => {
                 if (other === this || other.isDead || other.isEliminated) return;
+                if (isTargetCandidate && !isTargetCandidate(other)) return;
                 if (this.isSector9BBGEncounterNPC && other.isNPC) return;
                 if (!this.isSector9BBGEncounterNPC && other.isSector9BBGEncounterNPC) return;
                 if (worldRules?.usesRooms && other.roomId !== this.roomId) return;
@@ -1240,7 +1245,7 @@ export class Player {
 
         let fx = 0, fy = 0;
         const specterAvoidance = this.isExperimentalFleeingNPC
-            ? this.getSpecterShipAvoidance(others, worldRules) : null;
+            ? this.getSpecterShipAvoidance(others, worldRules, SPECTER_FLEE_RANGE, isTargetCandidate) : null;
         if (this.isExperimentalFleeingNPC) {
             const wallAvoidance = this.getSpecterWallAvoidance(worldRules);
             const hasThreat = specterAvoidance.threatCount > 0;
@@ -1349,7 +1354,12 @@ export class Player {
         setForce({ x: fx, y: fy });
     }
 
-    getSpecterShipAvoidance(others, worldRules = null, fleeRange = SPECTER_FLEE_RANGE) {
+    getSpecterShipAvoidance(
+        others,
+        worldRules = null,
+        fleeRange = SPECTER_FLEE_RANGE,
+        isTargetCandidate = null
+    ) {
         let x = 0;
         let y = 0;
         let threatCount = 0;
@@ -1357,6 +1367,7 @@ export class Player {
         let nearestDistance = Infinity;
         for (const other of others) {
             if (other === this || other.isDead || other.isEliminated) continue;
+            if (isTargetCandidate && !isTargetCandidate(other)) continue;
             if (worldRules?.usesRooms && other.roomId !== this.roomId) continue;
             const delta = worldRules?.usesRooms
                 ? { x: other.x - this.x, y: other.y - this.y }

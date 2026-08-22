@@ -2752,7 +2752,8 @@ export class Game {
         return {
             areaIds: Game.prototype.getExperimentalActiveAreaIds.call(this),
             entitiesByArea: new Map(),
-            entitiesByKind: new Map()
+            entitiesByKind: new Map(),
+            npcCandidatesByArea: new Map()
         };
     }
 
@@ -2779,6 +2780,23 @@ export class Game {
             context.entitiesByKind.set(kind, entities);
         }
         return context.entitiesByKind.get(kind);
+    }
+
+    getExperimentalNPCCandidates(context, areaId) {
+        if (!context.npcCandidatesByArea.has(areaId)) {
+            context.npcCandidatesByArea.set(areaId, Object.freeze({
+                players: Game.prototype.getExperimentalActivityAreaEntities.call(
+                    this, context, areaId, 'players'
+                ),
+                asteroids: Game.prototype.getExperimentalActivityAreaEntities.call(
+                    this, context, areaId, 'asteroids'
+                ),
+                hazards: Game.prototype.getExperimentalActivityAreaEntities.call(
+                    this, context, areaId, 'hazards'
+                )
+            }));
+        }
+        return context.npcCandidatesByArea.get(areaId);
     }
 
     startExperimentalMode(profile = null, options = {}) {
@@ -3633,27 +3651,22 @@ export class Game {
                         }
                     }
                 } else if (player.isNPC) {
-                    const localPlayers = worldRules.usesRooms
-                        ? Game.prototype.getExperimentalActivityAreaEntities.call(
-                            this, experimentalActivity, player.roomId, 'players'
-                        ) : this.players;
-                    const localTargets = worldRules.usesRooms
-                        ? localPlayers.filter(candidate => Game.prototype.isHostileTarget.call(this, player, candidate))
-                        : localPlayers;
-                    const localAsteroids = worldRules.usesRooms
-                        ? Game.prototype.getExperimentalActivityAreaEntities.call(
-                            this, experimentalActivity, player.roomId, 'asteroids'
-                        ) : this.asteroids;
-                    const localHazards = worldRules.usesRooms
-                        ? Game.prototype.getExperimentalActivityAreaEntities.call(
-                            this, experimentalActivity, player.roomId, 'hazards'
-                        ) : this.hazards;
+                    const npcCandidates = worldRules.usesRooms
+                        ? Game.prototype.getExperimentalNPCCandidates.call(
+                            this, experimentalActivity, player.roomId
+                        ) : null;
+                    const localPlayers = npcCandidates?.players || this.players;
+                    const localAsteroids = npcCandidates?.asteroids || this.asteroids;
+                    const localHazards = npcCandidates?.hazards || this.hazards;
                     player.update(dt, {
                         camera: this.camera,
-                        others: localTargets,
+                        others: localPlayers,
                         asteroids: localAsteroids,
                         transformationKills: this.transformationKills,
                         hazards: localHazards,
+                        isNPCTargetCandidate: worldRules.usesRooms
+                            ? candidate => Game.prototype.isHostileTarget.call(this, player, candidate)
+                            : null,
                         allowTransformations: this.areTransformationsEnabled(),
                         worldRules
                     });
