@@ -161,6 +161,34 @@ test('Experimental simulation collections materialize active areas only', () => 
     );
 });
 
+test('Experimental activity reuses area-level NPC candidate bundles without caching decisions', () => {
+    const game = createGame();
+    const roomId = 'experimental-room-1';
+    const human = Object.assign(new Player(100, 100, 1), { roomId });
+    const firstNPC = Object.assign(new Player(200, 100, 2), { roomId, isNPC: true });
+    const secondNPC = Object.assign(new Player(300, 100, 3), { roomId, isNPC: true });
+    const asteroid = Object.assign(new Asteroid(400, 100, 'large'), { roomId });
+    const hazard = Object.assign(new Satellite(500, 100), { roomId });
+    game.players.push(human, firstNPC, secondNPC);
+    game.asteroids.push(asteroid);
+    game.hazards.push(hazard);
+    for (const player of game.players) Game.prototype.indexExperimentalEntity.call(game, 'players', player);
+    Game.prototype.indexExperimentalEntity.call(game, 'asteroids', asteroid);
+    Game.prototype.indexExperimentalEntity.call(game, 'hazards', hazard);
+
+    const activity = Game.prototype.createExperimentalActivityContext.call(game);
+    const candidates = Game.prototype.getExperimentalNPCCandidates.call(game, activity, roomId);
+
+    assert.equal(Game.prototype.getExperimentalNPCCandidates.call(game, activity, roomId), candidates);
+    assert.deepEqual(candidates.players, [human, firstNPC, secondNPC]);
+    assert.deepEqual(candidates.asteroids, [asteroid]);
+    assert.deepEqual(candidates.hazards, [hazard]);
+    assert.equal(Object.hasOwn(candidates, 'npcTarget'), false, 'the activity cache must not own NPC decisions');
+
+    human.isDead = true;
+    assert.equal(candidates.players.includes(human), true, 'broad cached references leave life-state authority on entities');
+});
+
 test('Experimental collision pass ignores dormant-area projectiles and targets', () => {
     const game = createGame({
         hitTarget() { throw new Error('dormant target entered collision resolution'); }
@@ -182,4 +210,31 @@ test('Experimental collision pass ignores dormant-area projectiles and targets',
     });
     assert.deepEqual(game.projectiles, [dormantProjectile]);
     assert.equal(dormantAsteroid.isDestroyed, false);
+});
+
+test('Experimental wall candidates spatially narrow immutable geometry and retain door blockers', () => {
+    const game = createGame();
+    const room = game.experimentalRooms.find(area => area.roomNumber === 8);
+    const interiorWall = room.walls.find(wall => wall.id.includes('-interior-'));
+    const entity = Object.assign(new Asteroid(interiorWall.start.x, interiorWall.start.y, 'large'), {
+        roomId: room.id,
+        previousX: interiorWall.start.x - 50,
+        previousY: interiorWall.start.y - 50
+    });
+
+    const allEligibleWalls = Game.prototype.getExperimentalCollisionWalls.call(game, entity);
+    const candidates = Game.prototype.getExperimentalCollisionWallCandidates.call(game, entity);
+
+    assert.ok(candidates.includes(interiorWall));
+    assert.ok(candidates.length < allEligibleWalls.length / 2, 'Sector 8 should send only nearby static walls to narrow phase');
+    assert.deepEqual(
+        candidates.filter(wall => !wall.isDoorBlocker).map(wall => wall.id),
+        allEligibleWalls.filter(wall => candidates.includes(wall) && !wall.isDoorBlocker).map(wall => wall.id),
+        'spatial candidates retain authoritative wall-source ordering'
+    );
+    assert.deepEqual(
+        candidates.filter(wall => wall.isDoorBlocker).map(wall => wall.id),
+        game.experimentalDoors.filter(door => door.roomIds.includes(room.id)).map(door => door.blocker.id),
+        'conditional door blockers remain a separate eligible candidate set'
+    );
 });

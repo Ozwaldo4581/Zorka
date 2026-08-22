@@ -19,6 +19,49 @@ import { createExperimentalAreas } from '../world/experimental_rooms.js';
 const idleMouse = { x: 1200, y: 540, clicked: false, m2Held: false };
 const directWorld = { wrap: false, usesRooms: true };
 
+test('Experimental respawn tint canvases are cached by source, color, and sprite size', () => {
+    const player = new Player(0, 0, 1, '#ff0000');
+    player.startExperimentalRespawnPhase();
+    const image = {};
+    const compositingContexts = [];
+    const originalDocument = globalThis.document;
+    let canvasCount = 0;
+    globalThis.document = {
+        createElement(type) {
+            assert.equal(type, 'canvas');
+            canvasCount++;
+            const context = {
+                globalAlpha: 1,
+                globalCompositeOperation: 'source-over',
+                fillStyle: '',
+                drawImage() {},
+                fillRect() {}
+            };
+            compositingContexts.push(context);
+            return { width: 0, height: 0, getContext: () => context };
+        }
+    };
+    const drawContext = {
+        globalAlpha: 1,
+        save() {},
+        restore() {},
+        drawImage() {}
+    };
+
+    try {
+        player.drawSpriteWithTint(drawContext, image, 90);
+        player.drawSpriteWithTint(drawContext, image, 90);
+        assert.equal(canvasCount, 2, 'player-color and gray canvases should each be created once');
+        assert.deepEqual(compositingContexts.map(context => context.fillStyle), ['#ff0000', '#717171']);
+
+        player.drawSpriteWithTint(drawContext, image, 91);
+        player.drawSpriteWithTint(drawContext, {}, 90);
+        assert.equal(canvasCount, 6, 'new sprite sizes and sources should own distinct tint caches');
+    } finally {
+        globalThis.document = originalDocument;
+    }
+});
+
 test('Experimental materialization anchors movement, preserves aim, and sequences immunity', () => {
     const player = new Player(100, 200, 1);
     player.controlMode = 'KEYBOARD';

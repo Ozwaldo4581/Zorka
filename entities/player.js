@@ -567,6 +567,7 @@ export class Player {
         transformationKills = 20,
         hazards = [],
         isAimTargetValid = null,
+        isNPCTargetCandidate = null,
         allowTransformations = true,
         worldRules = null,
         touchIntent = null
@@ -637,7 +638,10 @@ export class Player {
         }
 
         if (this.isNPC) {
-            this.updateNPC(dt, others, asteroids, (f) => { fx = f.x; fy = f.y; }, hazards, worldRules);
+            this.updateNPC(
+                dt, others, asteroids, (f) => { fx = f.x; fy = f.y; }, hazards,
+                worldRules, isNPCTargetCandidate
+            );
         } else if (this.id === 1) {
             // Player 1: Controller OR Keyboard
             if (gp) {
@@ -1043,7 +1047,7 @@ export class Player {
         });
     }
 
-    updateNPC(dt, others, asteroids, setForce, hazards = [], worldRules = null) {
+    updateNPC(dt, others, asteroids, setForce, hazards = [], worldRules = null, isTargetCandidate = null) {
         const effectiveThrust = this.getEffectiveThrust();
         if (this.isDummy) {
             setForce({ x: 0, y: 0 });
@@ -1134,6 +1138,7 @@ export class Player {
             // Priority 1: Players
             others.forEach(other => {
                 if (other === this || other.isDead || other.isEliminated) return;
+                if (isTargetCandidate && !isTargetCandidate(other)) return;
                 if (this.isSector9BBGEncounterNPC && other.isNPC) return;
                 if (!this.isSector9BBGEncounterNPC && other.isSector9BBGEncounterNPC) return;
                 if (worldRules?.usesRooms && other.roomId !== this.roomId) return;
@@ -1240,7 +1245,7 @@ export class Player {
 
         let fx = 0, fy = 0;
         const specterAvoidance = this.isExperimentalFleeingNPC
-            ? this.getSpecterShipAvoidance(others, worldRules) : null;
+            ? this.getSpecterShipAvoidance(others, worldRules, SPECTER_FLEE_RANGE, isTargetCandidate) : null;
         if (this.isExperimentalFleeingNPC) {
             const wallAvoidance = this.getSpecterWallAvoidance(worldRules);
             const hasThreat = specterAvoidance.threatCount > 0;
@@ -1349,7 +1354,12 @@ export class Player {
         setForce({ x: fx, y: fy });
     }
 
-    getSpecterShipAvoidance(others, worldRules = null, fleeRange = SPECTER_FLEE_RANGE) {
+    getSpecterShipAvoidance(
+        others,
+        worldRules = null,
+        fleeRange = SPECTER_FLEE_RANGE,
+        isTargetCandidate = null
+    ) {
         let x = 0;
         let y = 0;
         let threatCount = 0;
@@ -1357,6 +1367,7 @@ export class Player {
         let nearestDistance = Infinity;
         for (const other of others) {
             if (other === this || other.isDead || other.isEliminated) continue;
+            if (isTargetCandidate && !isTargetCandidate(other)) continue;
             if (worldRules?.usesRooms && other.roomId !== this.roomId) continue;
             const delta = worldRules?.usesRooms
                 ? { x: other.x - this.x, y: other.y - this.y }
@@ -1821,30 +1832,30 @@ export class Player {
         // source image's highlights, shadows, glow, and transparency.
         if (usesBaseShip) {
             const spriteSize = Math.max(1, Math.ceil(size));
-            const cacheKey = `${this.color}:${spriteSize}`;
-
             if (!this._whiteTintCache) {
                 this._whiteTintCache = new Map();
             }
 
-            let tintedCanvas = this._whiteTintCache.get(cacheKey);
+            let sourceTintCache = this._whiteTintCache.get(img);
 
-            if (!tintedCanvas) {
-                tintedCanvas = document.createElement('canvas');
-                tintedCanvas.width = spriteSize;
-                tintedCanvas.height = spriteSize;
+            if (!sourceTintCache) {
+                sourceTintCache = new Map();
+                this._whiteTintCache.set(img, sourceTintCache);
+            }
 
-                const tintCtx = tintedCanvas.getContext('2d');
+            const getTintedCanvas = color => {
+                const cacheKey = `${color}:${spriteSize}`;
+                let canvas = sourceTintCache.get(cacheKey);
+                if (canvas) return canvas;
+
+                canvas = document.createElement('canvas');
+                canvas.width = spriteSize;
+                canvas.height = spriteSize;
+
+                const tintCtx = canvas.getContext('2d');
 
                 if (!tintCtx) {
-                    ctx.drawImage(
-                        img,
-                        -size / 2,
-                        -size / 2,
-                        size,
-                        size
-                    );
-                    return;
+                    return null;
                 }
 
                 // Draw the white/grayscale source.
@@ -1859,7 +1870,7 @@ export class Player {
                 // Color the visible pixels while retaining light and dark values.
                 tintCtx.globalCompositeOperation = 'multiply';
                 tintCtx.globalAlpha = 0.6;
-                tintCtx.fillStyle = this.color;
+                tintCtx.fillStyle = color;
                 tintCtx.fillRect(
                     0,
                     0,
@@ -1882,49 +1893,21 @@ export class Player {
 
                 tintCtx.globalCompositeOperation = 'source-over';
 
-                this._whiteTintCache.set(cacheKey, tintedCanvas);
+                sourceTintCache.set(cacheKey, canvas);
+                return canvas;
+            };
+
+            const tintedCanvas = getTintedCanvas(this.color);
+            if (!tintedCanvas) {
+                ctx.drawImage(img, -size / 2, -size / 2, size, size);
+                return;
             }
 
             const tintProgress = this.getExperimentalRespawnTintProgress();
 
             if (tintProgress < 1) {
-                const respawnTintCanvas = document.createElement('canvas');
-                respawnTintCanvas.width = spriteSize;
-                respawnTintCanvas.height = spriteSize;
-
-                const respawnTintCtx = respawnTintCanvas.getContext('2d');
-
-                if (respawnTintCtx) {
-                    respawnTintCtx.drawImage(
-                        img,
-                        0,
-                        0,
-                        spriteSize,
-                        spriteSize
-                    );
-
-                    respawnTintCtx.globalCompositeOperation = 'multiply';
-                    respawnTintCtx.globalAlpha = 0.6;
-                    respawnTintCtx.fillStyle = '#717171';
-                    respawnTintCtx.fillRect(
-                        0,
-                        0,
-                        spriteSize,
-                        spriteSize
-                    );
-
-                    respawnTintCtx.globalAlpha = 1;
-                    respawnTintCtx.globalCompositeOperation = 'destination-in';
-                    respawnTintCtx.drawImage(
-                        img,
-                        0,
-                        0,
-                        spriteSize,
-                        spriteSize
-                    );
-
-                    respawnTintCtx.globalCompositeOperation = 'source-over';
-
+                const respawnTintCanvas = getTintedCanvas('#717171');
+                if (respawnTintCanvas) {
                     ctx.save();
                     ctx.globalAlpha *= 1 - tintProgress;
                     ctx.drawImage(
