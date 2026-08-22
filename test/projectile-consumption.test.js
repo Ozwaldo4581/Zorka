@@ -63,6 +63,28 @@ function collisionGame(projectiles, gameState = GAME_MODE.SOLO) {
     return { game, explosions };
 }
 
+test('projectile candidate iteration reuses a supplied pass-scoped spatial index', () => {
+    const shots = [
+        projectile(CATEGORY.LASER, { id: 1 }, 100),
+        projectile(CATEGORY.ORB, { id: 2 }, 110),
+        projectile(CATEGORY.MISSILE, { id: 3 }, 5000)
+    ];
+    const game = collisionGame(shots).game;
+    const index = Game.prototype.createProjectileCollisionSpatialHash.call(game, shots);
+    const pairs = [];
+
+    const candidateCount = Game.prototype.forEachProjectileCollisionCandidate.call(
+        game,
+        shots,
+        (_first, _second, firstIndex, secondIndex) => pairs.push([firstIndex, secondIndex]),
+        index
+    );
+
+    assert.equal(candidateCount, 1);
+    assert.deepEqual(pairs, [[0, 1]]);
+    assert.equal(index.entities, shots, 'the caller-owned pass index remains the queried structure');
+});
+
 test('projectile removal is immediate while canonical compaction is deferred and stable', () => {
     const first = projectile(CATEGORY.ORDINARY_GUN, { id: 1 });
     const removed = projectile(CATEGORY.ORDINARY_GUN, { id: 2 });
