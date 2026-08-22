@@ -183,3 +183,30 @@ test('Experimental collision pass ignores dormant-area projectiles and targets',
     assert.deepEqual(game.projectiles, [dormantProjectile]);
     assert.equal(dormantAsteroid.isDestroyed, false);
 });
+
+test('Experimental wall candidates spatially narrow immutable geometry and retain door blockers', () => {
+    const game = createGame();
+    const room = game.experimentalRooms.find(area => area.roomNumber === 8);
+    const interiorWall = room.walls.find(wall => wall.id.includes('-interior-'));
+    const entity = Object.assign(new Asteroid(interiorWall.start.x, interiorWall.start.y, 'large'), {
+        roomId: room.id,
+        previousX: interiorWall.start.x - 50,
+        previousY: interiorWall.start.y - 50
+    });
+
+    const allEligibleWalls = Game.prototype.getExperimentalCollisionWalls.call(game, entity);
+    const candidates = Game.prototype.getExperimentalCollisionWallCandidates.call(game, entity);
+
+    assert.ok(candidates.includes(interiorWall));
+    assert.ok(candidates.length < allEligibleWalls.length / 2, 'Sector 8 should send only nearby static walls to narrow phase');
+    assert.deepEqual(
+        candidates.filter(wall => !wall.isDoorBlocker).map(wall => wall.id),
+        allEligibleWalls.filter(wall => candidates.includes(wall) && !wall.isDoorBlocker).map(wall => wall.id),
+        'spatial candidates retain authoritative wall-source ordering'
+    );
+    assert.deepEqual(
+        candidates.filter(wall => wall.isDoorBlocker).map(wall => wall.id),
+        game.experimentalDoors.filter(door => door.roomIds.includes(room.id)).map(door => door.blocker.id),
+        'conditional door blockers remain a separate eligible candidate set'
+    );
+});

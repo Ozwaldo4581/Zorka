@@ -19,6 +19,7 @@ import {
 import {
     createExperimentalAreas,
     createExperimentalDoors,
+    createExperimentalWallSpatialIndexes,
     EXPERIMENTAL_COLLISION_CATEGORY,
     EXPERIMENTAL_SHORTCUT_ID,
     SECTOR_9_BBG_ENCOUNTER,
@@ -1949,6 +1950,7 @@ export class Game {
         this.experimentalSessionId = (this.experimentalSessionId || 0) + 1;
         this.experimentalRoomAssignments = new Map();
         this.experimentalAreaIndexes = new Map();
+        this.experimentalWallSpatialIndexes = new Map();
         this.experimentalCameraState = null;
         this.experimentalSectorMessage = null;
         this.experimentalObjectiveMessage = null;
@@ -2093,6 +2095,7 @@ export class Game {
         this.experimentalAreaIndexes = new Map((this.experimentalRooms || []).map(area => [area.id, {
             players: new Set(), asteroids: new Set(), hazards: new Set(), projectiles: new Set(), vfx: new Set()
         }]));
+        this.experimentalWallSpatialIndexes = createExperimentalWallSpatialIndexes(this.experimentalRooms);
     }
 
     indexExperimentalEntity(kind, entity) {
@@ -3863,6 +3866,53 @@ export class Game {
         return walls;
     }
 
+    getExperimentalCollisionWallCandidates(entity) {
+        const category = Game.prototype.getExperimentalCollisionCategory.call(this, entity);
+        const room = Game.prototype.getExperimentalRoom.call(this, entity?.roomId) || this.experimentalRooms[0];
+        if (!room) return [];
+        if (!this.experimentalWallSpatialIndexes?.size) {
+            this.experimentalWallSpatialIndexes = createExperimentalWallSpatialIndexes(this.experimentalRooms);
+        }
+        const connectedDoors = (this.experimentalDoors || []).filter(door => door.roomIds.includes(room.id));
+        const adjacentDoors = category === EXPERIMENTAL_COLLISION_CATEGORY.HUMAN_PLAYER
+            ? connectedDoors.filter(door => Game.prototype.isExperimentalDoorAdjacent.call(this, entity, door)) : [];
+        const roomIds = new Set([room.id]);
+        adjacentDoors.forEach(door => door.roomIds.forEach(roomId => roomIds.add(roomId)));
+        const previousX = Number.isFinite(entity.previousX) ? entity.previousX : entity.x;
+        const previousY = Number.isFinite(entity.previousY) ? entity.previousY : entity.y;
+        const expansion = Math.max(0, entity.radius || 0) + (room.collisionEpsilon || 0);
+        const queryBounds = {
+            left: Math.min(previousX, entity.x) - expansion,
+            top: Math.min(previousY, entity.y) - expansion,
+            right: Math.max(previousX, entity.x) + expansion,
+            bottom: Math.max(previousY, entity.y) + expansion
+        };
+        const walls = [];
+        const seenWallIds = new Set();
+        const appendWall = wall => {
+            if (!wall || seenWallIds.has(wall.id)) return;
+            seenWallIds.add(wall.id);
+            walls.push(wall);
+        };
+        for (const roomId of roomIds) {
+            const index = this.experimentalWallSpatialIndexes.get(roomId);
+            for (const wall of index?.queryBounds(queryBounds) || []) appendWall(wall);
+            for (const door of connectedDoors) {
+                const owner = this.experimentalRooms.find(candidate => candidate.walls.some(wall => door.sharedWallIds.includes(wall.id)));
+                if (!owner) continue;
+                const sharedCandidates = this.experimentalWallSpatialIndexes.get(owner.id)?.queryBounds(queryBounds) || [];
+                sharedCandidates.filter(wall => door.sharedWallIds.includes(wall.id)).forEach(appendWall);
+            }
+        }
+        for (const door of connectedDoors) {
+            if (door.blockedCategories.includes(category)
+                || (category === EXPERIMENTAL_COLLISION_CATEGORY.HUMAN_PLAYER
+                    && (Game.prototype.isExperimentalProgressionDoorLocked.call(this, door)
+                        || Game.prototype.isExperimentalShortcutDoorLocked.call(this, door)))) appendWall(door.blocker);
+        }
+        return walls;
+    }
+
     isExperimentalDoorAdjacent(entity, door = this.experimentalDoors?.[0], otherRadius = 0) {
         if (!entity || !door) return false;
         const radius = Math.max(0, entity.radius || 0);
@@ -3927,7 +3977,7 @@ export class Game {
     resolveExperimentalSlide(entity) {
         const room = Game.prototype.getExperimentalRoom.call(this, entity.roomId) || this.experimentalRooms[0];
         if (!room) return false;
-        const walls = Game.prototype.getExperimentalCollisionWalls.call(this, entity);
+        const walls = Game.prototype.getExperimentalCollisionWallCandidates.call(this, entity);
         let collided = false;
         const swept = Game.prototype.findExperimentalSweptWallHit.call(this, entity, walls, room.wallCollisionThickness);
         if (swept) {
@@ -3960,7 +4010,7 @@ export class Game {
         const hazards = simulationEntities?.hazards || this.hazards;
         for (const asteroid of asteroids) {
             const room = Game.prototype.getExperimentalRoom.call(this, asteroid.roomId) || fallbackRoom;
-            const walls = Game.prototype.getExperimentalCollisionWalls.call(this, asteroid);
+            const walls = Game.prototype.getExperimentalCollisionWallCandidates.call(this, asteroid);
             const swept = Game.prototype.findExperimentalSweptWallHit.call(this, asteroid, walls, room.wallCollisionThickness);
             if (swept) {
                 if (asteroid.size === 'small') {
@@ -3991,7 +4041,7 @@ export class Game {
         }
         for (const hazard of hazards) {
             const room = Game.prototype.getExperimentalRoom.call(this, hazard.roomId) || fallbackRoom;
-            const walls = Game.prototype.getExperimentalCollisionWalls.call(this, hazard);
+            const walls = Game.prototype.getExperimentalCollisionWallCandidates.call(this, hazard);
             const swept = Game.prototype.findExperimentalSweptWallHit.call(this, hazard, walls, room.wallCollisionThickness);
             if (swept) {
                 hazard.x = swept.hit.x;
@@ -4014,7 +4064,7 @@ export class Game {
         const from = { x: projectile.previousX ?? projectile.x, y: projectile.previousY ?? projectile.y };
         const to = { x: projectile.x, y: projectile.y };
         let firstHit = null;
-        for (const wall of Game.prototype.getExperimentalCollisionWalls.call(this, projectile)) {
+        for (const wall of Game.prototype.getExperimentalCollisionWallCandidates.call(this, projectile)) {
             const hit = sweptCircleSegmentIntersection(from, to, projectile.radius || 0, wall, room.wallCollisionThickness);
             if (hit && (!firstHit || hit.t < firstHit.t)) firstHit = hit;
         }
